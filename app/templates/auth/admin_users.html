@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}Benutzerverwaltung – Admin{% endblock %}
+{% block content %}
+<h4 class="mb-4"><i class="bi bi-shield-lock me-2"></i>Benutzerverwaltung</h4>
+
+<div class="table-responsive">
+<table class="table table-bordered table-hover align-middle">
+  <thead>
+    <tr>
+      <th>ID</th><th>Benutzername</th><th>E-Mail</th>
+      <th>Status</th><th>Admin</th><th>Registriert</th><th>Letzter Login</th><th>Aktionen</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for u in users %}
+    <tr>
+      <td>{{ u.id }}</td>
+      <td>{{ u.username }}</td>
+      <td>{{ u.email }}</td>
+      <td>
+        {% if u.is_approved %}
+          <span class="badge bg-success">Aktiv</span>
+        {% else %}
+          <span class="badge bg-warning text-dark">Ausstehend</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if u.is_admin %}
+          <span class="badge bg-danger">Admin</span>
+        {% else %}
+          <span class="text-muted">–</span>
+        {% endif %}
+      </td>
+      <td class="small text-muted">{{ u.created_at.strftime('%d.%m.%Y %H:%M') if u.created_at else '–' }}</td>
+      <td class="small text-muted">{{ u.last_login.strftime('%d.%m.%Y %H:%M') if u.last_login else '–' }}</td>
+      <td>
+        <div class="btn-group btn-group-sm" role="group">
+          {% if not u.is_approved %}
+          <form method="post" action="{{ url_for('auth.approve_user', user_id=u.id) }}" class="d-inline">
+            {{ csrf_field() }}
+            <button class="btn btn-success" title="Freischalten">
+              <i class="bi bi-check-lg"></i>
+            </button>
+          </form>
+          {% else %}
+          <form method="post" action="{{ url_for('auth.revoke_user', user_id=u.id) }}" class="d-inline">
+            {{ csrf_field() }}
+            <button class="btn btn-warning" title="Sperren"><i class="bi bi-slash-circle"></i></button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('auth.toggle_admin', user_id=u.id) }}" class="d-inline">
+            {{ csrf_field() }}
+            <button class="btn btn-outline-secondary" title="Admin umschalten"><i class="bi bi-shield"></i></button>
+          </form>
+          <form method="post" action="{{ url_for('auth.delete_user', user_id=u.id) }}" class="d-inline"
+                onsubmit="return confirm('Benutzer wirklich löschen?')">
+            {{ csrf_field() }}
+            <button class="btn btn-danger" title="Löschen"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="text-center text-muted">Keine Benutzer vorhanden.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

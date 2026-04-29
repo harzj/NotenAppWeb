@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}
+  {{ 'Halbjahr 1' if hj == 'hj1' else ('Halbjahr 2' if hj == 'hj2' else 'Jahresübersicht') }}
+{% endblock %}
+{% block content %}
+{% set hj_label = 'Halbjahr 1' if hj == 'hj1' else ('Halbjahr 2' if hj == 'hj2' else 'Jahresübersicht') %}
+
+<h4 class="mb-4"><i class="bi bi-table me-2"></i>{{ hj_label }}</h4>
+
+{% if not lns %}
+<div class="alert alert-info">Noch keine Leistungsnachweise vorhanden.</div>
+{% else %}
+<div class="table-responsive">
+<table class="table table-bordered table-hover align-middle">
+  <thead>
+    <tr>
+      <th>Schüler</th>
+      {% for ln in lns %}
+      <th class="text-center">
+        <a href="{{ url_for('grades.ln_detail', ln_idx=loop.index0) }}"
+           class="text-white text-decoration-none">{{ ln.name }}</a>
+      </th>
+      {% endfor %}
+      <th class="text-center">Ø</th>
+      <th class="text-center">Zeugnisnote</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in students %}
+    {% set full_name = s.nachname + ', ' + s.vorname %}
+    <tr>
+      <td>{{ full_name }}</td>
+      {% set notes = [] %}
+      {% for ln in lns %}
+        {% set note = none %}
+        {% for sc in ln.schueler %}
+          {% if sc.name == full_name %}
+            {% set note = sc.note_15 %}
+          {% endif %}
+        {% endfor %}
+        {% if notes.append(note) %}{% endif %}
+        <td class="text-center">
+          {% if note is not none %}
+            <span class="fw-bold">{{ note }}</span>
+            <span class="text-muted small">({{ note15_to6[note] }})</span>
+          {% else %}
+            <span class="text-muted">–</span>
+          {% endif %}
+        </td>
+      {% endfor %}
+      {% set valid_notes = notes | select('number') | list %}
+      <td class="text-center fw-bold">
+        {% if valid_notes %}
+          {{ (valid_notes | sum / valid_notes | length) | round(1) }}
+        {% else %}–{% endif %}
+      </td>
+      <td class="text-center">
+        {% if valid_notes %}
+          {% set avg = (valid_notes | sum / valid_notes | length) | round(0) | int %}
+          {% set zn = note15_to6.get(avg, 6) %}
+          <span class="badge
+            {{ 'bg-success' if zn <= 2 else ('bg-warning text-dark' if zn <= 3 else 'bg-danger') }}
+            fs-6">{{ zn }}</span>
+        {% else %}–{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="{{ lns | length + 3 }}" class="text-center text-muted">Keine aktiven Schüler.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- Notenverteilung über alle LN -->
+<div class="row mt-4">
+  <div class="col-md-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6>Notenverteilung aller Leistungsnachweise</h6>
+        <canvas id="chartUebersicht" style="max-height:250px"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+{% if lns %}
+<script>
+// Build note distribution per LN
+const lnNames = {{ lns | map(attribute='name') | list | tojson }};
+const lnData  = [
+{% for ln in lns %}
+  (() => {
+    const dist = {};
+    for (let i = 0; i <= 15; i++) dist[i] = 0;
+    {% for s in ln.schueler %}
+      {% if s.note_15 is not none %}dist[{{ s.note_15 }}]++;{% endif %}
+    {% endfor %}
+    return Object.values(dist);
+  })(),
+{% endfor %}
+];
+
+const colors = ['#1f4e79','#2e75b6','#5ba3d9','#a9cce3','#d6e8f5','#f0f7fc'].concat(
+  lnNames.map((_,i) => `hsl(${200 + i*25},60%,55%)`)
+);
+
+new Chart(document.getElementById('chartUebersicht'), {
+  type: 'bar',
+  data: {
+    labels: Array.from({length:16}, (_,i) => i),
+    datasets: lnNames.map((name, i) => ({
+      label: name,
+      data: lnData[i],
+      backgroundColor: colors[i % colors.length],
+      borderRadius: 3,
+    }))
+  },
+  options: {
+    plugins: { legend: { position: 'bottom' } },
+    scales: { x: { title: { display: true, text: 'Note (0-15)' } },
+              y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

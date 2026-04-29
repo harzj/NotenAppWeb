@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: Arial, sans-serif; font-size: 10pt; margin: 1.5cm; }
+  h1 { font-size: 14pt; color: #1f4e79; margin-bottom: 4px; }
+  .meta { color: #555; font-size: 9pt; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th { background: #1f4e79; color: #fff; padding: 5px 7px; text-align: center; font-size: 9pt; }
+  td { padding: 4px 7px; border: 1px solid #ccc; font-size: 9pt; }
+  tr:nth-child(even) td { background: #f2f2f2; }
+  td:first-child { text-align: left; }
+  td.num { text-align: center; }
+  .note-good { color: #155724; font-weight: bold; }
+  .note-mid  { color: #856404; font-weight: bold; }
+  .note-bad  { color: #721c24; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Notenübersicht – Klassenliste</h1>
+<div class="meta">Erstellt am {{ today }}</div>
+
+{% if not students %}
+<p>Keine aktiven Schüler vorhanden.</p>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th style="text-align:left">Schüler</th>
+      {% for ln in lns %}
+      <th>{{ ln.name }}</th>
+      {% endfor %}
+      <th>Ø</th>
+      <th>Zeugnisnote</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in students %}
+    {% set full_name = s.nachname + ', ' + s.vorname %}
+    {% set notes = [] %}
+    {% for ln in lns %}
+      {% set note = none %}
+      {% for sc in ln.schueler %}
+        {% if sc.name == full_name %}{% set note = sc.note_15 %}{% endif %}
+      {% endfor %}
+      {% if notes.append(note) %}{% endif %}
+    {% endfor %}
+    {% set valid_notes = notes | select('number') | list %}
+    <tr>
+      <td class="num">{{ loop.index }}</td>
+      <td>{{ full_name }}</td>
+      {% for note in notes %}
+      <td class="num">
+        {% if note is not none %}{{ note }}{% else %}–{% endif %}
+      </td>
+      {% endfor %}
+      <td class="num">
+        {% if valid_notes %}{{ (valid_notes | sum / valid_notes | length) | round(1) }}{% else %}–{% endif %}
+      </td>
+      <td class="num">
+        {% if valid_notes %}
+          {% set avg = (valid_notes | sum / valid_notes | length) | round(0) | int %}
+          {% set zn = note15_to6.get(avg, 6) %}
+          <span class="{{ 'note-good' if zn <= 2 else ('note-mid' if zn <= 3 else 'note-bad') }}">
+            {{ zn }}
+          </span>
+        {% else %}–{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+</body>
+</html>

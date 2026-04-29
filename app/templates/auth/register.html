@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Registrieren – Notenprogramm{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+  <div class="col-md-6 col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h4 class="card-title mb-4 text-center">Neues Konto registrieren</h4>
+        <form method="post" novalidate>
+          {{ form.hidden_tag() }}
+          {% for field in [form.username, form.email, form.password, form.password2] %}
+          <div class="mb-3">
+            {{ field.label(class="form-label") }}
+            {{ field(class="form-control" + (" is-invalid" if field.errors else "")) }}
+            {% for e in field.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          {% endfor %}
+          {{ form.submit(class="btn btn-primary w-100") }}
+        </form>
+      </div>
+      <div class="card-footer text-center text-muted small">
+        Bereits registriert? <a href="{{ url_for('auth.login') }}">Anmelden</a>
+      </div>
+    </div>
+    <div class="alert alert-info mt-3 small">
+      <i class="bi bi-info-circle me-1"></i>
+      Nach der Registrierung muss dein Konto von einem Administrator freigeschaltet werden.
+    </div>
+  </div>
+</div>
+{% endblock %}

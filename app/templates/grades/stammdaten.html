@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}Stammdaten{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0"><i class="bi bi-people me-2"></i>Schüler-Stammdaten</h4>
+  <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="bi bi-person-plus me-1"></i>Schüler hinzufügen
+  </button>
+</div>
+
+<div class="table-responsive">
+<table class="table table-bordered table-hover align-middle">
+  <thead>
+    <tr>
+      <th>#</th><th>Nachname</th><th>Vorname</th>
+      <th>Status</th><th>Austrittsdate</th><th>Aktionen</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for i, s in students | enumerate %}
+    <tr class="{{ 'table-secondary' if s.status == 'Ausgeschieden' else '' }}">
+      <td class="text-muted small">{{ i + 1 }}</td>
+      <td>{{ s.nachname }}</td>
+      <td>{{ s.vorname }}</td>
+      <td>
+        {% if s.status == 'Aktiv' %}
+          <span class="badge bg-success">Aktiv</span>
+        {% else %}
+          <span class="badge bg-secondary">Ausgeschieden</span>
+        {% endif %}
+      </td>
+      <td class="small text-muted">{{ s.austritt or '–' }}</td>
+      <td>
+        {% if s.status == 'Aktiv' %}
+        <button class="btn btn-sm btn-warning" data-bs-toggle="modal"
+                data-bs-target="#austrittModal" data-idx="{{ i }}">
+          <i class="bi bi-person-dash"></i>
+        </button>
+        {% else %}
+        <form method="post" action="{{ url_for('grades.student_reaktivieren', idx=i) }}" class="d-inline">
+          {{ csrf_field() }}
+          <button class="btn btn-sm btn-outline-success" title="Reaktivieren">
+            <i class="bi bi-person-check"></i>
+          </button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('grades.student_loeschen', idx=i) }}" class="d-inline"
+              onsubmit="return confirm('Schüler wirklich löschen?')">
+          {{ csrf_field() }}
+          <button class="btn btn-sm btn-danger" title="Löschen"><i class="bi bi-trash"></i></button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="text-center text-muted">Noch keine Schüler eingetragen.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- Add Student Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Schüler hinzufügen</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" novalidate>
+        {{ add_form.hidden_tag() }}
+        <input type="hidden" name="add_student" value="1">
+        <div class="modal-body">
+          {% for field in [add_form.nachname, add_form.vorname] %}
+          <div class="mb-3">
+            {{ field.label(class="form-label") }}
+            {{ field(class="form-control" + (" is-invalid" if field.errors else "")) }}
+            {% for e in field.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          {% endfor %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          {{ add_form.submit(class="btn btn-success") }}
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Austritt Modal -->
+<div class="modal fade" id="austrittModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Schüler ausscheiden</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('grades.student_austritt') }}" novalidate>
+        {{ csrf_field() }}
+        <div class="modal-body">
+          <input type="hidden" name="student_index" id="austrittIdx">
+          <div class="mb-3">
+            <label class="form-label">Austrittsdatum (TT.MM.JJJJ)</label>
+            <input type="text" name="austritt_datum" class="form-control"
+                   placeholder="z.B. 31.01.2026">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-warning">Ausscheiden bestätigen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.getElementById('austrittModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  document.getElementById('austrittIdx').value = btn.getAttribute('data-idx');
+});
+</script>
+{% endblock %}

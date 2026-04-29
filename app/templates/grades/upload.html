@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Datei laden{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h4 class="card-title mb-3"><i class="bi bi-upload me-2"></i>Excel-Datei laden</h4>
+        <p class="text-muted small mb-4">
+          Lade deine Excel-Notendatei (.xlsx) direkt aus deinem OneDrive / lokalen Ordner hoch.
+          Die Datei wird nur im Arbeitsspeicher verarbeitet und nicht dauerhaft gespeichert.
+        </p>
+        <form method="post" enctype="multipart/form-data" novalidate>
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            {{ form.file.label(class="form-label") }}
+            {{ form.file(class="form-control" + (" is-invalid" if form.file.errors else ""), accept=".xlsx") }}
+            {% for e in form.file.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mb-4">
+            {{ form.password.label(class="form-label") }}
+            {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else ""),
+                             autocomplete="off", placeholder="Leer lassen falls ungeschützt") }}
+            {% for e in form.password.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          {{ form.submit(class="btn btn-primary") }}
+          <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
+        </form>
+      </div>
+    </div>
+    <div class="alert alert-warning mt-3 small">
+      <i class="bi bi-shield-lock me-1"></i>
+      Das Passwort wird nur für die einmalige Entschlüsselung verwendet und nicht gespeichert.
+    </div>
+  </div>
+</div>
+{% endblock %}

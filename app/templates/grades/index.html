@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}Startseite – Notenprogramm{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h4 class="mb-0">
+    <i class="bi bi-house me-2"></i>Startseite
+    {% if data and data.klasse %}
+      <span class="badge bg-primary ms-2 fs-6">Klasse {{ data.klasse }}</span>
+    {% endif %}
+  </h4>
+  {% if has_data %}
+  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#klasseModal">
+    <i class="bi bi-pencil me-1"></i>Klasse {{ 'ändern' if data.klasse else 'festlegen' }}
+  </button>
+  {% endif %}
+</div>
+
+{% if not has_data %}
+<div class="row g-3">
+  <div class="col-md-5">
+    <div class="card border-primary h-100">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-upload text-primary me-2"></i>Datei laden</h5>
+        <p class="card-text text-muted">Lade eine bestehende Excel-Notendatei aus deiner Cloud hoch.</p>
+        <a href="{{ url_for('grades.upload') }}" class="btn btn-primary">Datei hochladen</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-5">
+    <div class="card border-success h-100">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-file-earmark-plus text-success me-2"></i>Neue Datei</h5>
+        <p class="card-text text-muted">Erstelle eine neue leere Notendatei für eine neue Klasse/Kurs.</p>
+        <a href="{{ url_for('grades.new_file') }}" class="btn btn-success">Neue Datei erstellen</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body">
+        <div class="display-6 fw-bold text-primary">{{ data.stammdaten | selectattr('status','equalto','Aktiv') | list | length }}</div>
+        <div class="text-muted small">Aktive Schüler</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body">
+        <div class="display-6 fw-bold text-success">{{ data.leistungsnachweise | length }}</div>
+        <div class="text-muted small">Leistungsnachweise</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body">
+        <div class="display-6 fw-bold text-warning">
+          {{ data.stammdaten | selectattr('status','equalto','Ausgeschieden') | list | length }}
+        </div>
+        <div class="text-muted small">Ausgeschieden</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h6 class="text-muted mb-2">Leistungsnachweise</h6>
+{% if data.leistungsnachweise %}
+<div class="row g-2">
+  {% for ln in data.leistungsnachweise %}
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <h6 class="mb-1">{{ ln.name }}</h6>
+          <span class="badge bg-secondary">{{ ln.aufgaben | length }} Aufgaben</span>
+        </div>
+        <div class="text-muted small">{{ ln.schueler | length }} Schüler</div>
+        <a href="{{ url_for('grades.ln_detail', ln_idx=loop.index0) }}"
+           class="btn btn-sm btn-outline-primary mt-2">Öffnen</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-muted">Noch keine Leistungsnachweise vorhanden.
+  <a href="{{ url_for('grades.ln_list') }}">Jetzt anlegen</a>
+</p>
+{% endif %}
+{% endif %}
+
+{% if has_data %}
+<!-- Klasse Modal -->
+<div class="modal fade" id="klasseModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Klassenbezeichnung</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('grades.set_klasse') }}">
+        {{ csrf_field() }}
+        <div class="modal-body">
+          <input type="text" name="klasse" class="form-control"
+                 value="{{ data.klasse or '' }}"
+                 placeholder="z.B. 7p, Q1, 10a …" maxlength="20">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

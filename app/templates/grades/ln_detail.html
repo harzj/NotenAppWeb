@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}{{ ln.name }} – Leistungsnachweis{% endblock %}
+{% block extra_head %}
+<style>
+  .points-input { width: 3.5rem; text-align: center; padding: 2px 2px;
+                   -moz-appearance: textfield; }
+  .points-input::-webkit-outer-spin-button,
+  .points-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .points-cell .input-group { width: 90px; flex-wrap: nowrap; }
+  .half-step-btn { padding: 0 5px; font-size: .85rem; line-height: 1.6; }
+  .note-cell { font-weight: 700; }
+  .note-6-badge { display: inline-block; min-width: 1.8rem; text-align: center; }
+  .afb-select { width: 70px; padding: 2px 4px; font-size: .85rem; }
+  .max-input { width: 60px; text-align: center; padding: 2px 4px; }
+  .task-label-input { width: 90px; padding: 2px 4px; font-size: .85rem; }
+  .sticky-col { position: sticky; left: 0; background: #fff; z-index: 1; }
+  .table-wrapper { overflow-x: auto; }
+  #afbSummary canvas { max-height: 200px; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <a href="{{ url_for('grades.ln_list') }}" class="btn btn-sm btn-outline-secondary me-2">
+      <i class="bi bi-arrow-left"></i>
+    </a>
+    <h4 class="d-inline-block mb-0">{{ ln.name }}</h4>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-success" id="btnSaveAll">
+      <i class="bi bi-save me-1"></i>Speichern
+    </button>
+    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse"
+            data-bs-target="#taskEditor">
+      <i class="bi bi-gear me-1"></i>Aufgaben bearbeiten
+    </button>
+    <button class="btn btn-sm btn-outline-info" data-bs-toggle="collapse"
+            data-bs-target="#statistikPanel">
+      <i class="bi bi-bar-chart me-1"></i>Statistik
+    </button>
+  </div>
+</div>
+
+<!-- ── Aufgaben-Editor ─────────────────────────────────────────────────── -->
+<div class="collapse mb-4" id="taskEditor">
+  <div class="card card-body">
+    <h6 class="mb-3">Aufgaben und Anforderungsbereiche konfigurieren</h6>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle" id="taskTable">
+        <thead>
+          <tr>
+            <th>Bezeichnung</th>
+            <th>AFB</th>
+            <th>Max. Punkte</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="taskBody">
+          {% for t in ln.aufgaben %}
+          <tr data-tidx="{{ loop.index0 }}">
+            <td><input type="text" class="form-control form-control-sm task-label-input task-label"
+                       value="{{ t.label }}" placeholder="z.B. 1a"></td>
+            <td>
+              <select class="form-select form-select-sm afb-select task-afb">
+                {% for v in afb_values %}
+                  <option value="{{ v }}" {{ 'selected' if t.afb == v }}>{{ v or '–' }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input type="number" class="form-control form-control-sm max-input task-max"
+                       value="{{ t.max_punkte | int }}" min="0" step="0.5"></td>
+            <td>
+              <button class="btn btn-sm btn-outline-danger btn-remove-task" type="button">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="d-flex gap-2 mt-2">
+      <button class="btn btn-sm btn-outline-secondary" id="btnAddTask">
+        <i class="bi bi-plus-lg me-1"></i>Aufgabe hinzufügen
+      </button>
+      <button class="btn btn-sm btn-primary" id="btnSaveTasks">
+        <i class="bi bi-check-lg me-1"></i>Aufgaben übernehmen
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Notentabelle ────────────────────────────────────────────────────── -->
+<div class="table-wrapper mb-4">
+  <table class="table table-bordered table-sm align-middle" id="gradeTable">
+    <thead>
+      <tr>
+        <th class="sticky-col">Schüler</th>
+        {% for t in ln.aufgaben %}
+        <th class="text-center" title="AFB: {{ t.afb or '–' }}">
+          {{ t.label }}
+          {% if t.afb %}<br><span class="badge bg-info text-dark" style="font-size:.7rem">{{ t.afb }}</span>{% endif %}
+        </th>
+        {% endfor %}
+        <th class="text-center bg-light">Gesamt</th>
+        <th class="text-center bg-light">Note (0-15)</th>
+        <th class="text-center bg-light">Note (1-6)</th>
+      </tr>
+      <tr class="table-secondary small">
+        <td class="sticky-col fw-bold">Max. Punkte</td>
+        {% for t in ln.aufgaben %}
+        <td class="text-center fw-bold">{{ t.max_punkte | int }}</td>
+        {% endfor %}
+        <td class="text-center fw-bold" id="totalMax">
+          {{ ln.aufgaben | sum(attribute='max_punkte') | int }}
+        </td>
+        <td colspan="2"></td>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in ln.schueler %}
+      <tr data-sname="{{ s.name }}">
+        <td class="sticky-col">{{ s.name }}</td>
+        {% for t_idx in range(ln.aufgaben | length) %}
+        <td class="text-center points-cell p-1">
+          <div class="input-group input-group-sm">
+            <button class="btn btn-outline-secondary half-step-btn"
+                    data-delta="-0.5" type="button" tabindex="-1">−</button>
+            <input type="number"
+                   class="form-control form-control-sm points-input student-points text-center"
+                   data-tidx="{{ t_idx }}"
+                   value="{{ s.punkte[t_idx] if s.punkte[t_idx] is not none else '' }}"
+                   min="0"
+                   max="{{ ln.aufgaben[t_idx].max_punkte }}"
+                   step="0.25">
+            <button class="btn btn-outline-secondary half-step-btn"
+                    data-delta="0.5" type="button" tabindex="-1">+</button>
+          </div>
+        </td>
+        {% endfor %}
+        <td class="text-center fw-bold student-gesamt">
+          {{ s.punkte | select('number') | sum | int if s.punkte else '–' }}
+        </td>
+        <td class="text-center note-cell student-note15">
+          {{ s.note_15 if s.note_15 is not none else '–' }}
+        </td>
+        <td class="text-center">
+          {% if s.note_6 is not none %}
+          <span class="badge note-6-badge
+            {{ 'bg-success' if s.note_6 <= 2 else ('bg-warning text-dark' if s.note_6 <= 3 else 'bg-danger') }}">
+            {{ s.note_6 }}
+          </span>
+          {% else %}–{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ ln.aufgaben | length + 4 }}" class="text-center text-muted">
+        Keine Schüler vorhanden. Füge Schüler unter <a href="{{ url_for('grades.stammdaten') }}">Stammdaten</a> hinzu.
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ── Statistik ──────────────────────────────────────────────────────── -->
+<div class="collapse mt-2" id="statistikPanel">
+  <div class="card card-body">
+    <div class="row">
+      <div class="col-md-6">
+        <h6>Notenverteilung (0-15)</h6>
+        <canvas id="chartNoten"></canvas>
+      </div>
+      <div class="col-md-6" id="afbSummary">
+        <h6>Anforderungsbereiche (Punkte)</h6>
+        <canvas id="chartAfb"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block extra_scripts %}
+<script>
+const LN_IDX = {{ ln_idx }};
+const GRADE_SCALE = {{ grade_scale | tojson }};
+const NOTE15_TO6  = {{ note15_to6  | tojson }};
+
+// ── Grade calculation (client-side) ──────────────────────────────────────────
+function calcNote15(achieved, maximum) {
+  if (maximum <= 0) return 0;
+  const pct = achieved / maximum;
+  for (const [threshold, note] of GRADE_SCALE) {
+    if (pct >= threshold) return note;
+  }
+  return 0;
+}
+
+function updateRowCalc(row) {
+  const inputs = row.querySelectorAll('.student-points');
+  let total = 0, allEmpty = true;
+  inputs.forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v)) { total += v; allEmpty = false; }
+  });
+
+  const maxCell = document.getElementById('totalMax');
+  const maximum = parseFloat(maxCell ? maxCell.textContent : 0) || 0;
+
+  if (allEmpty) {
+    row.querySelector('.student-gesamt').textContent = '–';
+    row.querySelector('.student-note15').textContent = '–';
+    row.querySelector('.student-note6')?.remove();
+    return;
+  }
+
+  const note15 = calcNote15(total, maximum);
+  const note6  = NOTE15_TO6[note15] ?? 6;
+
+  row.querySelector('.student-gesamt').textContent = total % 1 === 0 ? total : total.toFixed(1);
+  row.querySelector('.student-note15').textContent = note15;
+
+  // Note 1-6 badge (last td)
+  const tds = row.querySelectorAll('td');
+  const lastTd = tds[tds.length - 1];
+  let cls = note6 <= 2 ? 'bg-success' : (note6 <= 3 ? 'bg-warning text-dark' : 'bg-danger');
+  lastTd.innerHTML = `<span class="badge note-6-badge ${cls}">${note6}</span>`;
+}
+
+document.querySelectorAll('#gradeTable tbody tr').forEach(row => {
+  row.querySelectorAll('.student-points').forEach(inp => {
+    inp.addEventListener('input', () => updateRowCalc(row));
+  });
+  updateRowCalc(row);
+});
+
+// ── ±½ step buttons ───────────────────────────────────────────────────────────
+document.getElementById('gradeTable').addEventListener('click', e => {
+  const btn = e.target.closest('.half-step-btn');
+  if (!btn) return;
+  const inp = btn.parentElement.querySelector('input.student-points');
+  if (!inp) return;
+  const delta = parseFloat(btn.dataset.delta) || 0;
+  const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
+  const current = inp.value !== '' ? parseFloat(inp.value) : 0;
+  inp.value = Math.max(0, Math.min(max, current + delta));
+  inp.dispatchEvent(new Event('input'));
+});
+
+// ── Save all changes ──────────────────────────────────────────────────────────
+document.getElementById('btnSaveAll').addEventListener('click', async () => {
+  const rows = document.querySelectorAll('#gradeTable tbody tr[data-sname]');
+  const schueler = [];
+  rows.forEach(row => {
+    const name = row.getAttribute('data-sname');
+    const punkte = [];
+    row.querySelectorAll('.student-points').forEach(inp => {
+      const v = inp.value === '' ? null : parseFloat(inp.value);
+      punkte.push(v);
+    });
+    schueler.push({ name, punkte });
+  });
+
+  const resp = await fetch(`/ln/${LN_IDX}/noten`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+    body: JSON.stringify({ schueler })
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    showToast('Noten gespeichert.', 'success');
+  } else {
+    showToast('Fehler beim Speichern: ' + (data.error || '?'), 'danger');
+  }
+});
+
+// ── Task editor ───────────────────────────────────────────────────────────────
+const AFB_VALUES = {{ afb_values | tojson }};
+
+document.getElementById('btnAddTask').addEventListener('click', () => {
+  const tbody = document.getElementById('taskBody');
+  const idx = tbody.rows.length;
+  const row = tbody.insertRow();
+  row.setAttribute('data-tidx', idx);
+  row.innerHTML = `
+    <td><input type="text" class="form-control form-control-sm task-label-input task-label" placeholder="z.B. 1a"></td>
+    <td><select class="form-select form-select-sm afb-select task-afb">
+      ${AFB_VALUES.map(v => `<option value="${v}">${v || '–'}</option>`).join('')}
+    </select></td>
+    <td><input type="number" class="form-control form-control-sm max-input task-max" value="0" min="0" step="0.5"></td>
+    <td><button class="btn btn-sm btn-outline-danger btn-remove-task" type="button"><i class="bi bi-trash"></i></button></td>`;
+});
+
+document.getElementById('taskBody').addEventListener('click', e => {
+  if (e.target.closest('.btn-remove-task')) {
+    e.target.closest('tr').remove();
+  }
+});
+
+document.getElementById('btnSaveTasks').addEventListener('click', async () => {
+  const rows = document.querySelectorAll('#taskBody tr');
+  const aufgaben = [];
+  rows.forEach(row => {
+    aufgaben.push({
+      label: row.querySelector('.task-label').value.trim() || '?',
+      afb: row.querySelector('.task-afb').value,
+      max_punkte: parseFloat(row.querySelector('.task-max').value) || 0,
+    });
+  });
+
+  const resp = await fetch(`/ln/${LN_IDX}/aufgaben`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+    body: JSON.stringify({ aufgaben })
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    showToast('Aufgaben gespeichert. Seite wird neu geladen…', 'success');
+    setTimeout(() => location.reload(), 800);
+  } else {
+    showToast('Fehler: ' + (data.error || '?'), 'danger');
+  }
+});
+
+// ── Statistik charts ──────────────────────────────────────────────────────────
+document.getElementById('statistikPanel').addEventListener('show.bs.collapse', async () => {
+  const resp = await fetch(`/api/statistik/${LN_IDX}`);
+  const data = await resp.json();
+
+  // Note distribution
+  const dist = data.note_distribution;
+  new Chart(document.getElementById('chartNoten'), {
+    type: 'bar',
+    data: {
+      labels: Object.keys(dist),
+      datasets: [{ label: 'Anzahl Schüler', data: Object.values(dist),
+                   backgroundColor: 'rgba(31,78,121,0.7)', borderRadius: 4 }]
+    },
+    options: { plugins: { legend: { display: false } },
+               scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+
+  // AFB
+  const afbLabels = ['I', 'II', 'III'];
+  new Chart(document.getElementById('chartAfb'), {
+    type: 'bar',
+    data: {
+      labels: afbLabels,
+      datasets: [
+        { label: 'Erreicht', data: afbLabels.map(k => data.afb_punkte[k] || 0),
+          backgroundColor: 'rgba(40,167,69,0.7)' },
+        { label: 'Maximum', data: afbLabels.map(k => data.afb_max[k] || 0),
+          backgroundColor: 'rgba(200,200,200,0.5)' }
+      ]
+    },
+    options: { plugins: { legend: { position: 'bottom' } },
+               scales: { y: { beginAtZero: true } } }
+  });
+});
+
+// ── Toast helper ──────────────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const div = document.createElement('div');
+  div.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
+  div.setAttribute('role', 'alert');
+  div.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+  document.body.appendChild(div);
+  new bootstrap.Toast(div, { delay: 3000 }).show();
+  div.addEventListener('hidden.bs.toast', () => div.remove());
+}
+</script>
+{% endblock %}

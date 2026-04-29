@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}Leistungsnachweise{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0"><i class="bi bi-list-check me-2"></i>Leistungsnachweise</h4>
+  <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#newLNModal">
+    <i class="bi bi-plus-lg me-1"></i>Neu anlegen
+  </button>
+</div>
+
+{% if lns %}
+<div class="row g-3">
+  {% for ln in lns %}
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <h6 class="card-title mb-1">{{ ln.name }}</h6>
+          <span class="badge bg-secondary">{{ ln.aufgaben | length }} Aufg.</span>
+        </div>
+        <ul class="list-unstyled small text-muted mb-3">
+          <li><i class="bi bi-people me-1"></i>{{ ln.schueler | length }} Schüler</li>
+          <li><i class="bi bi-calculator me-1"></i>
+            Max. {{ ln.aufgaben | sum(attribute='max_punkte') | int }} Punkte
+          </li>
+        </ul>
+        <div class="d-flex gap-2">
+          <a href="{{ url_for('grades.ln_detail', ln_idx=loop.index0) }}"
+             class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-pencil"></i> Bearbeiten
+          </a>
+          <form method="post" action="{{ url_for('grades.ln_loeschen', ln_idx=loop.index0) }}"
+                onsubmit="return confirm('Leistungsnachweis wirklich löschen?')">
+            {{ csrf_field() }}
+            <button class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+  Noch keine Leistungsnachweise vorhanden. Lege jetzt einen an!
+</div>
+{% endif %}
+
+<!-- New LN Modal -->
+<div class="modal fade" id="newLNModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Neuer Leistungsnachweis</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('grades.ln_neu') }}" novalidate>
+        {{ new_form.hidden_tag() }}
+        <div class="modal-body">
+          <div class="mb-3">
+            {{ new_form.name.label(class="form-label") }}
+            {{ new_form.name(class="form-control" + (" is-invalid" if new_form.name.errors else ""),
+                             placeholder="z.B. Klausur 1, Kurztest 2, Referat...") }}
+            {% for e in new_form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          {{ new_form.submit(class="btn btn-success") }}
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

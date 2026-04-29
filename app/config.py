@@ -1,0 +1,47 @@
+import os
+from datetime import timedelta
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
+SESSION_DIR = os.path.join(INSTANCE_DIR, "sessions")
+
+
+class Config:
+    SECRET_KEY = os.environ.get("SECRET_KEY") or "change-me-in-production-use-long-random-string"
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{os.path.join(INSTANCE_DIR, 'app.db')}"
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Flask-Session: server-side filesystem sessions
+    SESSION_TYPE = "filesystem"
+    SESSION_FILE_DIR = SESSION_DIR
+    SESSION_PERMANENT = True
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+
+    # Flask-WTF CSRF
+    WTF_CSRF_TIME_LIMIT = 3600
+
+    # File upload
+    MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50 MB max upload
+
+    # Rate limiting
+    RATELIMIT_DEFAULT = "200 per day;50 per hour"
+    RATELIMIT_STORAGE_URL = "memory://"
+
+
+class DevelopmentConfig(Config):
+    DEBUG = True
+    SESSION_COOKIE_SECURE = False
+
+
+class ProductionConfig(Config):
+    DEBUG = False
+    SESSION_COOKIE_SECURE = True  # requires HTTPS
+
+
+config_by_name = {
+    "development": DevelopmentConfig,
+    "production": ProductionConfig,
+    "default": DevelopmentConfig,
+}
