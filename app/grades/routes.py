@@ -9,6 +9,7 @@ from app.excel.reader import load_gradebook, ExcelReadError
 from app.excel.writer import build_gradebook
 from app.excel import schema as S
 from app.grades.forms import UploadForm, StammdatenForm, AustrittForm, NewLNForm, ExportForm
+from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
 from app.pdf.generator import generate_pdf
 
 grades_bp = Blueprint("grades", __name__, template_folder="../templates/grades")
@@ -205,6 +206,7 @@ def ln_neu():
             "sheet_name": sheet_name,
             "name": name,
             "aufgaben": [],
+            "aufgaben_tree": [],
             "schueler": schueler,
         })
         _save_gradebook(data)
@@ -220,6 +222,10 @@ def ln_detail(ln_idx):
     if ln_idx >= len(data["leistungsnachweise"]):
         abort(404)
     ln = data["leistungsnachweise"][ln_idx]
+    # Ensure aufgaben_tree exists (migrate legacy data on-the-fly)
+    if "aufgaben_tree" not in ln:
+        ln["aufgaben_tree"] = flat_to_tree(ln.get("aufgaben", []))
+        _save_gradebook(data)
     return render_template("grades/ln_detail.html", ln=ln, ln_idx=ln_idx,
                            afb_values=S.AFB_VALUES,
                            grade_scale=S.GRADE_SCALE,
@@ -229,30 +235,28 @@ def ln_detail(ln_idx):
 @grades_bp.route("/ln/<int:ln_idx>/aufgaben", methods=["POST"])
 @login_required
 def ln_aufgaben_speichern(ln_idx):
-    """Save task configuration (labels, AFB, max points) via JSON POST."""
+    """Save hierarchical task tree via JSON POST."""
     data = _require_gradebook()
     if ln_idx >= len(data["leistungsnachweise"]):
         abort(404)
 
     payload = request.get_json(force=True, silent=True)
-    if not payload or "aufgaben" not in payload:
+    if not payload or "aufgaben_tree" not in payload:
         return {"ok": False, "error": "Invalid payload"}, 400
 
-    # Save old max per task index for proportional scaling
+    # Sanitize and auto-label the incoming tree
+    tree = [sanitize_node(n) for n in payload["aufgaben_tree"]]
+    generate_labels(tree)
+
+    # Build flat leaf list for backwards-compat (Excel writer, statistics)
     old_aufgaben = data["leistungsnachweise"][ln_idx].get("aufgaben", [])
     old_max = [float(a.get("max_punkte", 0)) for a in old_aufgaben]
 
-    aufgaben = []
-    for a in payload["aufgaben"]:
-        aufgaben.append({
-            "label": str(a.get("label", "")).strip() or "?",
-            "afb": str(a.get("afb", "")).strip(),
-            "max_punkte": float(a["max_punkte"]) if a.get("max_punkte") not in (None, "") else 0,
-        })
-
+    aufgaben = tree_to_flat(tree)
+    data["leistungsnachweise"][ln_idx]["aufgaben_tree"] = tree
     data["leistungsnachweise"][ln_idx]["aufgaben"] = aufgaben
 
-    # Adjust punkte arrays; scale values when max changed (e.g. 4→8 doubles points)
+    # Adjust punkte arrays; scale values when max changed
     n = len(aufgaben)
     for s in data["leistungsnachweise"][ln_idx]["schueler"]:
         current = s.get("punkte", [])
@@ -263,7 +267,6 @@ def ln_aufgaben_speichern(ln_idx):
                 om = old_max[t_idx]
                 nm = aufgaben[t_idx]["max_punkte"]
                 if om > 0 and nm > 0 and om != nm:
-                    # Round to nearest 0.25 after scaling
                     val = round(val * nm / om * 4) / 4
             new_punkte.append(val)
         s["punkte"] = new_punkte

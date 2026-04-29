@@ -17,6 +17,10 @@
   .sticky-col { position: sticky; left: 0; background: #fff; z-index: 1; }
   .table-wrapper { overflow-x: auto; }
   #afbSummary canvas { max-height: 200px; }
+  /* Task tree */
+  .task-node { border-left: 2px solid #dee2e6; }
+  .task-node .task-node { border-left-color: #adb5bd; background: #f8f9fa; border-radius: 4px; }
+  .task-node .task-node .task-node { border-left-color: #6c757d; background: #f0f0f0; }
 </style>
 {% endblock %}
 {% block content %}
@@ -46,43 +50,14 @@
 <!-- ── Aufgaben-Editor ─────────────────────────────────────────────────── -->
 <div class="collapse mb-4" id="taskEditor">
   <div class="card card-body">
-    <h6 class="mb-3">Aufgaben und Anforderungsbereiche konfigurieren</h6>
-    <div class="table-responsive">
-      <table class="table table-sm align-middle" id="taskTable">
-        <thead>
-          <tr>
-            <th>Bezeichnung</th>
-            <th>AFB</th>
-            <th>Max. Punkte</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="taskBody">
-          {% for t in ln.aufgaben %}
-          <tr data-tidx="{{ loop.index0 }}">
-            <td><input type="text" class="form-control form-control-sm task-label-input task-label"
-                       value="{{ t.label }}" placeholder="z.B. 1a"></td>
-            <td>
-              <select class="form-select form-select-sm afb-select task-afb">
-                {% for v in afb_values %}
-                  <option value="{{ v }}" {{ 'selected' if t.afb == v }}>{{ v or '–' }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td><input type="number" class="form-control form-control-sm max-input task-max"
-                       value="{{ t.max_punkte | int }}" min="0" step="0.5"></td>
-            <td>
-              <button class="btn btn-sm btn-outline-danger btn-remove-task" type="button">
-                <i class="bi bi-trash"></i>
-              </button>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <div class="d-flex gap-2 mt-2">
-      <button class="btn btn-sm btn-outline-secondary" id="btnAddTask">
+    <h6 class="mb-2">Aufgaben konfigurieren</h6>
+    <p class="text-muted small mb-3">
+      Hauptaufgaben mit <strong>+ Aufgabe</strong> hinzufügen. Pro Aufgabe können Unteraufgaben angelegt werden (max. 3 Ebenen).
+      Aufgaben ohne Unteraufgaben erhalten eine Punktzahl. Aufgaben mit Unteraufgaben summieren automatisch.
+    </p>
+    <div id="taskTree"></div>
+    <div class="d-flex gap-2 mt-3">
+      <button class="btn btn-sm btn-outline-secondary" id="btnAddRootTask">
         <i class="bi bi-plus-lg me-1"></i>Aufgabe hinzufügen
       </button>
       <button class="btn btn-sm btn-primary" id="btnSaveTasks">
@@ -183,6 +158,18 @@
 {% endblock %}
 {% block extra_scripts %}
 <script>
+// ── Global error handler (debug) ─────────────────────────────────────────────
+window.addEventListener('error', function(e) {
+  const msg = e.message + ' (Zeile ' + e.lineno + ')';
+  console.error('JS Fehler:', msg);
+  // Show as alert if showToast not yet available
+  if (typeof showToast === 'function') {
+    showToast('JS-Fehler: ' + msg, 'danger');
+  } else {
+    alert('JS-Fehler: ' + msg);
+  }
+});
+
 const LN_IDX = {{ ln_idx }};
 const GRADE_SCALE = {{ grade_scale | tojson }};
 const NOTE15_TO6  = {{ note15_to6  | tojson }};
@@ -199,6 +186,10 @@ function calcNote15(achieved, maximum) {
 
 function updateRowCalc(row) {
   const inputs = row.querySelectorAll('.student-points');
+  const gestEl  = row.querySelector('.student-gesamt');
+  const note15El = row.querySelector('.student-note15');
+  if (!inputs.length || !gestEl || !note15El) return;  // skip non-student rows
+
   let total = 0, allEmpty = true;
   inputs.forEach(inp => {
     const v = parseFloat(inp.value);
@@ -209,8 +200,8 @@ function updateRowCalc(row) {
   const maximum = parseFloat(maxCell ? maxCell.textContent : 0) || 0;
 
   if (allEmpty) {
-    row.querySelector('.student-gesamt').textContent = '–';
-    row.querySelector('.student-note15').textContent = '–';
+    gestEl.textContent = '–';
+    note15El.textContent = '–';
     row.querySelector('.student-note6')?.remove();
     return;
   }
@@ -218,8 +209,8 @@ function updateRowCalc(row) {
   const note15 = calcNote15(total, maximum);
   const note6  = NOTE15_TO6[note15] ?? 6;
 
-  row.querySelector('.student-gesamt').textContent = total % 1 === 0 ? total : total.toFixed(1);
-  row.querySelector('.student-note15').textContent = note15;
+  gestEl.textContent = total % 1 === 0 ? total : total.toFixed(1);
+  note15El.textContent = note15;
 
   // Note 1-6 badge (last td)
   const tds = row.querySelectorAll('td');
@@ -276,45 +267,194 @@ document.getElementById('btnSaveAll').addEventListener('click', async () => {
   }
 });
 
-// ── Task editor ───────────────────────────────────────────────────────────────
+// ── Task tree editor ─────────────────────────────────────────────────────────
 const AFB_VALUES = {{ afb_values | tojson }};
+const INITIAL_TREE = {{ (ln.aufgaben_tree or []) | tojson }};
 
-document.getElementById('btnAddTask').addEventListener('click', () => {
-  const tbody = document.getElementById('taskBody');
-  const idx = tbody.rows.length;
-  const row = tbody.insertRow();
-  row.setAttribute('data-tidx', idx);
-  row.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm task-label-input task-label" placeholder="z.B. 1a"></td>
-    <td><select class="form-select form-select-sm afb-select task-afb">
-      ${AFB_VALUES.map(v => `<option value="${v}">${v || '–'}</option>`).join('')}
-    </select></td>
-    <td><input type="number" class="form-control form-control-sm max-input task-max" value="0" min="0" step="0.5"></td>
-    <td><button class="btn btn-sm btn-outline-danger btn-remove-task" type="button"><i class="bi bi-trash"></i></button></td>`;
-});
+let taskTree = Array.isArray(INITIAL_TREE) ? JSON.parse(JSON.stringify(INITIAL_TREE)) : [];
+let _idCounter = 0;
 
-document.getElementById('taskBody').addEventListener('click', e => {
-  if (e.target.closest('.btn-remove-task')) {
-    e.target.closest('tr').remove();
+function newId() { return 't_' + (++_idCounter) + '_' + Date.now(); }
+
+// ── Label auto-generation ────────────────────────────────────────────────────
+function numLabel(index, style) {
+  if (style === 'abc') {
+    return String.fromCharCode(97 + (index % 26));
+  }
+  return String(index + 1);
+}
+
+function generateLabels(nodes, parentPrefix, parentStyle) {
+  parentPrefix = parentPrefix || '';
+  parentStyle  = parentStyle  || '123';
+  nodes.forEach((node, i) => {
+    if (!node.custom_label) {
+      const seg = numLabel(i, parentStyle);
+      node.label = parentPrefix ? parentPrefix + seg : seg;
+    }
+    if (node.children && node.children.length) {
+      const childStyle = node.numbering_style || '123';
+      generateLabels(node.children, node.label + '.', childStyle);
+    }
+  });
+}
+
+function getLeaves(nodes) {
+  const result = [];
+  nodes.forEach(n => {
+    if (n.children && n.children.length) {
+      result.push(...getLeaves(n.children));
+    } else {
+      result.push(n);
+    }
+  });
+  return result;
+}
+
+function calcMax(node) {
+  if (!node.children || !node.children.length) {
+    return parseFloat(node.max_punkte) || 0;
+  }
+  return node.children.reduce((s, c) => s + calcMax(c), 0);
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderTree() {
+  try {
+    generateLabels(taskTree);
+    const container = document.getElementById('taskTree');
+    container.innerHTML = '';
+    taskTree.forEach((node, i) => {
+      container.appendChild(renderNode(node, taskTree, i, 0));
+    });
+  } catch(e) {
+    console.error('renderTree Fehler:', e);
+    showToast('Fehler beim Rendern: ' + e.message, 'danger');
+  }
+}
+
+function afbSelect(selectedVal) {
+  return `<select class="form-select form-select-sm node-afb" style="width:75px">
+    ${AFB_VALUES.map(v => `<option value="${v}" ${v === selectedVal ? 'selected' : ''}>${v || '–'}</option>`).join('')}
+  </select>`;
+}
+
+function renderNode(node, siblings, idx, depth) {
+  const hasChildren = node.children && node.children.length > 0;
+  const indent = depth * 24;
+  const maxPoints = calcMax(node);
+  const canAddChild = depth < 2;
+
+  const div = document.createElement('div');
+  div.className = 'task-node mb-1';
+  div.dataset.nodeId = node.id;
+
+  const styleIcon = node.numbering_style === 'abc'
+    ? '<span title="Kinder: a,b,c…" class="badge bg-secondary ms-1" style="font-size:.7rem">abc</span>'
+    : '<span title="Kinder: 1,2,3…" class="badge bg-secondary ms-1" style="font-size:.7rem">123</span>';
+
+  div.innerHTML = `
+    <div class="d-flex align-items-center gap-1 py-1" style="padding-left:${indent}px">
+      <span class="text-muted small fw-bold node-label-display me-1" style="min-width:40px">${node.label}</span>
+      <input type="text" class="form-control form-control-sm node-custom-label"
+             style="width:110px" placeholder="Eigene Bez."
+             value="${node.custom_label ? node.label : ''}"
+             title="Leer lassen für automatische Bezeichnung">
+      ${afbSelect(node.afb || '')}
+      ${hasChildren
+        ? `<span class="text-muted small ms-1" style="min-width:80px">Σ = ${maxPoints % 1 === 0 ? maxPoints : maxPoints.toFixed(1)} P</span>`
+        : `<input type="number" class="form-control form-control-sm node-max" style="width:75px"
+                  value="${node.max_punkte !== null && node.max_punkte !== undefined ? node.max_punkte : ''}"
+                  min="0" step="0.5" placeholder="Pkt">`
+      }
+      <button class="btn btn-sm btn-outline-secondary node-style-btn" title="Nummerierungsstil der Kinder wechseln (aktuell: ${node.numbering_style || '123'})">${styleIcon}</button>
+      ${canAddChild ? `<button class="btn btn-sm btn-outline-success node-add-child" title="Unteraufgabe hinzufügen"><i class="bi bi-plus"></i></button>` : ''}
+      <button class="btn btn-sm btn-outline-danger node-remove" title="Aufgabe löschen"><i class="bi bi-trash"></i></button>
+      <button class="btn btn-sm btn-outline-light node-move-up" title="Nach oben" ${idx === 0 ? 'disabled' : ''}><i class="bi bi-arrow-up"></i></button>
+      <button class="btn btn-sm btn-outline-light node-move-down" title="Nach unten" ${idx === siblings.length - 1 ? 'disabled' : ''}><i class="bi bi-arrow-down"></i></button>
+    </div>
+    <div class="node-children"></div>`;
+
+  // Bind events
+  const customLabel = div.querySelector('.node-custom-label');
+  customLabel.addEventListener('input', () => {
+    const val = customLabel.value.trim();
+    node.custom_label = val.length > 0;
+    node.label = val || node.label;
+    generateLabels(taskTree);
+    // Update display label without full re-render
+    div.querySelector('.node-label-display').textContent = node.label;
+  });
+
+  div.querySelector('.node-afb').addEventListener('change', e => { node.afb = e.target.value; });
+
+  if (!hasChildren) {
+    div.querySelector('.node-max').addEventListener('input', e => {
+      node.max_punkte = e.target.value === '' ? null : parseFloat(e.target.value);
+    });
+  }
+
+  div.querySelector('.node-style-btn').addEventListener('click', () => {
+    node.numbering_style = node.numbering_style === 'abc' ? '123' : 'abc';
+    renderTree();
+  });
+
+  div.querySelector('.node-remove').addEventListener('click', () => {
+    siblings.splice(idx, 1);
+    renderTree();
+  });
+
+  div.querySelector('.node-move-up')?.addEventListener('click', () => {
+    if (idx > 0) { [siblings[idx-1], siblings[idx]] = [siblings[idx], siblings[idx-1]]; renderTree(); }
+  });
+  div.querySelector('.node-move-down')?.addEventListener('click', () => {
+    if (idx < siblings.length - 1) { [siblings[idx], siblings[idx+1]] = [siblings[idx+1], siblings[idx]]; renderTree(); }
+  });
+
+  if (canAddChild) {
+    div.querySelector('.node-add-child').addEventListener('click', () => {
+      if (!node.children) node.children = [];
+      node.children.push({ id: newId(), label: '', custom_label: false, afb: '', max_punkte: null, numbering_style: '123', children: [] });
+      renderTree();
+    });
+  }
+
+  // Render children
+  const childContainer = div.querySelector('.node-children');
+  if (node.children && node.children.length) {
+    node.children.forEach((child, ci) => {
+      childContainer.appendChild(renderNode(child, node.children, ci, depth + 1));
+    });
+  }
+
+  return div;
+}
+
+document.getElementById('btnAddRootTask').addEventListener('click', () => {
+  console.log('btnAddRootTask geklickt, taskTree:', taskTree);
+  try {
+    taskTree.push({ id: newId(), label: '', custom_label: false, afb: '', max_punkte: null, numbering_style: '123', children: [] });
+    console.log('taskTree nach push:', taskTree);
+    renderTree();
+    console.log('renderTree() abgeschlossen');
+    // Open the task editor collapse if not already open
+    const editorCollapse = document.getElementById('taskEditor');
+    if (editorCollapse && !editorCollapse.classList.contains('show')) {
+      bootstrap.Collapse.getOrCreateInstance(editorCollapse).show();
+    }
+  } catch(e) {
+    console.error('Aufgabe hinzufügen Fehler:', e);
+    showToast('Fehler: ' + e.message, 'danger');
   }
 });
 
 document.getElementById('btnSaveTasks').addEventListener('click', async () => {
-  const rows = document.querySelectorAll('#taskBody tr');
-  const aufgaben = [];
-  rows.forEach(row => {
-    aufgaben.push({
-      label: row.querySelector('.task-label').value.trim() || '?',
-      afb: row.querySelector('.task-afb').value,
-      max_punkte: parseFloat(row.querySelector('.task-max').value) || 0,
-    });
-  });
-
+  generateLabels(taskTree);
   const resp = await fetch(`/ln/${LN_IDX}/aufgaben`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json',
                 'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
-    body: JSON.stringify({ aufgaben })
+    body: JSON.stringify({ aufgaben_tree: taskTree })
   });
   const data = await resp.json();
   if (data.ok) {
@@ -324,6 +464,8 @@ document.getElementById('btnSaveTasks').addEventListener('click', async () => {
     showToast('Fehler: ' + (data.error || '?'), 'danger');
   }
 });
+
+renderTree();
 
 // ── Statistik charts ──────────────────────────────────────────────────────────
 document.getElementById('statistikPanel').addEventListener('show.bs.collapse', async () => {
