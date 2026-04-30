@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Moodle-Import{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0"><i class="bi bi-cloud-upload me-2"></i>Moodle-Import</h4>
+  <a href="{{ url_for('grades.ln_list') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Zurück
+  </a>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Lade eine oder mehrere Moodle-Exportdateien hoch (CSV mit <code>;</code>-Trennzeichen oder XLSX).
+      Bei mehreren Gruppen (A/B-Test) können mehrere Dateien gleichzeitig hochgeladen werden –
+      die Schüler werden automatisch zusammengeführt und den Stammdaten zugeordnet.
+    </p>
+
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {{ form.hidden_tag() }}
+
+      <div class="mb-3">
+        {{ form.name.label(class="form-label fw-semibold") }}
+        {{ form.name(class="form-control" + (" is-invalid" if form.name.errors else ""),
+                     placeholder="z.B. Klausur 1, Kurztest 2 …") }}
+        {% for e in form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          {{ form.ln_typ.label(class="form-label fw-semibold") }}
+          {{ form.ln_typ(class="form-select", id="moodleLnTyp") }}
+        </div>
+        <div class="col-md-4" id="moodleRowHJ">
+          {{ form.hj.label(class="form-label fw-semibold") }}
+          {{ form.hj(class="form-select") }}
+        </div>
+        <div class="col-md-4 d-none" id="moodleRowSL">
+          {{ form.sl_zuordnung.label(class="form-label fw-semibold") }}
+          {{ form.sl_zuordnung(class="form-select") }}
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label fw-semibold">Moodle-Dateien <span class="text-danger">*</span></label>
+        <div id="dropZone"
+             class="border border-2 border-dashed rounded p-4 text-center"
+             style="cursor:pointer; border-style:dashed !important; background:#f8f9fa;">
+          <i class="bi bi-file-earmark-arrow-up fs-2 text-muted d-block mb-2"></i>
+          <span class="text-muted">Dateien hierher ziehen oder</span>
+          <label for="fileInput" class="btn btn-sm btn-outline-primary ms-2" style="cursor:pointer">
+            Durchsuchen
+          </label>
+          <input type="file" id="fileInput" name="files" multiple accept=".csv,.xlsx"
+                 class="d-none">
+          <div id="fileList" class="mt-2 small text-start"></div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        {{ form.submit(class="btn btn-primary") }}
+        <a href="{{ url_for('grades.ln_list') }}" class="btn btn-outline-secondary">Abbrechen</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  // LN-Typ toggle
+  const typSel = document.getElementById('moodleLnTyp');
+  const rowHJ  = document.getElementById('moodleRowHJ');
+  const rowSL  = document.getElementById('moodleRowSL');
+  function toggleTyp() {
+    const isGLN = typSel.value === 'GLN';
+    rowHJ.classList.toggle('d-none', !isGLN);
+    rowSL.classList.toggle('d-none', isGLN);
+  }
+  typSel.addEventListener('change', toggleTyp);
+  toggleTyp();
+
+  // File drop zone
+  const dropZone  = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileList  = document.getElementById('fileList');
+
+  function updateList(files) {
+    fileList.innerHTML = '';
+    if (!files || files.length === 0) return;
+    const ul = document.createElement('ul');
+    ul.className = 'list-unstyled mb-0';
+    for (const f of files) {
+      const li = document.createElement('li');
+      li.innerHTML = `<i class="bi bi-file-earmark-text me-1 text-primary"></i>${f.name} <span class="text-muted">(${(f.size/1024).toFixed(1)} KB)</span>`;
+      ul.appendChild(li);
+    }
+    fileList.appendChild(ul);
+  }
+
+  fileInput.addEventListener('change', () => updateList(fileInput.files));
+
+  dropZone.addEventListener('click', (e) => {
+    if (e.target !== fileInput && !e.target.htmlFor) fileInput.click();
+  });
+
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('border-primary');
+  });
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('border-primary');
+  });
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('border-primary');
+    const dt = new DataTransfer();
+    for (const f of e.dataTransfer.files) dt.items.add(f);
+    fileInput.files = dt.files;
+    updateList(fileInput.files);
+  });
+})();
+</script>
+{% endblock %}

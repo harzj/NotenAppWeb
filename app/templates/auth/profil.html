@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Lehrerprofil{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h4 class="card-title mb-3">
+          <i class="bi bi-person-badge me-2"></i>Lehrerprofil
+        </h4>
+        <form method="post" novalidate>
+          {{ form.hidden_tag() }}
+          <div class="row g-3 mb-3">
+            <div class="col-sm-6">
+              {{ form.lehrer_vorname.label(class="form-label") }}
+              {{ form.lehrer_vorname(class="form-control" + (" is-invalid" if form.lehrer_vorname.errors else ""),
+                                     placeholder="Max") }}
+              {% for e in form.lehrer_vorname.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="col-sm-6">
+              {{ form.lehrer_nachname.label(class="form-label") }}
+              {{ form.lehrer_nachname(class="form-control" + (" is-invalid" if form.lehrer_nachname.errors else ""),
+                                      placeholder="Mustermann") }}
+              {% for e in form.lehrer_nachname.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+          <div class="mb-3">
+            {{ form.dienstbezeichnung.label(class="form-label") }}
+            {{ form.dienstbezeichnung(class="form-select" + (" is-invalid" if form.dienstbezeichnung.errors else "")) }}
+            {% for e in form.dienstbezeichnung.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mb-4">
+            {{ form.anrede.label(class="form-label") }}
+            {{ form.anrede(class="form-select" + (" is-invalid" if form.anrede.errors else "")) }}
+            {% for e in form.anrede.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          {{ form.submit(class="btn btn-primary") }}
+          <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

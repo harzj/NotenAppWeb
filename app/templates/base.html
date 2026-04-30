@@ -48,6 +48,11 @@
           </li>
           {% endif %}
           <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('auth.profil') }}">
+              <i class="bi bi-person-badge me-1"></i>Profil
+            </a>
+          </li>
+          <li class="nav-item">
             <a class="nav-link" href="{{ url_for('auth.change_password') }}">
               <i class="bi bi-key me-1"></i>Passwort
             </a>
@@ -124,21 +129,45 @@
         <hr class="my-2">
         <li class="nav-item text-muted small px-2 mb-1">ÜBERSICHTEN</li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL1' %}active{% endif %}"
+             href="{{ url_for('grades.sl_detail', sl_key='SL1') }}">
+            <i class="bi bi-1-circle"></i> SL1
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL2' %}active{% endif %}"
+             href="{{ url_for('grades.sl_detail', sl_key='SL2') }}">
+            <i class="bi bi-2-circle"></i> SL2
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.uebersicht' and request.view_args.hj == 'hj1' %}active{% endif %}"
              href="{{ url_for('grades.uebersicht', hj='hj1') }}">
-            <i class="bi bi-table"></i> Halbjahr 1
+            <i class="bi bi-table"></i> Übersicht Halbjahr 1
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL3' %}active{% endif %}"
+             href="{{ url_for('grades.sl_detail', sl_key='SL3') }}">
+            <i class="bi bi-3-circle"></i> SL3
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL4' %}active{% endif %}"
+             href="{{ url_for('grades.sl_detail', sl_key='SL4') }}">
+            <i class="bi bi-4-circle"></i> SL4
           </a>
         </li>
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.uebersicht' and request.view_args.hj == 'hj2' %}active{% endif %}"
              href="{{ url_for('grades.uebersicht', hj='hj2') }}">
-            <i class="bi bi-table"></i> Halbjahr 2
+            <i class="bi bi-table"></i> Übersicht Halbjahr 2
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.uebersicht' and request.view_args.hj == 'jahr' %}active{% endif %}"
-             href="{{ url_for('grades.uebersicht', hj='jahr') }}">
-            <i class="bi bi-table"></i> Jahresübersicht
+          <a class="nav-link {% if request.endpoint == 'grades.schuljahr_uebersicht' %}active{% endif %}"
+             href="{{ url_for('grades.schuljahr_uebersicht') }}">
+            <i class="bi bi-mortarboard"></i> Übersicht Schuljahr
           </a>
         </li>
         <hr class="my-2">
@@ -152,6 +181,14 @@
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('grades.export_pdf', pdf_type='klasse') }}">
             <i class="bi bi-file-earmark-pdf"></i> PDF Klassenliste
+          </a>
+        </li>
+        <hr class="my-2">
+        <li class="nav-item text-muted small px-2 mb-1">EINSTELLUNGEN</li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.einstellungen' %}active{% endif %}"
+             href="{{ url_for('grades.einstellungen') }}">
+            <i class="bi bi-gear"></i> Klasse &amp; Schuljahr
           </a>
         </li>
         {% endif %}

@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, BooleanField, SubmitField, EmailField
-from wtforms.validators import DataRequired, Email, EqualTo, Length, ValidationError
+from wtforms import StringField, PasswordField, BooleanField, SubmitField, EmailField, SelectField
+from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional, ValidationError
 from app.models import User
 
 
@@ -47,3 +47,36 @@ class ChangePasswordForm(FlaskForm):
         validators=[DataRequired(), EqualTo("new_password", message="Passwörter stimmen nicht überein")],
     )
     submit = SubmitField("Passwort ändern")
+
+
+DIENSTBEZEICHNUNGEN = [
+    ("", "– keine –"),
+    ("ADL", "ADL"),
+    ("Studienreferendar/in", "Studienreferendar/in"),
+    ("Studienrat/rätin", "Studienrat/rätin"),
+    ("Oberstudienrat/rätin", "Oberstudienrat/rätin"),
+    ("Studiendirektor/in", "Studiendirektor/in"),
+    ("Oberstudiendirektor/in", "Oberstudiendirektor/in"),
+]
+
+ANREDEN = [
+    ("keine", "keine"),
+    ("Herr", "Herr"),
+    ("Frau", "Frau"),
+]
+
+
+class LehrerProfilForm(FlaskForm):
+    lehrer_vorname = StringField("Vorname", validators=[Optional(), Length(max=64)])
+    lehrer_nachname = StringField("Nachname", validators=[Optional(), Length(max=64)])
+    dienstbezeichnung = SelectField(
+        "Dienstbezeichnung",
+        choices=DIENSTBEZEICHNUNGEN,
+        validators=[Optional()],
+    )
+    anrede = SelectField(
+        "Anrede",
+        choices=ANREDEN,
+        validators=[Optional()],
+    )
+    submit = SubmitField("Profil speichern")

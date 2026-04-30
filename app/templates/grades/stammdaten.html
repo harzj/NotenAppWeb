@@ -4,9 +4,17 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="mb-0"><i class="bi bi-people me-2"></i>Schüler-Stammdaten</h4>
-  <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
-    <i class="bi bi-person-plus me-1"></i>Schüler hinzufügen
-  </button>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#pasteModal">
+      <i class="bi bi-clipboard me-1"></i>Einfügen (Strg+V)
+    </button>
+    <button class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#excelImportModal">
+      <i class="bi bi-file-earmark-excel me-1"></i>Excel-Import
+    </button>
+    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+      <i class="bi bi-person-plus me-1"></i>Schüler hinzufügen
+    </button>
+  </div>
 </div>
 
 <div class="table-responsive">
@@ -57,6 +65,81 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
+
+<!-- Excel-Import Modal -->
+<div class="modal fade" id="excelImportModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-excel me-2"></i>Schüler aus Excel importieren</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('grades.stammdaten_import_excel') }}"
+            enctype="multipart/form-data" novalidate>
+        {{ csrf_field() }}
+        <div class="modal-body">
+          <p class="text-muted small mb-3">
+            Wähle eine beliebige <code>.xlsx</code>-Datei. Das erste Tabellenblatt wird nach
+            Spalten mit Namen <strong>Nachname</strong>, <strong>Vorname</strong> oder
+            <strong>Name</strong> durchsucht. Alternativ wird die erste Spalte als
+            „Nachname, Vorname" interpretiert.
+          </p>
+          <div class="mb-3">
+            <label class="form-label">Excel-Datei (.xlsx)</label>
+            <input type="file" name="import_file" class="form-control" accept=".xlsx" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Passwort <span class="text-muted">(leer lassen falls ungeschützt)</span></label>
+            <input type="password" name="import_password" class="form-control"
+                   placeholder="Dateipasswort">
+          </div>
+          <div class="alert alert-info small mb-0">
+            <i class="bi bi-info-circle me-1"></i>
+            Bereits vorhandene Schüler (gleicher Name) werden übersprungen.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-success">
+            <i class="bi bi-upload me-1"></i>Importieren
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Paste-Import Modal -->
+<div class="modal fade" id="pasteModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-clipboard me-2"></i>Namen einfügen</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-2">
+          Kopiere Schülernamen aus Excel oder einer anderen Quelle und füge sie hier ein
+          (<kbd>Strg+V</kbd>). Unterstützte Formate:
+        </p>
+        <ul class="text-muted small mb-3">
+          <li>Eine Spalte: <code>Mustermann, Max</code> (Nachname, Vorname)</li>
+          <li>Zwei Spalten aus Excel: <code>Mustermann[Tab]Max</code></li>
+          <li>Mehrere Zeilen auf einmal möglich</li>
+        </ul>
+        <textarea id="pasteArea" class="form-control font-monospace" rows="12"
+                  placeholder="Namen hier einfügen (Strg+V)…"></textarea>
+        <div id="pastePreview" class="mt-2 small text-muted"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" class="btn btn-primary" id="btnPasteImport" disabled>
+          <i class="bi bi-person-plus me-1"></i>Importieren
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Add Student Modal -->
@@ -121,6 +204,82 @@
 document.getElementById('austrittModal').addEventListener('show.bs.modal', function(e) {
   const btn = e.relatedTarget;
   document.getElementById('austrittIdx').value = btn.getAttribute('data-idx');
+});
+
+// ── Paste-Import ──────────────────────────────────────────────────────────────
+const pasteArea    = document.getElementById('pasteArea');
+const pastePreview = document.getElementById('pastePreview');
+const btnPaste     = document.getElementById('btnPasteImport');
+
+function updatePastePreview() {
+  const lines = pasteArea.value.trim().split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) {
+    pastePreview.textContent = '';
+    btnPaste.disabled = true;
+    return;
+  }
+  pastePreview.textContent = `${lines.length} Zeile(n) erkannt.`;
+  btnPaste.disabled = false;
+}
+
+pasteArea.addEventListener('input', updatePastePreview);
+pasteArea.addEventListener('paste', () => setTimeout(updatePastePreview, 50));
+
+// Ctrl+V anywhere on page (outside inputs) → open paste modal
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+    const modal = document.getElementById('pasteModal');
+    if (modal.classList.contains('show')) return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    e.preventDefault();
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+    modal.addEventListener('shown.bs.modal', () => {
+      pasteArea.focus();
+      navigator.clipboard.readText().then(t => {
+        if (t) { pasteArea.value = t; updatePastePreview(); }
+      }).catch(() => {});
+    }, { once: true });
+  }
+});
+
+btnPaste.addEventListener('click', async () => {
+  const text = pasteArea.value.trim();
+  if (!text) return;
+
+  btnPaste.disabled = true;
+  btnPaste.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Importiere…';
+
+  try {
+    const resp = await fetch('{{ url_for("grades.stammdaten_import_paste") }}', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || ''
+      },
+      body: JSON.stringify({ text })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      bootstrap.Modal.getInstance(document.getElementById('pasteModal')).hide();
+      setTimeout(() => location.reload(), 300);
+    } else {
+      alert('Fehler: ' + (data.error || 'Unbekannter Fehler'));
+      btnPaste.disabled = false;
+      btnPaste.innerHTML = '<i class="bi bi-person-plus me-1"></i>Importieren';
+    }
+  } catch(err) {
+    alert('Netzwerkfehler: ' + err);
+    btnPaste.disabled = false;
+    btnPaste.innerHTML = '<i class="bi bi-person-plus me-1"></i>Importieren';
+  }
+});
+
+document.getElementById('pasteModal').addEventListener('hidden.bs.modal', () => {
+  pasteArea.value = '';
+  pastePreview.textContent = '';
+  btnPaste.disabled = true;
+  btnPaste.innerHTML = '<i class="bi bi-person-plus me-1"></i>Importieren';
 });
 </script>
 {% endblock %}

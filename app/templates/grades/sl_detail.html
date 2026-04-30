@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}{{ sl_key }} – Schulleistungen{% endblock %}
+{% block extra_head %}
+<style>
+  .note-cell { font-weight: 700; white-space: nowrap; }
+  .ignored-note { color: #aaa; text-decoration: line-through; }
+  .mdl-input { width: 56px; text-align: center; -moz-appearance: textfield; }
+  .mdl-input::-webkit-outer-spin-button,
+  .mdl-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .sl-badge { min-width: 2.2rem; text-align: center; display: inline-block; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0">
+      <span class="badge bg-warning text-dark me-2 fs-5">{{ sl_key }}</span>
+      Schulleistungen
+    </h4>
+    <div class="text-muted small mt-1">
+      SL-Note = {{ gewichtung.sl_mdl_pct | int }}% mündl. + {{ gewichtung.sl_kln_pct | int }}% KLN-Mittel
+      <a href="{{ url_for('grades.einstellungen') }}" class="ms-1">
+        <i class="bi bi-gear-fill" title="Gewichtung ändern"></i>
+      </a>
+    </div>
+  </div>
+  <button class="btn btn-success" id="btnSave">
+    <i class="bi bi-save me-1"></i>Speichern
+  </button>
+</div>
+
+{% if not kln_list %}
+<div class="alert alert-info">
+  Noch keine KLN für {{ sl_key }} vorhanden.
+  Weise Leistungsnachweise (KLN-Typ) der Zuordnung {{ sl_key }} zu.
+</div>
+{% else %}
+<div class="table-responsive">
+<table class="table table-bordered table-sm align-middle" id="slTable">
+  <thead>
+    <tr>
+      <th>Schüler</th>
+      {% for ln in kln_list %}
+      <th class="text-center">{{ ln.name }}</th>
+      {% endfor %}
+      <th class="text-center bg-light">KLN Mittel</th>
+      <th class="text-center bg-info bg-opacity-10">Mündl. Note<br><small class="fw-normal">(0–15)</small></th>
+      <th class="text-center bg-warning bg-opacity-25">{{ sl_key }}-Note<br><small class="fw-normal">Vorschlag</small></th>
+      <th class="text-center bg-success bg-opacity-10">{{ sl_key }}-Note<br><small class="fw-normal">Tatsächlich</small></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr data-name="{{ row.name }}"
+        data-kln-mean="{{ row.kln_mean if row.kln_mean is not none else 'null' }}">
+      <td>{{ row.name }}</td>
+      {% for c in row.kln_cols %}
+      <td class="text-center">
+        {% if c.note_15 is not none %}
+          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">
+            {{- c.note_15 -}}
+          </span>
+        {% else %}–{% endif %}
+      </td>
+      {% endfor %}
+      <td class="text-center text-muted small" id="kln-mean-{{ loop.index0 }}">
+        {{ row.kln_mean if row.kln_mean is not none else '–' }}
+      </td>
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm mdl-input"
+               min="0" max="15" step="1"
+               value="{{ row.mdl if row.mdl is not none else '' }}">
+      </td>
+      <td class="text-center note-cell sl-note-display{% if row.sl_note_15 is not none and row.sl_note_15 < rot_schwelle %} text-danger{% endif %}">
+        {{ row.sl_note_15 if row.sl_note_15 is not none else '–' }}
+      </td>
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm sl-actual-input"
+               min="0" max="15" step="1"
+               value="{{ row.sl_actual if row.sl_actual is not none else '' }}">
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_scripts %}
+<script>
+const SL_KEY = {{ sl_key | tojson }};
+const GW = {{ gewichtung | tojson }};
+const ROT_SCHWELLE = {{ rot_schwelle }};
+
+function computeSlNote(mdl, klnMean) {
+  if (mdl === null && klnMean === null) return null;
+  if (mdl === null) return klnMean;
+  if (klnMean === null) return mdl;
+  const total = GW.sl_mdl_pct + GW.sl_kln_pct;
+  if (total <= 0) return null;
+  return (mdl * GW.sl_mdl_pct + klnMean * GW.sl_kln_pct) / total;
+}
+
+function roundNote15(x) {
+  if (x === null || x === undefined) return null;
+  return Math.max(0, Math.min(15, Math.round(x)));
+}
+
+function updateRow(row) {
+  const klnMeanRaw = row.dataset.klnMean;
+  const klnMean = klnMeanRaw === 'null' ? null : parseFloat(klnMeanRaw);
+  const mdlInput = row.querySelector('.mdl-input');
+  const mdl = mdlInput.value !== '' ? parseFloat(mdlInput.value) : null;
+
+  const slNoteDisplay = row.querySelector('.sl-note-display');
+  const slRaw = computeSlNote(mdl, klnMean);
+  const slNote = roundNote15(slRaw);
+
+  if (slNote !== null) {
+    slNoteDisplay.textContent = slNote;
+    slNoteDisplay.classList.toggle('text-danger', slNote < ROT_SCHWELLE);
+  } else {
+    slNoteDisplay.textContent = '–';
+    slNoteDisplay.classList.remove('text-danger');
+  }
+}
+
+document.querySelectorAll('#slTable tbody tr').forEach(row => {
+  row.querySelector('.mdl-input')?.addEventListener('input', () => updateRow(row));
+});
+
+document.getElementById('btnSave')?.addEventListener('click', async () => {
+  const schueler = [];
+  document.querySelectorAll('#slTable tbody tr').forEach(row => {
+    const name = row.dataset.name;
+    const mdlInp = row.querySelector('.mdl-input');
+    const actInp = row.querySelector('.sl-actual-input');
+    const note     = mdlInp && mdlInp.value !== '' ? parseInt(mdlInp.value, 10) : null;
+    const sl_actual = actInp && actInp.value !== '' ? parseInt(actInp.value, 10) : null;
+    schueler.push({ name, note, sl_actual });
+  });
+  const resp = await fetch('/api/mdl-noten/speichern', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+    body: JSON.stringify({ sl_key: SL_KEY, schueler })
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    showToast('Noten gespeichert.', 'success');
+  } else {
+    showToast('Fehler: ' + (data.error || '?'), 'danger');
+  }
+});
+
+function showToast(msg, type) {
+  const div = document.createElement('div');
+  div.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
+  div.setAttribute('role', 'alert');
+  div.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+  document.body.appendChild(div);
+  new bootstrap.Toast(div, { delay: 3000 }).show();
+  div.addEventListener('hidden.bs.toast', () => div.remove());
+}
+</script>
+{% endblock %}

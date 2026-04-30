@@ -4,9 +4,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="mb-0"><i class="bi bi-list-check me-2"></i>Leistungsnachweise</h4>
-  <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#newLNModal">
-    <i class="bi bi-plus-lg me-1"></i>Neu anlegen
-  </button>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('grades.moodle_import_ln') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-cloud-upload me-1"></i>Moodle-Import
+    </a>
+    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#newLNModal">
+      <i class="bi bi-plus-lg me-1"></i>Neu anlegen
+    </button>
+  </div>
 </div>
 
 {% if lns %}
@@ -15,11 +20,20 @@
   <div class="col-md-4">
     <div class="card shadow-sm h-100">
       <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start">
-          <h6 class="card-title mb-1">{{ ln.name }}</h6>
-          <span class="badge bg-secondary">{{ ln.aufgaben | length }} Aufg.</span>
+        <div class="d-flex justify-content-between align-items-start mb-1">
+          <h6 class="card-title mb-0">{{ ln.name }}</h6>
+          <div class="d-flex gap-1 flex-wrap justify-content-end">
+            {% if ln.ln_typ == 'GLN' %}
+              <span class="badge bg-danger">GLN</span>
+              {% if ln.hj %}<span class="badge bg-secondary">{{ ln.hj }}</span>{% endif %}
+            {% elif ln.ln_typ == 'KLN' %}
+              <span class="badge bg-warning text-dark">KLN</span>
+              {% if ln.sl_zuordnung %}<span class="badge bg-secondary">{{ ln.sl_zuordnung }}</span>{% endif %}
+            {% endif %}
+            <span class="badge bg-light text-dark border">{{ ln.aufgaben | length }} Aufg.</span>
+          </div>
         </div>
-        <ul class="list-unstyled small text-muted mb-3">
+        <ul class="list-unstyled small text-muted mb-3 mt-2">
           <li><i class="bi bi-people me-1"></i>{{ ln.schueler | length }} Schüler</li>
           <li><i class="bi bi-calculator me-1"></i>
             Max. {{ ln.aufgaben | sum(attribute='max_punkte') | int }} Punkte
@@ -66,6 +80,18 @@
                              placeholder="z.B. Klausur 1, Kurztest 2, Referat...") }}
             {% for e in new_form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
           </div>
+          <div class="mb-3">
+            {{ new_form.ln_typ.label(class="form-label") }}
+            {{ new_form.ln_typ(class="form-select", id="newLnTyp") }}
+          </div>
+          <div class="mb-3" id="rowHJ">
+            {{ new_form.hj.label(class="form-label") }}
+            {{ new_form.hj(class="form-select") }}
+          </div>
+          <div class="mb-3 d-none" id="rowSL">
+            {{ new_form.sl_zuordnung.label(class="form-label") }}
+            {{ new_form.sl_zuordnung(class="form-select") }}
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
@@ -75,4 +101,19 @@
     </div>
   </div>
 </div>
+
+<script>
+(function () {
+  const typSel = document.getElementById('newLnTyp');
+  const rowHJ = document.getElementById('rowHJ');
+  const rowSL = document.getElementById('rowSL');
+  function toggleFields() {
+    const isGLN = typSel.value === 'GLN';
+    rowHJ.classList.toggle('d-none', !isGLN);
+    rowSL.classList.toggle('d-none', isGLN);
+  }
+  typSel.addEventListener('change', toggleFields);
+  toggleFields();
+})();
+</script>
 {% endblock %}

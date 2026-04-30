@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Übersicht Schuljahr{% endblock %}
+{% block extra_head %}
+<style>
+  .th-hj1  { background-color: #1f4e79 !important; color: #fff; }
+  .th-hj2  { background-color: #155724 !important; color: #fff; }
+  .th-sj   { background-color: #7d3c00 !important; color: #fff; }
+  .th-sub-hj1 { background-color: #2e6da4 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .th-sub-hj2 { background-color: #1e7e34 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .th-sub-sj  { background-color: #a04000 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .badge-note { min-width: 2rem; text-align: center; display: inline-block; }
+  .vorschlag  { color: #888; font-style: italic; }
+  .sj-actual-input { width: 52px; text-align: center; -moz-appearance: textfield; }
+  .sj-actual-input::-webkit-outer-spin-button,
+  .sj-actual-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-mortarboard me-2"></i>Übersicht Schuljahr</h4>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-muted small">Schuljahres-Note = ⅓ HJ1 + ⅔ HJ2</span>
+    <button class="btn btn-success btn-sm" id="btnSave">
+      <i class="bi bi-save me-1"></i>Speichern
+    </button>
+  </div>
+</div>
+<p class="text-muted small">
+  <i class="bi bi-info-circle me-1"></i>
+  SL-Noten in <em>kursiv</em> sind Vorschläge (noch kein tatsächlicher Wert gesetzt).
+  Tatsächliche Werte werden auf den SL-Seiten eingetragen.
+</p>
+
+{% if not rows %}
+<div class="alert alert-info">Keine aktiven Schüler vorhanden.</div>
+{% else %}
+<div class="table-responsive">
+<table class="table table-bordered table-sm align-middle" id="sjTable">
+  <thead>
+    <tr>
+      <th rowspan="2" class="align-middle">Schüler</th>
+      <th colspan="4" class="text-center th-hj1">Halbjahr 1</th>
+      <th colspan="4" class="text-center th-hj2">Halbjahr 2</th>
+      <th colspan="2" class="text-center th-sj">Schuljahr</th>
+    </tr>
+    <tr>
+      <th class="text-center th-sub-hj1">GLN Mittel</th>
+      <th class="text-center th-sub-hj1">SL1</th>
+      <th class="text-center th-sub-hj1">SL2</th>
+      <th class="text-center th-sub-hj1">HJ1 Note</th>
+      <th class="text-center th-sub-hj2">GLN Mittel</th>
+      <th class="text-center th-sub-hj2">SL3</th>
+      <th class="text-center th-sub-hj2">SL4</th>
+      <th class="text-center th-sub-hj2">HJ2 Note</th>
+      <th class="text-center th-sub-sj">Vorschlag</th>
+      <th class="text-center th-sub-sj">Tatsächlich</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    {% macro note_cell(n15) %}
+      {% if n15 is not none %}
+        <strong class="{{ 'text-danger' if n15 < rot_schwelle else '' }}">{{ n15 }}</strong>
+      {% else %}–{% endif %}
+    {% endmacro %}
+    {% macro sl_cell(n15, is_actual) %}
+      {% if n15 is not none %}
+        {% if is_actual %}
+          <strong class="{{ 'text-danger' if n15 < rot_schwelle else '' }}">{{ n15 }}</strong>
+        {% else %}
+          <span class="vorschlag">{{ n15 }}</span>
+        {% endif %}
+      {% else %}–{% endif %}
+    {% endmacro %}
+    <tr data-name="{{ row.name }}">
+      <td>{{ row.name }}</td>
+      <td class="text-center">{{ note_cell(row.gln_hj1) }}</td>
+      <td class="text-center">{{ sl_cell(row.sl1, row.sl1_actual) }}</td>
+      <td class="text-center">{{ sl_cell(row.sl2, row.sl2_actual) }}</td>
+      <td class="text-center">
+        {% if row.hj1 is not none %}
+          {{ note_cell(row.hj1) }}
+        {% else %}
+          <span class="text-muted small fst-italic">
+            <a href="{{ url_for('grades.uebersicht', hj='hj1') }}">eingeben</a>
+          </span>
+        {% endif %}
+      </td>
+      <td class="text-center">{{ note_cell(row.gln_hj2) }}</td>
+      <td class="text-center">{{ sl_cell(row.sl3, row.sl3_actual) }}</td>
+      <td class="text-center">{{ sl_cell(row.sl4, row.sl4_actual) }}</td>
+      <td class="text-center">
+        {% if row.hj2 is not none %}
+          {{ note_cell(row.hj2) }}
+        {% else %}
+          <span class="text-muted small fst-italic">
+            <a href="{{ url_for('grades.uebersicht', hj='hj2') }}">eingeben</a>
+          </span>
+        {% endif %}
+      </td>
+      <td class="text-center">
+        {% if row.sj_vorschlag is not none %}
+          <em class="{{ 'text-danger' if row.sj_vorschlag < rot_schwelle else '' }}">{{ row.sj_vorschlag }}</em>
+        {% else %}–{% endif %}
+      </td>
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm sj-actual-input"
+               min="0" max="15" step="1"
+               value="{{ row.sj_actual if row.sj_actual is not none else '' }}">
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.getElementById('btnSave')?.addEventListener('click', async () => {
+  const schueler = [];
+  document.querySelectorAll('#sjTable tbody tr[data-name]').forEach(row => {
+    const inp = row.querySelector('.sj-actual-input');
+    const val = inp && inp.value !== '' ? parseInt(inp.value, 10) : null;
+    schueler.push({ name: row.dataset.name, sj_actual: val });
+  });
+  const resp = await fetch('/api/schuljahr-speichern', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+    body: JSON.stringify({ schueler })
+  });
+  const data = await resp.json();
+  const msg = data.ok ? 'Gespeichert.' : 'Fehler: ' + (data.error || '?');
+  const type = data.ok ? 'success' : 'danger';
+  const d = document.createElement('div');
+  d.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
+  d.setAttribute('role', 'alert');
+  d.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+  document.body.appendChild(d);
+  new bootstrap.Toast(d, { delay: 3000 }).show();
+  d.addEventListener('hidden.bs.toast', () => d.remove());
+});
+</script>
+{% endblock %}

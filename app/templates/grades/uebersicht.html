@@ -1,129 +1,217 @@
 {% extends "base.html" %}
-{% block title %}
-  {{ 'Halbjahr 1' if hj == 'hj1' else ('Halbjahr 2' if hj == 'hj2' else 'Jahresübersicht') }}
+{% block title %}Übersicht {{ 'Halbjahr 1' if hj == 'hj1' else 'Halbjahr 2' }}{% endblock %}
+{% block extra_head %}
+<style>
+  .note-cell { font-weight: 700; white-space: nowrap; }
+  .ignored-note { color: #aaa; text-decoration: line-through; font-weight: normal; }
+  .mdl-input, .hj-input {
+    width: 52px; text-align: center; padding: 2px 4px;
+    -moz-appearance: textfield;
+  }
+  .mdl-input::-webkit-outer-spin-button,
+  .mdl-input::-webkit-inner-spin-button,
+  .hj-input::-webkit-outer-spin-button,
+  .hj-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .th-gln  { background-color: #1f4e79 !important; color: #fff; }
+  .th-sl1  { background-color: #155724 !important; color: #fff; }
+  .th-sl2  { background-color: #4a235a !important; color: #fff; }
+  .th-hj   { background-color: #7d3c00 !important; color: #fff; }
+  .th-sub-gln { background-color: #2e6da4 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .th-sub-sl1 { background-color: #1e7e34 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .th-sub-sl2 { background-color: #6c3483 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .th-sub-hj  { background-color: #a04000 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .badge-note { min-width: 2rem; text-align: center; display: inline-block; }
+</style>
 {% endblock %}
 {% block content %}
-{% set hj_label = 'Halbjahr 1' if hj == 'hj1' else ('Halbjahr 2' if hj == 'hj2' else 'Jahresübersicht') %}
+{% set hj_label = 'Halbjahr 1' if hj == 'hj1' else 'Halbjahr 2' %}
+{% set n_gln = gln_list | length %}
+{% set n_sl1 = sl1_list | length %}
+{% set n_sl2 = sl2_list | length %}
+{% set span_sl1 = n_sl1 + 2 %}
+{% set span_sl2 = n_sl2 + 2 %}
 
-<h4 class="mb-4"><i class="bi bi-table me-2"></i>{{ hj_label }}</h4>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-table me-2"></i>{{ hj_label }}</h4>
+  <div class="d-flex gap-2 align-items-center">
+    <span class="text-muted small">
+      SL: {{ gewichtung.sl_mdl_pct | int }}% mdl + {{ gewichtung.sl_kln_pct | int }}% KLN |
+      HJ: GLN×{{ gewichtung.hj_gln_w }}, {{ sl1_key }}×{{ gewichtung.hj_sl1_w }}, {{ sl2_key }}×{{ gewichtung.hj_sl2_w }}
+      <a href="{{ url_for('grades.einstellungen') }}" class="ms-1"><i class="bi bi-gear-fill"></i></a>
+    </span>
+    <button class="btn btn-success btn-sm" id="btnSave">
+      <i class="bi bi-save me-1"></i>Speichern
+    </button>
+  </div>
+</div>
 
-{% if not lns %}
-<div class="alert alert-info">Noch keine Leistungsnachweise vorhanden.</div>
-{% else %}
 <div class="table-responsive">
-<table class="table table-bordered table-hover align-middle">
+<table class="table table-bordered table-sm align-middle" id="hjTable">
   <thead>
     <tr>
-      <th>Schüler</th>
-      {% for ln in lns %}
-      <th class="text-center">
-        <a href="{{ url_for('grades.ln_detail', ln_idx=loop.index0) }}"
-           class="text-white text-decoration-none">{{ ln.name }}</a>
-      </th>
-      {% endfor %}
-      <th class="text-center">Ø</th>
-      <th class="text-center">Zeugnisnote</th>
+      <th rowspan="2" class="align-middle">Schüler</th>
+      {% if n_gln > 0 %}
+      <th colspan="{{ n_gln }}" class="text-center th-gln">GLN</th>
+      {% endif %}
+      <th colspan="{{ span_sl1 }}" class="text-center th-sl1">{{ sl1_key }}</th>
+      <th colspan="{{ span_sl2 }}" class="text-center th-sl2">{{ sl2_key }}</th>
+      <th colspan="2" class="text-center th-hj">{{ hj_label }}</th>
+    </tr>
+    <tr>
+      {% for ln in gln_list %}<th class="text-center th-sub-gln">{{ ln.name }}</th>{% endfor %}
+      {% for ln in sl1_list %}<th class="text-center th-sub-sl1">{{ ln.name }}</th>{% endfor %}
+      <th class="text-center th-sub-sl1">Mündl.<br>Note</th>
+      <th class="text-center th-sub-sl1">{{ sl1_key }}<br>Note</th>
+      {% for ln in sl2_list %}<th class="text-center th-sub-sl2">{{ ln.name }}</th>{% endfor %}
+      <th class="text-center th-sub-sl2">Mündl.<br>Note</th>
+      <th class="text-center th-sub-sl2">{{ sl2_key }}<br>Note</th>
+      <th class="text-center th-sub-hj">Vorschlag</th>
+      <th class="text-center th-sub-hj">Tatsächlich</th>
     </tr>
   </thead>
   <tbody>
-  {% for s in students %}
-    {% set full_name = s.nachname + ', ' + s.vorname %}
-    <tr>
-      <td>{{ full_name }}</td>
-      {% set notes = [] %}
-      {% for ln in lns %}
-        {% set note = none %}
-        {% for sc in ln.schueler %}
-          {% if sc.name == full_name %}
-            {% set note = sc.note_15 %}
-          {% endif %}
-        {% endfor %}
-        {% if notes.append(note) %}{% endif %}
-        <td class="text-center">
-          {% if note is not none %}
-            <span class="fw-bold">{{ note }}</span>
-            <span class="text-muted small">({{ note15_to6[note] }})</span>
-          {% else %}
-            <span class="text-muted">–</span>
-          {% endif %}
-        </td>
-      {% endfor %}
-      {% set valid_notes = notes | select('number') | list %}
-      <td class="text-center fw-bold">
-        {% if valid_notes %}
-          {{ (valid_notes | sum / valid_notes | length) | round(1) }}
+    {% for row in rows %}
+    <tr data-name="{{ row.name }}"
+        data-gln-mean="{{ row.gln_mean if row.gln_mean is not none else 'null' }}"
+        data-kln-mean-sl1="{{ row.kln_mean_sl1 if row.kln_mean_sl1 is not none else 'null' }}"
+        data-kln-mean-sl2="{{ row.kln_mean_sl2 if row.kln_mean_sl2 is not none else 'null' }}">
+      <td>{{ row.name }}</td>
+      {% for c in row.gln_cols %}
+      <td class="text-center">
+        {% if c.note_15 is not none %}
+          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>
         {% else %}–{% endif %}
+      </td>
+      {% endfor %}
+      {% for c in row.sl1_cols %}
+      <td class="text-center">
+        {% if c.note_15 is not none %}
+          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>
+        {% else %}–{% endif %}
+      </td>
+      {% endfor %}
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm mdl-input mdl1-input"
+               min="0" max="15" step="1" value="{{ row.mdl1 if row.mdl1 is not none else '' }}">
+      </td>
+      <td class="text-center sl1-note-display{% if row.sl1_note_15 is not none and row.sl1_note_15 < rot_schwelle %} text-danger{% endif %}">
+        {% if row.sl1_note_15 is not none %}<strong>{{ row.sl1_note_15 }}</strong>{% else %}–{% endif %}
+      </td>
+      {% for c in row.sl2_cols %}
+      <td class="text-center">
+        {% if c.note_15 is not none %}
+          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>
+        {% else %}–{% endif %}
+      </td>
+      {% endfor %}
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm mdl-input mdl2-input"
+               min="0" max="15" step="1" value="{{ row.mdl2 if row.mdl2 is not none else '' }}">
+      </td>
+      <td class="text-center sl2-note-display{% if row.sl2_note_15 is not none and row.sl2_note_15 < rot_schwelle %} text-danger{% endif %}">
+        {% if row.sl2_note_15 is not none %}<strong>{{ row.sl2_note_15 }}</strong>{% else %}–{% endif %}
+      </td>
+      <td class="text-center hj-vorschlag-display{% if row.hj_vorschlag is not none and row.hj_vorschlag < rot_schwelle %} text-danger{% endif %}">
+        {% if row.hj_vorschlag is not none %}<em>{{ row.hj_vorschlag }}</em>{% else %}–{% endif %}
       </td>
       <td class="text-center">
-        {% if valid_notes %}
-          {% set avg = (valid_notes | sum / valid_notes | length) | round(0) | int %}
-          {% set zn = note15_to6.get(avg, 6) %}
-          <span class="badge
-            {{ 'bg-success' if zn <= 2 else ('bg-warning text-dark' if zn <= 3 else 'bg-danger') }}
-            fs-6">{{ zn }}</span>
-        {% else %}–{% endif %}
+        <input type="number" class="form-control form-control-sm hj-input hj-actual-input"
+               min="0" max="15" step="1" value="{{ row.hj_actual if row.hj_actual is not none else '' }}">
       </td>
     </tr>
-  {% else %}
-    <tr><td colspan="{{ lns | length + 3 }}" class="text-center text-muted">Keine aktiven Schüler.</td></tr>
-  {% endfor %}
+    {% endfor %}
   </tbody>
 </table>
 </div>
-
-<!-- Notenverteilung über alle LN -->
-<div class="row mt-4">
-  <div class="col-md-8">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h6>Notenverteilung aller Leistungsnachweise</h6>
-        <canvas id="chartUebersicht" style="max-height:250px"></canvas>
-      </div>
-    </div>
-  </div>
-</div>
-{% endif %}
 {% endblock %}
-
 {% block extra_scripts %}
-{% if lns %}
 <script>
-// Build note distribution per LN
-const lnNames = {{ lns | map(attribute='name') | list | tojson }};
-const lnData  = [
-{% for ln in lns %}
-  (() => {
-    const dist = {};
-    for (let i = 0; i <= 15; i++) dist[i] = 0;
-    {% for s in ln.schueler %}
-      {% if s.note_15 is not none %}dist[{{ s.note_15 }}]++;{% endif %}
-    {% endfor %}
-    return Object.values(dist);
-  })(),
-{% endfor %}
-];
+const HJ_KEY      = {{ hj_key | tojson }};
+const GW          = {{ gewichtung | tojson }};
+const ROT_SCHWELLE = {{ rot_schwelle }};
 
-const colors = ['#1f4e79','#2e75b6','#5ba3d9','#a9cce3','#d6e8f5','#f0f7fc'].concat(
-  lnNames.map((_,i) => `hsl(${200 + i*25},60%,55%)`)
-);
+function roundNote15(x) {
+  if (x === null || x === undefined || isNaN(x)) return null;
+  return Math.max(0, Math.min(15, Math.round(x)));
+}
+function computeSlNote(mdl, km) {
+  if (mdl === null && km === null) return null;
+  if (mdl === null) return km;
+  if (km === null)  return mdl;
+  const t = GW.sl_mdl_pct + GW.sl_kln_pct;
+  return t > 0 ? (mdl * GW.sl_mdl_pct + km * GW.sl_kln_pct) / t : null;
+}
+function computeHjVorschlag(glnMean, sl1, sl2) {
+  const p = [];
+  if (glnMean !== null) p.push([glnMean, GW.hj_gln_w]);
+  if (sl1     !== null) p.push([sl1,     GW.hj_sl1_w]);
+  if (sl2     !== null) p.push([sl2,     GW.hj_sl2_w]);
+  if (!p.length) return null;
+  const tw = p.reduce((s, [, w]) => s + w, 0);
+  return tw > 0 ? p.reduce((s, [n, w]) => s + n * w, 0) / tw : null;
+}
+function slHtml(n15) {
+  if (n15 === null) return '–';
+  const red = n15 < ROT_SCHWELLE ? ' text-danger' : '';
+  return `<strong class="${red}">${n15}</strong>`;
+}
+function hjHtml(n15) {
+  if (n15 === null) return '–';
+  const red = n15 < ROT_SCHWELLE ? ' text-danger' : '';
+  return `<em class="${red}">${n15}</em>`;
+}
 
-new Chart(document.getElementById('chartUebersicht'), {
-  type: 'bar',
-  data: {
-    labels: Array.from({length:16}, (_,i) => i),
-    datasets: lnNames.map((name, i) => ({
-      label: name,
-      data: lnData[i],
-      backgroundColor: colors[i % colors.length],
-      borderRadius: 3,
-    }))
-  },
-  options: {
-    plugins: { legend: { position: 'bottom' } },
-    scales: { x: { title: { display: true, text: 'Note (0-15)' } },
-              y: { beginAtZero: true, ticks: { stepSize: 1 } } }
-  }
+function updateRow(row) {
+  const gln  = row.dataset.glnMean     === 'null' ? null : parseFloat(row.dataset.glnMean);
+  const km1  = row.dataset.klnMeanSl1  === 'null' ? null : parseFloat(row.dataset.klnMeanSl1);
+  const km2  = row.dataset.klnMeanSl2  === 'null' ? null : parseFloat(row.dataset.klnMeanSl2);
+  const m1v  = row.querySelector('.mdl1-input')?.value;
+  const m2v  = row.querySelector('.mdl2-input')?.value;
+  const m1   = m1v !== '' && m1v != null ? parseFloat(m1v) : null;
+  const m2   = m2v !== '' && m2v != null ? parseFloat(m2v) : null;
+  const sl1  = roundNote15(computeSlNote(m1, km1));
+  const sl2  = roundNote15(computeSlNote(m2, km2));
+  row.querySelector('.sl1-note-display').innerHTML = slHtml(sl1);
+  row.querySelector('.sl2-note-display').innerHTML = slHtml(sl2);
+  const hjV  = roundNote15(computeHjVorschlag(gln, sl1, sl2));
+  row.querySelector('.hj-vorschlag-display').innerHTML = hjHtml(hjV);
+}
+
+document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
+  row.querySelector('.mdl1-input')?.addEventListener('input', () => updateRow(row));
+  row.querySelector('.mdl2-input')?.addEventListener('input', () => updateRow(row));
 });
+
+document.getElementById('btnSave')?.addEventListener('click', async () => {
+  const schueler = [];
+  document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
+    const toInt = v => (v !== '' && v != null) ? parseInt(v, 10) : null;
+    schueler.push({
+      name:      row.dataset.name,
+      mdl1:      toInt(row.querySelector('.mdl1-input')?.value),
+      mdl2:      toInt(row.querySelector('.mdl2-input')?.value),
+      hj_actual: toInt(row.querySelector('.hj-actual-input')?.value),
+    });
+  });
+  const resp = await fetch('/api/hj-speichern', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+    body: JSON.stringify({ hj: HJ_KEY, schueler })
+  });
+  const data = await resp.json();
+  showToast(data.ok ? 'Gespeichert.' : 'Fehler: ' + (data.error || '?'), data.ok ? 'success' : 'danger');
+});
+
+function showToast(msg, type) {
+  const d = document.createElement('div');
+  d.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
+  d.setAttribute('role', 'alert');
+  d.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+  document.body.appendChild(d);
+  new bootstrap.Toast(d, { delay: 3000 }).show();
+  d.addEventListener('hidden.bs.toast', () => d.remove());
+}
 </script>
-{% endif %}
 {% endblock %}

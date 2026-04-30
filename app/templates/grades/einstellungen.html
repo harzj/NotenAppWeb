@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Klasseneinstellungen{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h4 class="card-title mb-3">
+          <i class="bi bi-gear me-2"></i>Klasseneinstellungen
+        </h4>
+        <form method="post" novalidate>
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            {{ form.klasse.label(class="form-label") }}
+            {{ form.klasse(class="form-control" + (" is-invalid" if form.klasse.errors else ""),
+                           placeholder="z.B. 7p") }}
+            {% for e in form.klasse.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mb-3">
+            {{ form.fach.label(class="form-label") }}
+            {{ form.fach(class="form-control" + (" is-invalid" if form.fach.errors else ""),
+                         placeholder="z.B. Informatik") }}
+            {% for e in form.fach.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mb-4">
+            {{ form.schuljahr.label(class="form-label") }}
+            {{ form.schuljahr(class="form-control" + (" is-invalid" if form.schuljahr.errors else ""),
+                              placeholder="z.B. 2526", maxlength=4) }}
+            <div class="form-text">
+              Wird automatisch bestimmt. Format: 4 Ziffern ohne Trennzeichen, z.B.
+              <strong>2526</strong> für Schuljahr 2025/26.
+            </div>
+            {% for e in form.schuljahr.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          {{ form.submit(class="btn btn-primary") }}
+          <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
+        </form>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-4">
+      <div class="card-body p-4">
+        <h5 class="mb-3"><i class="bi bi-calculator me-2"></i>Notenberechnung</h5>
+        <form method="post" novalidate>
+          {{ form.hidden_tag() }}
+
+          <h6 class="text-muted mb-2">Gewichtung SL-Note</h6>
+          <div class="form-text mb-2">Die Gewichte sollten zusammen 100 ergeben.</div>
+          <div class="row g-2 mb-3">
+            <div class="col-sm-6">
+              {{ form.sl_mdl_pct.label(class="form-label") }}
+              {{ form.sl_mdl_pct(class="form-control" + (" is-invalid" if form.sl_mdl_pct.errors else "")) }}
+              {% for e in form.sl_mdl_pct.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="col-sm-6">
+              {{ form.sl_kln_pct.label(class="form-label") }}
+              {{ form.sl_kln_pct(class="form-control" + (" is-invalid" if form.sl_kln_pct.errors else "")) }}
+              {% for e in form.sl_kln_pct.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <h6 class="text-muted mb-2">Gewichtung HJ-Note <small class="fw-normal">(relative Gewichte)</small></h6>
+          <div class="form-text mb-2">Die Noten werden mit diesen Faktoren gewichtet (z.B. 1.0 = gleiche Gewichtung).</div>
+          <div class="row g-2 mb-3">
+            <div class="col-sm-4">
+              {{ form.hj_gln_w.label(class="form-label") }}
+              {{ form.hj_gln_w(class="form-control" + (" is-invalid" if form.hj_gln_w.errors else "")) }}
+              {% for e in form.hj_gln_w.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="col-sm-4">
+              {{ form.hj_sl1_w.label(class="form-label") }}
+              {{ form.hj_sl1_w(class="form-control" + (" is-invalid" if form.hj_sl1_w.errors else "")) }}
+              {% for e in form.hj_sl1_w.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="col-sm-4">
+              {{ form.hj_sl2_w.label(class="form-label") }}
+              {{ form.hj_sl2_w(class="form-control" + (" is-invalid" if form.hj_sl2_w.errors else "")) }}
+              {% for e in form.hj_sl2_w.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          {{ form.submit(class="btn btn-primary") }}
+          <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
+        </form>
+      </div>
+    </div>
+
+    <div class="alert alert-info mt-3 small">
+      <i class="bi bi-info-circle me-1"></i>
+      Der Dateiname beim Excel-Export lautet <strong>Noten_&lt;Klasse&gt;_&lt;Schuljahr&gt;.xlsx</strong>,
+      z.B. <code>Noten_7p_2526.xlsx</code>.
+    </div>
+  </div>
+</div>
+{% endblock %}

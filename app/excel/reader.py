@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import re
+from datetime import date as date_cls
 from typing import Any
 
 import msoffcrypto
@@ -20,6 +21,16 @@ class ExcelReadError(Exception):
     pass
 
 
+def schuljahr_from_date(d: date_cls | None = None) -> str:
+    """Return school-year string like '2526' for 2025/26.
+    Cutoff: before July 21 → previous school year, else current."""
+    if d is None:
+        d = date_cls.today()
+    cutoff = date_cls(d.year, 7, 21)
+    start = d.year - 1 if d < cutoff else d.year
+    return f"{start % 100:02d}{(start + 1) % 100:02d}"
+
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
@@ -28,6 +39,8 @@ def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
 
     Returns a dict with keys:
         klasse: str
+        fach: str
+        schuljahr: str
         stammdaten: list[dict]
         leistungsnachweise: list[dict]
         uebersicht_hj1: dict | None
@@ -35,8 +48,11 @@ def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
         uebersicht_jahr: dict | None
     """
     wb = _open_workbook(file_bytes, password)
+    fach, schuljahr = _read_metadata(wb)
     return {
         "klasse": _read_class_name(wb),
+        "fach": fach,
+        "schuljahr": schuljahr,
         "stammdaten": _read_stammdaten(wb),
         "leistungsnachweise": _read_all_ln(wb),
         "uebersicht_hj1": _read_uebersicht(wb, S.SHEET_UEBERSICHT_HJ1),
@@ -84,6 +100,22 @@ def _read_class_name(wb: Workbook) -> str:
         min_row=S.SD_INFO_ROW, max_row=S.SD_INFO_ROW, values_only=True
     ))[0]
     return _str(row, S.SD_CLASS_NAME_VALUE_COL - 1)
+
+
+def _read_metadata(wb: Workbook) -> tuple[str, str]:
+    """Returns (fach, schuljahr) from Stammdaten info row.
+    Falls back to auto-detected school year if not stored."""
+    if S.SHEET_STAMMDATEN not in wb.sheetnames:
+        return "", schuljahr_from_date()
+    ws: Worksheet = wb[S.SHEET_STAMMDATEN]
+    row = list(ws.iter_rows(
+        min_row=S.SD_INFO_ROW, max_row=S.SD_INFO_ROW, values_only=True
+    ))[0]
+    fach = _str(row, S.SD_FACH_VALUE_COL - 1)
+    sj = _str(row, S.SD_SJ_VALUE_COL - 1)
+    if not sj:
+        sj = schuljahr_from_date()
+    return fach, sj
 
 
 # ── Stammdaten ────────────────────────────────────────────────────────────────

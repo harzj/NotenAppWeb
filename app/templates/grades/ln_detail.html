@@ -31,6 +31,13 @@
       <i class="bi bi-arrow-left"></i>
     </a>
     <h4 class="d-inline-block mb-0">{{ ln.name }}</h4>
+    {% if ln.ln_typ == 'GLN' %}
+      <span class="badge bg-danger ms-2">GLN</span>
+      {% if ln.hj %}<span class="badge bg-secondary ms-1">{{ ln.hj }}</span>{% endif %}
+    {% elif ln.ln_typ == 'KLN' %}
+      <span class="badge bg-warning text-dark ms-2">KLN</span>
+      {% if ln.sl_zuordnung %}<span class="badge bg-secondary ms-1">{{ ln.sl_zuordnung }}</span>{% endif %}
+    {% endif %}
   </div>
   <div class="d-flex gap-2">
     <button class="btn btn-sm btn-success" id="btnSaveAll">
@@ -73,6 +80,7 @@
     <thead>
       <tr>
         <th class="sticky-col">Schüler</th>
+        <th class="text-center" style="width:3rem" title="Leistungsnachweis für diesen Schüler ignorieren">Ign.</th>
         {% for t in ln.aufgaben %}
         <th class="text-center" title="AFB: {{ t.afb or '–' }}">
           {{ t.label }}
@@ -85,6 +93,7 @@
       </tr>
       <tr class="table-secondary small">
         <td class="sticky-col fw-bold">Max. Punkte</td>
+        <td></td>
         {% for t in ln.aufgaben %}
         <td class="text-center fw-bold">{{ t.max_punkte | int }}</td>
         {% endfor %}
@@ -96,8 +105,14 @@
     </thead>
     <tbody>
       {% for s in ln.schueler %}
-      <tr data-sname="{{ s.name }}">
+      <tr data-sname="{{ s.name }}" data-ignoriert="{{ 'true' if s.ignoriert else 'false' }}"
+          class="{{ 'ln-row-ignored table-secondary' if s.ignoriert else '' }}">
         <td class="sticky-col">{{ s.name }}</td>
+        <td class="text-center">
+          <input type="checkbox" class="form-check-input student-ignoriert"
+                 title="LN für diesen Schüler ignorieren"
+                 {{ 'checked' if s.ignoriert else '' }}>
+        </td>
         {% for t_idx in range(ln.aufgaben | length) %}
         <td class="text-center points-cell p-1">
           <div class="input-group input-group-sm">
@@ -118,7 +133,7 @@
         <td class="text-center fw-bold student-gesamt">
           {{ s.punkte | select('number') | sum | int if s.punkte else '–' }}
         </td>
-        <td class="text-center note-cell student-note15">
+        <td class="text-center note-cell student-note15{% if s.note_15 is not none and s.note_15 < rot_schwelle %} text-danger{% endif %}">
           {{ s.note_15 if s.note_15 is not none else '–' }}
         </td>
         <td class="text-center">
@@ -131,7 +146,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="{{ ln.aufgaben | length + 4 }}" class="text-center text-muted">
+      <tr><td colspan="{{ ln.aufgaben | length + 5 }}" class="text-center text-muted">
         Keine Schüler vorhanden. Füge Schüler unter <a href="{{ url_for('grades.stammdaten') }}">Stammdaten</a> hinzu.
       </td></tr>
       {% endfor %}
@@ -240,17 +255,32 @@ document.getElementById('gradeTable').addEventListener('click', e => {
 });
 
 // ── Save all changes ──────────────────────────────────────────────────────────
+// ── Ignoriert checkbox ────────────────────────────────────────────────────────
+document.getElementById('gradeTable').addEventListener('change', e => {
+  const cb = e.target.closest('.student-ignoriert');
+  if (!cb) return;
+  const row = cb.closest('tr');
+  if (cb.checked) {
+    row.classList.add('ln-row-ignored', 'table-secondary');
+    row.dataset.ignoriert = 'true';
+  } else {
+    row.classList.remove('ln-row-ignored', 'table-secondary');
+    row.dataset.ignoriert = 'false';
+  }
+});
+
 document.getElementById('btnSaveAll').addEventListener('click', async () => {
   const rows = document.querySelectorAll('#gradeTable tbody tr[data-sname]');
   const schueler = [];
   rows.forEach(row => {
     const name = row.getAttribute('data-sname');
+    const ignoriert = row.dataset.ignoriert === 'true';
     const punkte = [];
     row.querySelectorAll('.student-points').forEach(inp => {
       const v = inp.value === '' ? null : parseFloat(inp.value);
       punkte.push(v);
     });
-    schueler.push({ name, punkte });
+    schueler.push({ name, punkte, ignoriert });
   });
 
   const resp = await fetch(`/ln/${LN_IDX}/noten`, {
@@ -501,6 +531,69 @@ document.getElementById('statistikPanel').addEventListener('show.bs.collapse', a
     options: { plugins: { legend: { position: 'bottom' } },
                scales: { y: { beginAtZero: true } } }
   });
+});
+
+// ── Excel-Paste-Support ───────────────────────────────────────────────────────
+// Wenn Zellen aus Excel (oder einer anderen Tabelle) kopiert werden, liegen sie
+// als TSV im Clipboard vor: Spalten durch Tab, Zeilen durch Newline getrennt.
+// Einfügen beginnt an der fokussierten Zelle und füllt nach rechts / unten.
+document.getElementById('gradeTable').addEventListener('paste', function(e) {
+  const target = e.target;
+  if (!target.classList.contains('student-points')) return;
+
+  e.preventDefault();
+
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  if (!text) return;
+
+  // Parse TSV: Zeilen durch \n, Spalten durch \t
+  const pastedRows = text.trimEnd().split(/\r?\n/).map(row => row.split('\t'));
+
+  const allStudentRows = Array.from(
+    document.querySelectorAll('#gradeTable tbody tr[data-sname]')
+  );
+  const startStudentIdx = allStudentRows.indexOf(target.closest('tr'));
+  const startTaskIdx    = parseInt(target.dataset.tidx, 10);
+
+  if (startStudentIdx === -1 || isNaN(startTaskIdx)) return;
+
+  let filledCount = 0;
+  pastedRows.forEach((cols, rowOffset) => {
+    const studentIdx = startStudentIdx + rowOffset;
+    if (studentIdx >= allStudentRows.length) return;
+    const row = allStudentRows[studentIdx];
+
+    cols.forEach((raw, colOffset) => {
+      const taskIdx = startTaskIdx + colOffset;
+      const inp = row.querySelector(`.student-points[data-tidx="${taskIdx}"]`);
+      if (!inp) return;
+
+      const trimmed = raw.trim();
+      if (trimmed === '' || trimmed === '-') {
+        inp.value = '';
+        inp.dispatchEvent(new Event('input'));
+        filledCount++;
+        return;
+      }
+      // Deutsches Dezimalkomma → Punkt normalisieren
+      const normalized = trimmed.replace(',', '.');
+      const num = parseFloat(normalized);
+      if (isNaN(num)) return;
+
+      const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
+      inp.value = Math.max(0, Math.min(max, num));
+      inp.dispatchEvent(new Event('input'));
+      filledCount++;
+    });
+  });
+
+  if (filledCount > 0) {
+    const rowWord = pastedRows.length === 1 ? 'Zeile' : 'Zeilen';
+    showToast(
+      `${pastedRows.length} ${rowWord} aus Zwischenablage eingefügt – bitte speichern!`,
+      'info'
+    );
+  }
 });
 
 // ── Toast helper ──────────────────────────────────────────────────────────────

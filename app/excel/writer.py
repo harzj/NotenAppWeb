@@ -35,13 +35,15 @@ def build_gradebook(data: dict, password: str | None = None) -> bytes:
     wb.remove(wb.active)  # remove default sheet
 
     klasse = data.get("klasse", "")
+    fach = data.get("fach", "")
+    schuljahr = data.get("schuljahr", "")
     stammdaten = data.get("stammdaten", [])
     # Map "Nachname, Vorname" → row number in Stammdaten sheet (for formula references)
     name_to_sd_row: dict[str, int] = {
         f"{s['nachname']}, {s['vorname']}": S.SD_DATA_START_ROW + i
         for i, s in enumerate(stammdaten)
     }
-    _write_stammdaten(wb, stammdaten, klasse=klasse)
+    _write_stammdaten(wb, stammdaten, klasse=klasse, fach=fach, schuljahr=schuljahr)
     for ln in data.get("leistungsnachweise", []):
         _write_ln_sheet(wb, ln, name_to_sd_row=name_to_sd_row)
     _write_uebersicht(wb, data, S.SHEET_UEBERSICHT_HJ1, "HJ1")
@@ -60,13 +62,21 @@ def build_gradebook(data: dict, password: str | None = None) -> bytes:
 
 # ── Stammdaten ────────────────────────────────────────────────────────────────
 
-def _write_stammdaten(wb: Workbook, students: list[dict], klasse: str = "") -> None:
+def _write_stammdaten(wb: Workbook, students: list[dict], klasse: str = "", fach: str = "", schuljahr: str = "") -> None:
     ws = wb.create_sheet(S.SHEET_STAMMDATEN)
-    # Row 1: class name metadata
+    # Row 1: class name + fach + schuljahr metadata
     lbl = ws.cell(S.SD_INFO_ROW, S.SD_CLASS_NAME_LABEL_COL, S.SD_CLASS_NAME_LABEL)
     lbl.font = Font(bold=True, size=11)
     val = ws.cell(S.SD_INFO_ROW, S.SD_CLASS_NAME_VALUE_COL, klasse)
     val.font = Font(bold=True, size=12, color="1F4E79")
+    fach_lbl = ws.cell(S.SD_INFO_ROW, S.SD_FACH_LABEL_COL, S.SD_FACH_LABEL)
+    fach_lbl.font = Font(bold=True, size=11)
+    fach_val = ws.cell(S.SD_INFO_ROW, S.SD_FACH_VALUE_COL, fach)
+    fach_val.font = Font(bold=True, size=12, color="1F4E79")
+    sj_lbl = ws.cell(S.SD_INFO_ROW, S.SD_SJ_LABEL_COL, S.SD_SJ_LABEL)
+    sj_lbl.font = Font(bold=True, size=11)
+    sj_val = ws.cell(S.SD_INFO_ROW, S.SD_SJ_VALUE_COL, schuljahr)
+    sj_val.font = Font(bold=True, size=12, color="1F4E79")
     # Row 2: headers
     headers = ["Nachname", "Vorname", "Status", "Austrittsdatum"]
     _write_header_row(ws, S.SD_HEADER_ROW, headers)

@@ -16,6 +16,12 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_login = db.Column(db.DateTime, nullable=True)
 
+    # Lehrerprofil
+    lehrer_vorname = db.Column(db.String(64), nullable=True)
+    lehrer_nachname = db.Column(db.String(64), nullable=True)
+    dienstbezeichnung = db.Column(db.String(64), nullable=True)
+    anrede = db.Column(db.String(10), nullable=True)
+
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
 
