@@ -50,6 +50,8 @@ def build_gradebook(data: dict, password: str | None = None) -> bytes:
     _write_uebersicht(wb, data, S.SHEET_UEBERSICHT_HJ2, "HJ2")
     _write_uebersicht(wb, data, S.SHEET_UEBERSICHT_JAHR, "Jahr")
     _write_notentabelle(wb)
+    _write_noten_zusatz(wb, data, stammdaten)
+    _write_einstellungen(wb, data)
 
     raw = io.BytesIO()
     wb.save(raw)
@@ -96,26 +98,48 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
     schueler: list[dict] = ln.get("schueler", [])
 
     n_tasks = len(aufgaben)
-    col_gesamt = S.LN_COL_TASKS_START + n_tasks          # 1-based
-    col_note15 = col_gesamt + 1
-    col_note6  = col_gesamt + 2
+    col_gesamt    = S.LN_COL_TASKS_START + n_tasks          # 1-based
+    col_note15    = col_gesamt + 1
+    col_note6     = col_gesamt + 2
+    col_ignoriert = col_gesamt + 3
 
-    # ── Row 1: headers ──
+    # ── Row 1: LN metadata (v2 format marker) ──
+    meta_style = Font(bold=True, color="FFFFFF")
+    meta_fill  = PatternFill("solid", fgColor="4F4F4F")
+    for col, label, val in [
+        (S.LN_META_TYP_COL, S.LN_META_TYP_LABEL, ln.get("ln_typ", "")),
+        (S.LN_META_TYP_VAL, None, ln.get("ln_typ", "")),
+        (S.LN_META_HJ_COL,  S.LN_META_HJ_LABEL,  None),
+        (S.LN_META_HJ_VAL,  None, ln.get("hj") or ""),
+        (S.LN_META_SL_COL,  S.LN_META_SL_LABEL,  None),
+        (S.LN_META_SL_VAL,  None, ln.get("sl_zuordnung") or ""),
+    ]:
+        c = ws.cell(S.LN_ROW_META, col)
+        c.value = label if label is not None else val
+        c.fill  = meta_fill
+        c.font  = Font(bold=True, color="FFFFFF")
+    # Overwrite value cells with actual values
+    ws.cell(S.LN_ROW_META, S.LN_META_TYP_VAL).value = ln.get("ln_typ", "")
+    ws.cell(S.LN_ROW_META, S.LN_META_HJ_VAL).value  = ln.get("hj") or ""
+    ws.cell(S.LN_ROW_META, S.LN_META_SL_VAL).value  = ln.get("sl_zuordnung") or ""
+
+    # ── Row 2: headers ──
     ws.cell(S.LN_ROW_HEADER, S.LN_COL_NAME, S.LN_HEADER_NAME)
     for t_idx, task in enumerate(aufgaben):
         ws.cell(S.LN_ROW_HEADER, S.LN_COL_TASKS_START + t_idx, task["label"])
-    ws.cell(S.LN_ROW_HEADER, col_gesamt, S.LN_HEADER_GESAMT)
-    ws.cell(S.LN_ROW_HEADER, col_note15, S.LN_HEADER_NOTE_15)
-    ws.cell(S.LN_ROW_HEADER, col_note6,  S.LN_HEADER_NOTE_6)
-    _style_header_row(ws, S.LN_ROW_HEADER, col_note6)
+    ws.cell(S.LN_ROW_HEADER, col_gesamt,    S.LN_HEADER_GESAMT)
+    ws.cell(S.LN_ROW_HEADER, col_note15,    S.LN_HEADER_NOTE_15)
+    ws.cell(S.LN_ROW_HEADER, col_note6,     S.LN_HEADER_NOTE_6)
+    ws.cell(S.LN_ROW_HEADER, col_ignoriert, S.LN_HEADER_IGNORIERT)
+    _style_header_row(ws, S.LN_ROW_HEADER, col_ignoriert)
 
-    # ── Row 2: Anforderungsbereich ──
+    # ── Row 3: Anforderungsbereich ──
     ws.cell(S.LN_ROW_AFB, S.LN_COL_NAME, S.LN_HEADER_AFB_LABEL)
     for t_idx, task in enumerate(aufgaben):
         ws.cell(S.LN_ROW_AFB, S.LN_COL_TASKS_START + t_idx, task.get("afb", ""))
-    _style_row_bg(ws, S.LN_ROW_AFB, col_note6, COLOR_AFB_BG)
+    _style_row_bg(ws, S.LN_ROW_AFB, col_ignoriert, COLOR_AFB_BG)
 
-    # ── Row 3: Max. Punkte ──
+    # ── Row 4: Max. Punkte ──
     ws.cell(S.LN_ROW_MAX, S.LN_COL_NAME, S.LN_HEADER_MAX_LABEL)
     task_start_letter = get_column_letter(S.LN_COL_TASKS_START)
     task_end_letter   = get_column_letter(S.LN_COL_TASKS_START + n_tasks - 1)
@@ -127,9 +151,9 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
     if n_tasks > 0:
         ws.cell(S.LN_ROW_MAX, col_gesamt,
                 f"=SUM({task_start_letter}{S.LN_ROW_MAX}:{task_end_letter}{S.LN_ROW_MAX})")
-    _style_row_bg(ws, S.LN_ROW_MAX, col_note6, COLOR_MAX_BG)
+    _style_row_bg(ws, S.LN_ROW_MAX, col_ignoriert, COLOR_MAX_BG)
 
-    # ── Rows 4+: Students ──
+    # ── Rows 5+: Students ──
     nt_sheet = S.SHEET_NOTENTABELLE
     for s_idx, s in enumerate(schueler):
         row = S.LN_DATA_START_ROW + s_idx
@@ -152,7 +176,6 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
             ws.cell(row, col_gesamt,
                     f"=SUM({task_start_letter}{row_letter}:{task_end_letter}{row_letter})")
 
-        # Note 0-15 via MATCH on Notentabelle: =IF(gesamt=0,0,IFERROR(INDEX(...),0))
         if n_tasks > 0:
             ws.cell(row, col_note15,
                 _note15_formula(gesamt_letter, row_letter,
@@ -160,9 +183,11 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
             ws.cell(row, col_note6,
                 _note6_formula(get_column_letter(col_note15), row_letter))
 
+        # Ignoriert flag (1 = ignored, blank = not ignored)
+        ws.cell(row, col_ignoriert, 1 if s.get("ignoriert") else None)
+
         if s_idx % 2 == 1:
-            _style_row_bg(ws, row, col_note6, COLOR_ALT_ROW)
-        # Highlight note columns
+            _style_row_bg(ws, row, col_ignoriert, COLOR_ALT_ROW)
         for c in (col_note15, col_note6):
             ws.cell(row, c).fill = PatternFill("solid", fgColor=COLOR_NOTE_BG)
 
@@ -270,6 +295,45 @@ def _find_student_row_in_ln(ln: dict, full_name: str) -> int | None:
 
 
 # ── Notentabelle (hidden reference sheet) ────────────────────────────────────
+
+def _write_noten_zusatz(wb: Workbook, data: dict, stammdaten: list[dict]) -> None:
+    """Write per-student MDL, SL-actual, HJ-actual and SJ-actual notes to a hidden sheet."""
+    ws = wb.create_sheet(S.SHEET_NOTEN_ZUSATZ)
+    ws.sheet_state = "hidden"
+
+    _write_header_row(ws, S.NZ_HEADER_ROW, S.NZ_HEADERS)
+
+    mdl_noten        = data.get("mdl_noten") or {}
+    sl_noten_actual  = data.get("sl_noten_actual") or {}
+    hj_noten         = data.get("hj_noten") or {}
+    sj_noten_actual  = data.get("schuljahr_noten_actual") or {}
+
+    for i, s in enumerate(stammdaten, start=S.NZ_DATA_START):
+        name = f"{s['nachname']}, {s['vorname']}"
+        ws.cell(i, S.NZ_COL_NAME, name)
+        ws.cell(i, S.NZ_COL_MDL_SL1,    mdl_noten.get(name, {}).get("SL1"))
+        ws.cell(i, S.NZ_COL_MDL_SL2,    mdl_noten.get(name, {}).get("SL2"))
+        ws.cell(i, S.NZ_COL_MDL_SL3,    mdl_noten.get(name, {}).get("SL3"))
+        ws.cell(i, S.NZ_COL_MDL_SL4,    mdl_noten.get(name, {}).get("SL4"))
+        ws.cell(i, S.NZ_COL_SL_ACT_SL1, sl_noten_actual.get(name, {}).get("SL1"))
+        ws.cell(i, S.NZ_COL_SL_ACT_SL2, sl_noten_actual.get(name, {}).get("SL2"))
+        ws.cell(i, S.NZ_COL_SL_ACT_SL3, sl_noten_actual.get(name, {}).get("SL3"))
+        ws.cell(i, S.NZ_COL_SL_ACT_SL4, sl_noten_actual.get(name, {}).get("SL4"))
+        ws.cell(i, S.NZ_COL_HJ_ACT_HJ1, hj_noten.get(name, {}).get("HJ1"))
+        ws.cell(i, S.NZ_COL_HJ_ACT_HJ2, hj_noten.get(name, {}).get("HJ2"))
+        ws.cell(i, S.NZ_COL_SJ_ACT,     sj_noten_actual.get(name))
+
+
+def _write_einstellungen(wb: Workbook, data: dict) -> None:
+    """Write sl_gewichtung key-value pairs to a hidden sheet."""
+    ws = wb.create_sheet(S.SHEET_EINSTELLUNGEN)
+    ws.sheet_state = "hidden"
+    _write_header_row(ws, S.ES_HEADER_ROW, ["Einstellung", "Wert"])
+    gw = data.get("sl_gewichtung") or {}
+    for i, key in enumerate(S.ES_GEWICHTUNG_KEYS, start=S.ES_DATA_START):
+        ws.cell(i, S.ES_COL_KEY,   key)
+        ws.cell(i, S.ES_COL_VALUE, gw.get(key))
+
 
 def _write_notentabelle(wb: Workbook) -> None:
     ws = wb.create_sheet(S.SHEET_NOTENTABELLE)

@@ -24,17 +24,49 @@
       </a>
     </div>
   </div>
-  <button class="btn btn-success" id="btnSave">
-    <i class="bi bi-save me-1"></i>Speichern
-  </button>
+  <div class="d-flex gap-2">
+    <div class="btn-group">
+      <a href="{{ url_for('grades.sl_druck', sl_key=sl_key, layout=1) }}"
+         target="_blank" class="btn btn-outline-secondary">
+        <i class="bi bi-printer me-1"></i>Drucken
+      </a>
+      <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split"
+              data-bs-toggle="dropdown" aria-expanded="false">
+        <span class="visually-hidden">Layout</span>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><h6 class="dropdown-header">Zettel pro Seite</h6></li>
+        <li>
+          <a class="dropdown-item" href="{{ url_for('grades.sl_druck', sl_key=sl_key, layout=1) }}" target="_blank">
+            <i class="bi bi-file-earmark me-1"></i>1 pro Seite (Hochformat)
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item" href="{{ url_for('grades.sl_druck', sl_key=sl_key, layout=2) }}" target="_blank">
+            <i class="bi bi-layout-split me-1"></i>2 pro Seite (Querformat)
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item" href="{{ url_for('grades.sl_druck', sl_key=sl_key, layout=4) }}" target="_blank">
+            <i class="bi bi-grid me-1"></i>4 pro Seite (Hochformat)
+          </a>
+        </li>
+      </ul>
+    </div>
+    <button class="btn btn-success" id="btnSave">
+      <i class="bi bi-save me-1"></i>Speichern
+    </button>
+  </div>
 </div>
 
 {% if not kln_list %}
-<div class="alert alert-info">
-  Noch keine KLN für {{ sl_key }} vorhanden.
-  Weise Leistungsnachweise (KLN-Typ) der Zuordnung {{ sl_key }} zu.
+<div class="alert alert-info mb-3">
+  <i class="bi bi-info-circle me-1"></i>
+  Noch keine KLN für {{ sl_key }} vorhanden –
+  mündliche Note und tatsächliche SL-Note können trotzdem eingetragen werden.
+  <a href="{{ url_for('grades.ln_list') }}" class="alert-link ms-1">KLN anlegen</a>
 </div>
-{% else %}
+{% endif %}
 <div class="table-responsive">
 <table class="table table-bordered table-sm align-middle" id="slTable">
   <thead>
@@ -43,10 +75,12 @@
       {% for ln in kln_list %}
       <th class="text-center">{{ ln.name }}</th>
       {% endfor %}
+      {% if kln_list %}
       <th class="text-center bg-light">KLN Mittel</th>
-      <th class="text-center bg-info bg-opacity-10">Mündl. Note<br><small class="fw-normal">(0–15)</small></th>
-      <th class="text-center bg-warning bg-opacity-25">{{ sl_key }}-Note<br><small class="fw-normal">Vorschlag</small></th>
-      <th class="text-center bg-success bg-opacity-10">{{ sl_key }}-Note<br><small class="fw-normal">Tatsächlich</small></th>
+      {% endif %}
+      <th class="text-center bg-info text-white">Mündl. Note<br><small class="fw-normal">(0–15)</small></th>
+      <th class="text-center bg-warning text-dark">{{ sl_key }}-Note<br><small class="fw-normal">Vorschlag</small></th>
+      <th class="text-center bg-success text-white">{{ sl_key }}-Note<br><small class="fw-normal">Tatsächlich</small></th>
     </tr>
   </thead>
   <tbody>
@@ -63,18 +97,20 @@
         {% else %}–{% endif %}
       </td>
       {% endfor %}
+      {% if kln_list %}
       <td class="text-center text-muted small" id="kln-mean-{{ loop.index0 }}">
         {{ row.kln_mean if row.kln_mean is not none else '–' }}
       </td>
-      <td class="text-center">
+      {% endif %}
+      <td class="text-center bg-info bg-opacity-10">
         <input type="number" class="form-control form-control-sm mdl-input"
                min="0" max="15" step="1"
                value="{{ row.mdl if row.mdl is not none else '' }}">
       </td>
-      <td class="text-center note-cell sl-note-display{% if row.sl_note_15 is not none and row.sl_note_15 < rot_schwelle %} text-danger{% endif %}">
+      <td class="text-center note-cell sl-note-display bg-warning bg-opacity-25{% if row.sl_note_15 is not none and row.sl_note_15 < rot_schwelle %} text-danger{% endif %}">
         {{ row.sl_note_15 if row.sl_note_15 is not none else '–' }}
       </td>
-      <td class="text-center">
+      <td class="text-center bg-success bg-opacity-10">
         <input type="number" class="form-control form-control-sm sl-actual-input"
                min="0" max="15" step="1"
                value="{{ row.sl_actual if row.sl_actual is not none else '' }}">
@@ -84,7 +120,6 @@
   </tbody>
 </table>
 </div>
-{% endif %}
 {% endblock %}
 {% block extra_scripts %}
 <script>

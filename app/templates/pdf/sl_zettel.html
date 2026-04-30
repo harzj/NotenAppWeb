@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<style>
+{% if layout == 1 %}
+@page { size: A4 portrait; margin: 1.5cm; }
+.fs-title { font-size: 13pt; }
+.fs-subt  { font-size: 10pt; }
+.fs-meta  { font-size: 9pt; }
+.fs-name  { font-size: 15pt; }
+.fs-slbl  { font-size: 9pt; }
+.fs-val   { font-size: 12pt; }
+.fs-kh    { font-size: 9pt; }
+.fs-ktd   { font-size: 10pt; }
+.fs-slval { font-size: 16pt; }
+.fs-sig   { font-size: 8pt; }
+.sig-pad  { padding-bottom: 18px; }
+{% elif layout == 2 %}
+@page { size: A4 landscape; margin: 0.8cm; }
+.fs-title { font-size: 10pt; }
+.fs-subt  { font-size: 8pt; }
+.fs-meta  { font-size: 8pt; }
+.fs-name  { font-size: 11pt; }
+.fs-slbl  { font-size: 8pt; }
+.fs-val   { font-size: 9pt; }
+.fs-kh    { font-size: 8pt; }
+.fs-ktd   { font-size: 9pt; }
+.fs-slval { font-size: 13pt; }
+.fs-sig   { font-size: 7pt; }
+.sig-pad  { padding-bottom: 12px; }
+{% else %}
+@page { size: A4 portrait; margin: 0.5cm; }
+.fs-title { font-size: 8pt; }
+.fs-subt  { font-size: 7pt; }
+.fs-meta  { font-size: 7pt; }
+.fs-name  { font-size: 9pt; }
+.fs-slbl  { font-size: 7pt; }
+.fs-val   { font-size: 8pt; }
+.fs-kh    { font-size: 7pt; }
+.fs-ktd   { font-size: 7pt; }
+.fs-slval { font-size: 11pt; }
+.fs-sig   { font-size: 6pt; }
+.sig-pad  { padding-bottom: 8px; }
+{% endif %}
+
+body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+
+/* outer card */
+.zettel  { width: 100%; border-collapse: collapse; border: 2px solid #1f4e79; }
+
+/* dark blue header */
+.td-hdr  { background-color: #1f4e79; padding: 5px 8px; }
+.c-white { color: #ffffff; }
+.c-light { color: #bdd7ee; }
+
+/* meta bar */
+.td-meta { background-color: #dce6f1; padding: 3px 8px; border-bottom: 1px solid #9dc3e6; }
+.c-navy  { color: #1f4e79; }
+
+/* student name */
+.td-name { background-color: #f2f7fd; padding: 4px 8px;
+           border-top: 1px solid #9dc3e6; border-bottom: 1px solid #9dc3e6; }
+
+/* body */
+.td-body  { padding: 5px 8px 4px 8px; }
+.c-lbl    { color: #555; }
+.c-absent { color: #bbb; font-style: italic; }
+
+/* KLN inner table */
+.kln    { width: 100%; border-collapse: collapse; margin: 2px 0 6px 0; }
+.kln th { background-color: #efefef; color: #333; padding: 2px 5px;
+          border: 1px solid #ccc; text-align: left; }
+.kln td { padding: 2px 5px; border: 1px solid #e0e0e0; }
+.c-ignored { color: #999; font-style: italic; }
+
+/* SL result */
+.td-sl   { background-color: #e2efda; padding: 5px 8px; border-top: 2px solid #70ad47; }
+.c-green { color: #375623; }
+
+/* footer */
+.td-foot { padding: 4px 8px; border-top: 1px solid #ccc; }
+.sig-tbl { width: 100%; border-collapse: collapse; }
+.c-hint  { color: #777; font-style: italic; }
+</style>
+</head>
+<body>
+
+{# ── Zettel-Inhalt als Makro ─────────────────────────────────────────────── #}
+{% macro zettel(s) %}
+<table class="zettel">
+
+  {# ── Header ── #}
+  <tr>
+    <td class="td-hdr">
+      <p class="fs-title c-white" style="margin: 0 0 2px 0; font-weight: bold;">R&#xFC;ckmeldung Sonstige Leistungen</p>
+      <p class="fs-subt c-light" style="margin: 0;">{{ sl_titel }}</p>
+    </td>
+  </tr>
+
+  {# ── Klasse / Fach / Lehrkraft ── #}
+  <tr>
+    <td class="td-meta">
+      <p class="fs-meta c-navy" style="margin: 0;">
+        <strong>Klasse:</strong>&nbsp;{{ klasse or '&#x2013;' }}
+        &nbsp;&nbsp;&nbsp;
+        <strong>Fach:</strong>&nbsp;{{ fach or '&#x2013;' }}
+        &nbsp;&nbsp;&nbsp;
+        <strong>Lehrkraft:</strong>&nbsp;{{ lehrkraft or '&#x2013;' }}
+      </p>
+    </td>
+  </tr>
+
+  {# ── Sch&#xFC;lername ── #}
+  <tr>
+    <td class="td-name">
+      <p class="fs-name c-navy" style="margin: 0; font-weight: bold;">{{ s.name }}</p>
+    </td>
+  </tr>
+
+  {# ── M&#xFC;ndliche Note + KLN ── #}
+  <tr>
+    <td class="td-body">
+
+      <p class="fs-slbl c-lbl" style="margin: 0 0 1px 0;"><strong>M&#xFC;ndliche Note</strong></p>
+      <p class="fs-val" style="margin: 0 0 7px 0; font-weight: bold;">
+        {% if s.mdl_note is not none %}
+          {{ "%02d" | format(s.mdl_note) }}
+        {% else %}
+          <span class="c-absent">nicht eingetragen</span>
+        {% endif %}
+      </p>
+
+      <p class="fs-slbl c-lbl" style="margin: 0 0 2px 0;"><strong>Kleine Leistungsnachweise</strong></p>
+      {% if s.kln_noten %}
+      <table class="kln">
+        <tr>
+          <th class="fs-kh" style="width: 72%;">Nachweis</th>
+          <th class="fs-kh" style="width: 28%; text-align: center;">Note (0&#x2013;15)</th>
+        </tr>
+        {% for kln in s.kln_noten %}
+        <tr style="background-color: {{ '#f7f7f7' if loop.index is odd else '#ffffff' }};">
+          <td class="fs-ktd">{{ kln.name }}</td>
+          <td class="fs-ktd" style="text-align: center;">
+            {% if kln.ignoriert %}
+              <span class="c-ignored">({{ "%02d" | format(kln.note_15) if kln.note_15 is not none else '&#x2013;' }}) n.g.</span>
+            {% elif kln.note_15 is none %}
+              <span class="c-absent">&#x2013;</span>
+            {% else %}
+              <strong>{{ "%02d" | format(kln.note_15) }}</strong>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}
+      <p class="fs-ktd c-absent" style="margin: 0 0 6px 0;">Keine KLN vorhanden</p>
+      {% endif %}
+
+    </td>
+  </tr>
+
+  {# ── SL-Note ── #}
+  <tr>
+    <td class="td-sl">
+      <p class="fs-slbl c-green" style="margin: 0 0 1px 0; font-weight: bold;">SL-Note</p>
+      {% if s.sl_actual is not none %}
+        <p class="fs-slval c-green" style="margin: 0; font-weight: bold;">
+          {{ "%02d" | format(s.sl_actual) }}&nbsp;&nbsp;<span class="fs-slbl">(Note&nbsp;{{ note15_to6.get(s.sl_actual, 6) }})</span>
+        </p>
+      {% else %}
+        <p class="fs-slval c-absent" style="margin: 0;">nicht eingetragen</p>
+      {% endif %}
+    </td>
+  </tr>
+
+  {# ── Unterschriften ── #}
+  <tr>
+    <td class="td-foot">
+      <p class="fs-sig c-lbl" style="margin: 0 0 3px 0;">{{ today }}</p>
+      <table class="sig-tbl">
+        <tr>
+          <td class="sig-pad" style="width: 46%; border-bottom: 1px solid #333;">&nbsp;</td>
+          <td style="width: 8%;">&nbsp;</td>
+          <td class="sig-pad" style="width: 46%; border-bottom: 1px solid #333;">&nbsp;</td>
+        </tr>
+        <tr>
+          <td class="fs-sig c-lbl" style="padding-top: 2px;">Unterschrift Lehrkraft</td>
+          <td>&nbsp;</td>
+          <td class="fs-sig c-lbl" style="padding-top: 2px;">Kenntnisnahme Erziehungsber.</td>
+        </tr>
+      </table>
+      <p class="fs-sig c-hint" style="margin: 4px 0 0 0;">Bitte unterschrieben zur&#xFC;ckgeben.</p>
+    </td>
+  </tr>
+
+</table>
+{% endmacro %}
+
+{# ── Layout-Auswahl ──────────────────────────────────────────────────────── #}
+
+{% if layout == 1 %}
+
+  {% for s in schueler %}
+  <div{% if not loop.last %} style="page-break-after: always;"{% endif %}>
+    {{ zettel(s) }}
+  </div>
+  {% endfor %}
+
+{% elif layout == 2 %}
+
+  {% for chunk in schueler | batch(2) %}
+  <div{% if not loop.last %} style="page-break-after: always;"{% endif %}>
+    <table style="width: 100%; table-layout: fixed;">
+      <tr>
+        {% for s in chunk %}
+        <td style="width: 50%; vertical-align: top; padding: 0.5cm;{% if not loop.last %} border-right: 1px dotted #bbb; padding-right: 0.7cm;{% endif %}">
+          {{ zettel(s) }}
+        </td>
+        {% endfor %}
+        {% if chunk | length < 2 %}
+        <td style="width: 50%;"></td>
+        {% endif %}
+      </tr>
+    </table>
+  </div>
+  {% endfor %}
+
+{% else %}{# layout == 4 #}
+
+  {% for chunk in schueler | batch(4) %}
+  <div{% if not loop.last %} style="page-break-after: always;"{% endif %}>
+    <table style="width: 100%; table-layout: fixed;">
+      {% for row in chunk | batch(2) %}
+      <tr>
+        {% for s in row %}
+        <td style="width: 50%; vertical-align: top; padding: 0.3cm; border: 1px dotted #bbb;">
+          {{ zettel(s) }}
+        </td>
+        {% endfor %}
+        {% if row | length < 2 %}
+        <td style="width: 50%; border: 1px dotted #bbb;"></td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+
+{% endif %}
+
+</body>
+</html>

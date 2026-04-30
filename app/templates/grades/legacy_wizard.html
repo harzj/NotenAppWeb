@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Legacy-Import – Auswahl{% endblock %}
+{% block extra_head %}
+<style>
+  .section-card { margin-bottom: 1.5rem; }
+  .hue-row td { vertical-align: middle; }
+  .sl-select, .hj-select { min-width: 80px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <h4 class="mb-0"><i class="bi bi-archive me-2 text-warning"></i>Legacy-Import – Auswahl</h4>
+  <span class="badge bg-warning text-dark">Admin</span>
+</div>
+<p class="text-muted small">
+  Es wurden <strong>{{ probe.student_count }}</strong> Schüler gefunden.
+  Wähle aus, welche Daten importiert werden sollen.
+</p>
+
+<form method="post" novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  {# ── Stammdaten ─────────────────────────────────────────────────────────── #}
+  <div class="card section-card shadow-sm">
+    <div class="card-header bg-primary text-white"><i class="bi bi-info-circle me-1"></i>Allgemeine Angaben</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Klasse</label>
+          <input type="text" name="klasse" class="form-control" placeholder="z.B. 9a">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Fach</label>
+          <input type="text" name="fach" class="form-control" placeholder="z.B. Informatik">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Schuljahr</label>
+          <input type="text" name="schuljahr" class="form-control" placeholder="z.B. 2024/25">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── KLN Sheets ─────────────────────────────────────────────────────────── #}
+  {% if probe.kln_sheets %}
+  <div class="card section-card shadow-sm">
+    <div class="card-header bg-success text-white"><i class="bi bi-check2-square me-1"></i>Kleine Leistungsnachweise (KLN)</div>
+    <div class="card-body p-0">
+      <table class="table table-sm table-bordered mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:40px"></th>
+            <th>Blatt</th>
+            <th>Test</th>
+            <th>Max. Punkte</th>
+            <th>Halbjahr</th>
+            <th>SL-Zuordnung</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sheet_info in probe.kln_sheets %}
+            {% for hue in sheet_info.hue_list %}
+            <tr class="hue-row">
+              <td class="text-center">
+                <input type="checkbox" class="form-check-input"
+                       name="kln_{{ sheet_info.sheet }}_{{ hue.col }}"
+                       id="kln_{{ sheet_info.sheet }}_{{ hue.col }}"
+                       checked>
+              </td>
+              <td><code>{{ sheet_info.sheet }}</code></td>
+              <td><strong>{{ hue.name }}</strong></td>
+              <td>{{ hue.max_pts }}</td>
+              <td>
+                <select name="kln_hj_{{ sheet_info.sheet }}_{{ hue.col }}" class="form-select form-select-sm hj-select">
+                  {% for hj in hj_choices %}
+                  <option value="{{ hj }}">{{ hj }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td>
+                <select name="kln_sl_{{ sheet_info.sheet }}_{{ hue.col }}" class="form-select form-select-sm sl-select">
+                  {% for sl in sl_choices %}
+                  <option value="{{ sl }}">{{ sl }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+            </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert alert-secondary">Keine KLN-Blätter gefunden.</div>
+  {% endif %}
+
+  {# ── GLN Sheets ─────────────────────────────────────────────────────────── #}
+  {% if probe.gln_sheets %}
+  <div class="card section-card shadow-sm">
+    <div class="card-header bg-info text-white"><i class="bi bi-file-earmark-text me-1"></i>Große Leistungsnachweise (GLN)</div>
+    <div class="card-body p-0">
+      <table class="table table-sm table-bordered mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:40px"></th>
+            <th>Blatt</th>
+            <th>Halbjahr</th>
+            <th class="text-muted small">Hinweis</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for gname in probe.gln_sheets %}
+          <tr>
+            <td class="text-center">
+              <input type="checkbox" class="form-check-input"
+                     name="gln_{{ gname }}"
+                     id="gln_{{ gname }}"
+                     checked>
+            </td>
+            <td><code>{{ gname }}</code></td>
+            <td>
+              <select name="gln_hj_{{ gname }}" class="form-select form-select-sm hj-select">
+                {% for hj in hj_choices %}
+                <option value="{{ hj }}">{{ hj }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td class="text-muted small">Einzelpunkte nicht verfügbar – nur Schülernamen werden importiert</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert alert-secondary">Keine GLN-Blätter gefunden.</div>
+  {% endif %}
+
+  {# ── Noten / MDL / SL actuals ───────────────────────────────────────────── #}
+  <div class="card section-card shadow-sm">
+    <div class="card-header bg-warning text-dark"><i class="bi bi-journal-text me-1"></i>Noten &amp; mündliche Noten</div>
+    <div class="card-body">
+      <p class="text-muted small mb-2">
+        Wähle, bis zu welchem Schulleiterabschnitt (SL) importiert werden soll.
+        Die <strong>Halbjahresnote</strong> fällt mit SL2 zusammen;
+        die <strong>Ganzjahresnote</strong> fällt mit SL4 zusammen.
+      </p>
+      <div class="row align-items-center g-2">
+        <div class="col-auto">
+          <label class="form-label mb-0 fw-semibold" for="bis_sl">Importieren bis einschließlich:</label>
+        </div>
+        <div class="col-auto">
+          <select name="bis_sl" id="bis_sl" class="form-select">
+            {% if probe.has_noten %}
+            <option value="SL1">SL1 — nur MDL1 &amp; SL1-Endnote</option>
+            <option value="SL2" selected>SL2 — MDL1, MDL2, SL1, SL2 + Halbjahresnote</option>
+            {% endif %}
+            {% if probe.has_noten2 %}
+            <option value="SL3">SL3 — + MDL3 &amp; SL3-Endnote (kein Ganzjahr)</option>
+            <option value="SL4">SL4 — + MDL4, SL4, Ganzjahresnote (komplett)</option>
+            {% endif %}
+            {% if not probe.has_noten and not probe.has_noten2 %}
+            <option value="" disabled selected>Keine Noten-Blätter gefunden</option>
+            {% endif %}
+          </select>
+        </div>
+      </div>
+      {% if not probe.has_noten and not probe.has_noten2 %}
+      <p class="text-muted small mt-2">Blatt „Noten" und „Noten (2)" nicht gefunden.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Schülerliste (preview) ─────────────────────────────────────────────── #}
+  <div class="card section-card shadow-sm">
+    <div class="card-header bg-light">
+      <a class="text-decoration-none text-dark" data-bs-toggle="collapse" href="#studentPreview">
+        <i class="bi bi-people me-1"></i>Schülerliste ({{ probe.student_count }} gefunden) – klicken zum Anzeigen
+      </a>
+    </div>
+    <div class="collapse" id="studentPreview">
+      <div class="card-body py-2">
+        <div class="row row-cols-2 row-cols-md-4 g-1">
+          {% for name in probe.students %}
+          <div class="col"><small class="text-muted">{{ name }}</small></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mb-4">
+    <button type="submit" class="btn btn-warning">
+      <i class="bi bi-download me-1"></i>Import durchführen
+    </button>
+    <a href="{{ url_for('grades.legacy_import') }}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Zurück
+    </a>
+  </div>
+</form>
+{% endblock %}

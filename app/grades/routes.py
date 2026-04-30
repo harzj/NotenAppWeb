@@ -8,6 +8,7 @@ from flask_login import login_required, current_user
 from app.excel.reader import load_gradebook, ExcelReadError, schuljahr_from_date
 from app.excel.writer import build_gradebook
 from app.excel import schema as S
+from app.excel.legacy_reader import probe_legacy_file, import_legacy_file
 from app.grades.forms import (
     UploadForm, StammdatenForm, AustrittForm, NewLNForm, MoodleImportForm,
     ExportForm, KlassenEinstellungenForm,
@@ -15,7 +16,7 @@ from app.grades.forms import (
 from app.grades import moodle as moodle_parser
 from app.grades import berechnung
 from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
-from app.pdf.generator import generate_pdf
+from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf
 
 grades_bp = Blueprint("grades", __name__, template_folder="../templates/grades")
 
@@ -86,6 +87,117 @@ def upload():
         except ExcelReadError as e:
             flash(str(e), "danger")
     return render_template("grades/upload.html", form=form)
+
+
+# ── Legacy-Import (Admin only) ────────────────────────────────────────────────
+
+_LEGACY_FILE_KEY   = "_legacy_bytes"
+_LEGACY_PW_KEY     = "_legacy_pw"
+_LEGACY_PROBE_KEY  = "_legacy_probe"
+_SL_CHOICES        = ["SL1", "SL2", "SL3", "SL4"]
+_HJ_CHOICES        = ["HJ1", "HJ2"]
+
+
+def _admin_required():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        abort(403)
+
+
+@grades_bp.route("/legacy-import", methods=["GET", "POST"])
+@login_required
+def legacy_import():
+    _admin_required()
+    form = UploadForm()
+    if form.validate_on_submit():
+        file_bytes = form.file.data.read()
+        password = form.password.data or None
+        try:
+            probe = probe_legacy_file(file_bytes, password)
+        except Exception as e:
+            flash(f"Datei konnte nicht gelesen werden: {e}", "danger")
+            return render_template("grades/legacy_upload.html", form=form)
+        if not probe["students"]:
+            flash("Keine Schüler in der Datei gefunden.", "danger")
+            return render_template("grades/legacy_upload.html", form=form)
+        session[_LEGACY_FILE_KEY]  = file_bytes
+        session[_LEGACY_PW_KEY]    = password
+        session[_LEGACY_PROBE_KEY] = probe
+        session.modified = True
+        return redirect(url_for("grades.legacy_wizard"))
+    return render_template("grades/legacy_upload.html", form=form)
+
+
+@grades_bp.route("/legacy-import/wizard", methods=["GET", "POST"])
+@login_required
+def legacy_wizard():
+    _admin_required()
+    probe = session.get(_LEGACY_PROBE_KEY)
+    if not probe:
+        flash("Keine Datei zum Importieren gefunden. Bitte neu hochladen.", "warning")
+        return redirect(url_for("grades.legacy_import"))
+
+    if request.method == "POST":
+        file_bytes = session.get(_LEGACY_FILE_KEY)
+        password   = session.get(_LEGACY_PW_KEY)
+
+        # ── collect KLN selections ────────────────────────────────────────
+        kln_imports = []
+        for sheet_info in probe.get("kln_sheets", []):
+            sname = sheet_info["sheet"]
+            for hue in sheet_info["hue_list"]:
+                key = f"kln_{sname}_{hue['col']}"
+                if request.form.get(key):
+                    hj = request.form.get(f"kln_hj_{sname}_{hue['col']}", "HJ1")
+                    sl = request.form.get(f"kln_sl_{sname}_{hue['col']}", "SL1")
+                    kln_imports.append({
+                        "sheet":   sname,
+                        "col":     hue["col"],
+                        "name":    hue["name"],
+                        "max_pts": hue["max_pts"],
+                        "hj":      hj if hj in _HJ_CHOICES else "HJ1",
+                        "sl":      sl if sl in _SL_CHOICES else "SL1",
+                    })
+
+        # ── collect GLN selections ────────────────────────────────────────
+        gln_imports = []
+        for gname in probe.get("gln_sheets", []):
+            if request.form.get(f"gln_{gname}"):
+                hj = request.form.get(f"gln_hj_{gname}", "HJ1")
+                gln_imports.append({
+                    "sheet": gname,
+                    "hj":    hj if hj in _HJ_CHOICES else "HJ1",
+                    "sl":    None,
+                })
+
+        selections = {
+            "klasse":         request.form.get("klasse", "").strip(),
+            "fach":           request.form.get("fach", "").strip(),
+            "schuljahr":      request.form.get("schuljahr", "").strip(),
+            "kln_imports":    kln_imports,
+            "gln_imports":    gln_imports,
+            "bis_sl":         request.form.get("bis_sl", "SL4"),
+        }
+
+        try:
+            data = import_legacy_file(file_bytes, password, selections)
+        except Exception as e:
+            flash(f"Import fehlgeschlagen: {e}", "danger")
+            return render_template("grades/legacy_wizard.html", probe=probe,
+                                   sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
+
+        _save_gradebook(data)
+        # Clean up temp session keys
+        for k in (_LEGACY_FILE_KEY, _LEGACY_PW_KEY, _LEGACY_PROBE_KEY):
+            session.pop(k, None)
+        session.modified = True
+
+        n_lns = len(data["leistungsnachweise"])
+        n_s   = len(data["stammdaten"])
+        flash(f"Import erfolgreich: {n_s} Schüler, {n_lns} Leistungsnachweise.", "success")
+        return redirect(url_for("grades.index"))
+
+    return render_template("grades/legacy_wizard.html", probe=probe,
+                           sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
 
 
 @grades_bp.route("/close")
@@ -503,8 +615,9 @@ def ln_noten_speichern(ln_idx):
                 # Recalculate grades server-side
                 total = sum(p for p in s["punkte"] if p is not None)
                 max_total = sum(a.get("max_punkte", 0) for a in ln["aufgaben"])
-                s["note_15"] = S.percent_to_note15(total, max_total)
-                s["note_6"] = S.note15_to_note6(s["note_15"])
+                has_any = any(p is not None for p in s["punkte"])
+                s["note_15"] = S.percent_to_note15(total, max_total) if has_any else None
+                s["note_6"] = S.note15_to_note6(s["note_15"]) if s["note_15"] is not None else None
                 break
 
     _save_gradebook(data)
@@ -738,6 +851,88 @@ def mdl_noten_speichern():
             )
     _save_gradebook(data)
     return {"ok": True}
+
+
+# ── SL-Notenzettel drucken ────────────────────────────────────────────────────
+
+@grades_bp.route("/sl/<sl_key>/druck")
+@login_required
+def sl_druck(sl_key):
+    if sl_key not in ("SL1", "SL2", "SL3", "SL4"):
+        abort(404)
+    data = _require_gradebook()
+
+    layout = request.args.get("layout", 1, type=int)
+    if layout not in (1, 2, 4):
+        layout = 1
+
+    lns = data.get("leistungsnachweise", [])
+    mdl_noten = data.get("mdl_noten") or {}
+    sl_noten_actual = data.get("sl_noten_actual") or {}
+    gw = berechnung.get_gewichtung(data)
+
+    kln_list = [ln for ln in lns
+                if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl_key]
+    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+
+    # Build teacher display name from user profile
+    lehrkraft_parts = []
+    if current_user.lehrer_vorname:
+        lehrkraft_parts.append(current_user.lehrer_vorname)
+    if current_user.lehrer_nachname:
+        lehrkraft_parts.append(current_user.lehrer_nachname)
+    if not lehrkraft_parts:
+        lehrkraft_parts.append(current_user.username)
+    lehrkraft = " ".join(lehrkraft_parts)
+
+    schueler_data = []
+    for s in students:
+        name = f"{s['nachname']}, {s['vorname']}"
+        kln_noten = []
+        for ln in kln_list:
+            note_15, ignoriert = _get_student_note(ln, name)
+            kln_noten.append({
+                "name": ln["name"],
+                "note_15": note_15,
+                "ignoriert": ignoriert,
+            })
+
+        mdl_note = mdl_noten.get(name, {}).get(sl_key)
+        sl_raw = berechnung.compute_sl_note(name, sl_key, lns, mdl_noten, gw)
+        sl_note_15 = berechnung.round_note15(sl_raw)
+        sl_actual = sl_noten_actual.get(name, {}).get(sl_key)
+
+        schueler_data.append({
+            "name": name,
+            "mdl_note": mdl_note,
+            "kln_noten": kln_noten,
+            "sl_note_15": sl_note_15,
+            "sl_note_6": S.note15_to_note6(sl_note_15) if sl_note_15 is not None else None,
+            "sl_actual": sl_actual,
+        })
+
+    try:
+        pdf_bytes = generate_sl_zettel_pdf(
+            klasse=data.get("klasse", ""),
+            fach=data.get("fach", ""),
+            lehrkraft=lehrkraft,
+            sl_key=sl_key,
+            schueler=schueler_data,
+            note15_to6=S.NOTE_15_TO_6,
+            layout=layout,
+        )
+    except RuntimeError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("grades.sl_detail", sl_key=sl_key))
+
+    klasse_safe = "".join(c for c in data.get("klasse", "Klasse") if c.isalnum() or c in "-_")
+    filename = f"SL-Notenzettel_{sl_key}_{klasse_safe}.pdf"
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=filename,
+    )
 
 
 # ── HJ-Übersicht ──────────────────────────────────────────────────────────────

@@ -9,6 +9,8 @@ SHEET_NOTENTABELLE = "Notentabelle"
 SHEET_UEBERSICHT_HJ1 = "Noten_HJ1"
 SHEET_UEBERSICHT_HJ2 = "Noten_HJ2"
 SHEET_UEBERSICHT_JAHR = "Noten_Jahr"
+SHEET_NOTEN_ZUSATZ = "Noten_Zusatz"    # hidden: mdl/sl/hj/sj actual notes
+SHEET_EINSTELLUNGEN = "Einstellungen"  # hidden: sl_gewichtung
 
 LN_SHEET_PREFIX = "LN_"
 
@@ -39,10 +41,23 @@ SD_STATUS_AKTIV = "Aktiv"
 SD_STATUS_AUSGESCHIEDEN = "Ausgeschieden"
 
 # ── Leistungsnachweis sheet rows (1-based) ────────────────────────────────────
-LN_ROW_HEADER = 1        # "Aufgabe" | 1a | 1b | ... | Gesamt | Note(0-15) | Note(1-6)
-LN_ROW_AFB = 2           # "Anforderungsbereich" | I | II | III | ...
-LN_ROW_MAX = 3           # "Max. Punkte" | n | n | ... | =SUMME(...) | (empty) | (empty)
-LN_DATA_START_ROW = 4    # First student row
+# New format (v2): row 1 is a metadata row.  Old format has no meta row.
+LN_ROW_META = 1          # metadata: LN_TYP | value | HJ | value | SL_ZUORDNUNG | value
+LN_ROW_HEADER = 2        # "Aufgabe" | 1a | 1b | ... | Gesamt | Note(0-15) | Note(1-6) | Ignoriert
+LN_ROW_AFB = 3           # "Anforderungsbereich" | I | II | III | ...
+LN_ROW_MAX = 4           # "Max. Punkte" | n | n | ... | =SUMME(...) | (empty) | (empty)
+LN_DATA_START_ROW = 5    # First student row
+
+# LN metadata row labels / column positions
+LN_META_TYP_LABEL = "LN_TYP"
+LN_META_TYP_COL   = 1
+LN_META_TYP_VAL   = 2
+LN_META_HJ_LABEL  = "HJ"
+LN_META_HJ_COL    = 3
+LN_META_HJ_VAL    = 4
+LN_META_SL_LABEL  = "SL_ZUORDNUNG"
+LN_META_SL_COL    = 5
+LN_META_SL_VAL    = 6
 
 # Column offsets inside an LN sheet (relative to col 1)
 LN_COL_NAME = 1          # "Mustermann, Max"
@@ -57,6 +72,7 @@ LN_HEADER_MAX_LABEL = "Max. Punkte"
 LN_HEADER_GESAMT = "Gesamt"
 LN_HEADER_NOTE_15 = "Note (0-15)"
 LN_HEADER_NOTE_6 = "Note (1-6)"
+LN_HEADER_IGNORIERT = "Ignoriert"   # per-student ignore flag column
 
 AFB_VALUES = ("I", "II", "III", "")
 
@@ -69,6 +85,36 @@ NT_COL_PERCENT = 1       # lower bound (fraction, e.g. 0.95)
 NT_COL_NOTE_15 = 2       # corresponding note 0-15
 NT_HEADER_ROW = 1
 NT_DATA_START_ROW = 2
+
+# ── Noten_Zusatz sheet columns (per-student notes not in LN sheets) ──────────
+NZ_HEADER_ROW = 1
+NZ_DATA_START = 2
+NZ_COL_NAME       = 1
+NZ_COL_MDL_SL1    = 2
+NZ_COL_MDL_SL2    = 3
+NZ_COL_MDL_SL3    = 4
+NZ_COL_MDL_SL4    = 5
+NZ_COL_SL_ACT_SL1 = 6
+NZ_COL_SL_ACT_SL2 = 7
+NZ_COL_SL_ACT_SL3 = 8
+NZ_COL_SL_ACT_SL4 = 9
+NZ_COL_HJ_ACT_HJ1 = 10
+NZ_COL_HJ_ACT_HJ2 = 11
+NZ_COL_SJ_ACT     = 12
+NZ_HEADERS = [
+    "Schüler",
+    "MDL_SL1", "MDL_SL2", "MDL_SL3", "MDL_SL4",
+    "SL_Act_SL1", "SL_Act_SL2", "SL_Act_SL3", "SL_Act_SL4",
+    "HJ_Act_HJ1", "HJ_Act_HJ2",
+    "SJ_Act",
+]
+
+# ── Einstellungen sheet (key→value rows) ──────────────────────────────────────
+ES_HEADER_ROW = 1
+ES_DATA_START = 2
+ES_COL_KEY   = 1
+ES_COL_VALUE = 2
+ES_GEWICHTUNG_KEYS = ["sl_mdl_pct", "sl_kln_pct", "hj_gln_w", "hj_sl1_w", "hj_sl2_w"]
 
 # ── Grade scale (percentage → points 0-15) ──────────────────────────────────
 # List of (min_percent_inclusive, note_0_15) sorted descending by percent

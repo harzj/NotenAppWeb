@@ -46,10 +46,15 @@ def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
         uebersicht_hj1: dict | None
         uebersicht_hj2: dict | None
         uebersicht_jahr: dict | None
+        mdl_noten: dict
+        sl_noten_actual: dict
+        hj_noten: dict
+        schuljahr_noten_actual: dict
+        sl_gewichtung: dict | None
     """
     wb = _open_workbook(file_bytes, password)
     fach, schuljahr = _read_metadata(wb)
-    return {
+    result = {
         "klasse": _read_class_name(wb),
         "fach": fach,
         "schuljahr": schuljahr,
@@ -59,6 +64,12 @@ def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
         "uebersicht_hj2": _read_uebersicht(wb, S.SHEET_UEBERSICHT_HJ2),
         "uebersicht_jahr": _read_uebersicht(wb, S.SHEET_UEBERSICHT_JAHR),
     }
+    noten_zusatz = _read_noten_zusatz(wb)
+    result.update(noten_zusatz)
+    gw = _read_einstellungen(wb)
+    if gw:
+        result["sl_gewichtung"] = gw
+    return result
 
 
 # ── Workbook opening ─────────────────────────────────────────────────────────
@@ -151,13 +162,39 @@ def _read_all_ln(wb: Workbook) -> list[dict]:
 def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | None = None) -> dict:
     ln_name = sheet_name[len(S.LN_SHEET_PREFIX):]
 
-    header_row = list(ws.iter_rows(min_row=S.LN_ROW_HEADER, max_row=S.LN_ROW_HEADER, values_only=True))[0]
-    afb_row = list(ws.iter_rows(min_row=S.LN_ROW_AFB, max_row=S.LN_ROW_AFB, values_only=True))[0]
-    max_row = list(ws.iter_rows(min_row=S.LN_ROW_MAX, max_row=S.LN_ROW_MAX, values_only=True))[0]
+    # ── Detect format: v2 has a metadata row in row 1 ──────────────────────
+    first_cell = ws.cell(1, 1).value
+    is_v2 = isinstance(first_cell, str) and first_cell.strip() == S.LN_META_TYP_LABEL
+
+    if is_v2:
+        row_header    = S.LN_ROW_HEADER
+        row_afb       = S.LN_ROW_AFB
+        row_max       = S.LN_ROW_MAX
+        data_start    = S.LN_DATA_START_ROW
+        ln_typ        = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
+                                               values_only=True))[0], S.LN_META_TYP_VAL - 1)
+        hj            = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
+                                               values_only=True))[0], S.LN_META_HJ_VAL - 1) or None
+        sl_zuordnung  = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
+                                               values_only=True))[0], S.LN_META_SL_VAL - 1) or None
+    else:
+        # Old format: no meta row – rows are shifted by -1
+        row_header    = 1
+        row_afb       = 2
+        row_max       = 3
+        data_start    = 4
+        ln_typ        = None
+        hj            = None
+        sl_zuordnung  = None
+
+    header_row = list(ws.iter_rows(min_row=row_header, max_row=row_header, values_only=True))[0]
+    afb_row    = list(ws.iter_rows(min_row=row_afb,    max_row=row_afb,    values_only=True))[0]
+    max_row    = list(ws.iter_rows(min_row=row_max,    max_row=row_max,    values_only=True))[0]
 
     # Detect task columns: between col 2 and "Gesamt" column
     task_cols: list[dict] = []
     gesamt_col_idx = None
+    ignoriert_col_idx = None
     for i, val in enumerate(header_row):
         if i == 0:
             continue  # name column
@@ -170,14 +207,21 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
             "max_punkte": _num(max_row, i),
         })
 
+    # Find Ignoriert column (after Note 1-6)
+    if gesamt_col_idx is not None:
+        for i in range(gesamt_col_idx + 1, len(header_row)):
+            v = header_row[i]
+            if isinstance(v, str) and v.strip() == S.LN_HEADER_IGNORIERT:
+                ignoriert_col_idx = i
+                break
+
     # Read student rows
     students = []
-    for row in ws.iter_rows(min_row=S.LN_DATA_START_ROW, values_only=True):
+    for row in ws.iter_rows(min_row=data_start, values_only=True):
         raw_name = row[0]
         if not raw_name:
             continue
         if isinstance(raw_name, str) and raw_name.startswith("=") and stammdaten_ws is not None:
-            # Formula like =Stammdaten!A3&", "&Stammdaten!B3 — resolve directly from sheet
             m = re.search(r'!A(\d+)', raw_name)
             if m:
                 sd_row = int(m.group(1))
@@ -188,30 +232,108 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
                 student_name = _str(row, 0)
         else:
             student_name = _str(row, 0)
+
         punkte = []
         for t_idx in range(len(task_cols)):
             col_i = S.LN_COL_TASKS_START - 1 + t_idx
             punkte.append(_num(row, col_i))
 
         note15 = None
-        note6 = None
+        note6  = None
         if gesamt_col_idx is not None:
             note15 = _num(row, gesamt_col_idx + 1)
-            note6 = _num(row, gesamt_col_idx + 2)
+            note6  = _num(row, gesamt_col_idx + 2)
+
+        ignoriert = False
+        if ignoriert_col_idx is not None:
+            val = row[ignoriert_col_idx] if ignoriert_col_idx < len(row) else None
+            ignoriert = bool(val) if val is not None else False
 
         students.append({
-            "name": student_name,
-            "punkte": punkte,
-            "note_15": int(note15) if note15 is not None else None,
-            "note_6": int(note6) if note6 is not None else None,
+            "name":      student_name,
+            "punkte":    punkte,
+            "note_15":   int(note15) if note15 is not None else None,
+            "note_6":    int(note6)  if note6  is not None else None,
+            "ignoriert": ignoriert,
         })
 
     return {
-        "sheet_name": sheet_name,
-        "name": ln_name,
-        "aufgaben": task_cols,
-        "schueler": students,
+        "sheet_name":   sheet_name,
+        "name":         ln_name,
+        "ln_typ":       ln_typ or "KLN",
+        "hj":           hj,
+        "sl_zuordnung": sl_zuordnung,
+        "aufgaben":     task_cols,
+        "aufgaben_tree": [],
+        "schueler":     students,
     }
+
+
+def _read_noten_zusatz(wb: Workbook) -> dict:
+    """Read per-student MDL/SL/HJ/SJ notes from the hidden Noten_Zusatz sheet."""
+    empty = {
+        "mdl_noten": {},
+        "sl_noten_actual": {},
+        "hj_noten": {},
+        "schuljahr_noten_actual": {},
+    }
+    if S.SHEET_NOTEN_ZUSATZ not in wb.sheetnames:
+        return empty
+
+    ws: Worksheet = wb[S.SHEET_NOTEN_ZUSATZ]
+    mdl: dict = {}
+    sl_act: dict = {}
+    hj_act: dict = {}
+    sj_act: dict = {}
+
+    for row in ws.iter_rows(min_row=S.NZ_DATA_START, values_only=True):
+        name = _str(row, S.NZ_COL_NAME - 1)
+        if not name:
+            continue
+        def _intn(row, col):
+            v = _num(row, col - 1)
+            return int(v) if v is not None else None
+
+        mdl[name] = {
+            "SL1": _intn(row, S.NZ_COL_MDL_SL1),
+            "SL2": _intn(row, S.NZ_COL_MDL_SL2),
+            "SL3": _intn(row, S.NZ_COL_MDL_SL3),
+            "SL4": _intn(row, S.NZ_COL_MDL_SL4),
+        }
+        sl_act[name] = {
+            "SL1": _intn(row, S.NZ_COL_SL_ACT_SL1),
+            "SL2": _intn(row, S.NZ_COL_SL_ACT_SL2),
+            "SL3": _intn(row, S.NZ_COL_SL_ACT_SL3),
+            "SL4": _intn(row, S.NZ_COL_SL_ACT_SL4),
+        }
+        hj_act[name] = {
+            "HJ1": _intn(row, S.NZ_COL_HJ_ACT_HJ1),
+            "HJ2": _intn(row, S.NZ_COL_HJ_ACT_HJ2),
+        }
+        sj_val = _intn(row, S.NZ_COL_SJ_ACT)
+        if sj_val is not None:
+            sj_act[name] = sj_val
+
+    return {
+        "mdl_noten": mdl,
+        "sl_noten_actual": sl_act,
+        "hj_noten": hj_act,
+        "schuljahr_noten_actual": sj_act,
+    }
+
+
+def _read_einstellungen(wb: Workbook) -> dict | None:
+    """Read sl_gewichtung from hidden Einstellungen sheet. Returns None if not present."""
+    if S.SHEET_EINSTELLUNGEN not in wb.sheetnames:
+        return None
+    ws: Worksheet = wb[S.SHEET_EINSTELLUNGEN]
+    gw: dict = {}
+    for row in ws.iter_rows(min_row=S.ES_DATA_START, values_only=True):
+        key = _str(row, S.ES_COL_KEY - 1)
+        val = _num(row, S.ES_COL_VALUE - 1)
+        if key in S.ES_GEWICHTUNG_KEYS and val is not None:
+            gw[key] = val
+    return gw if gw else None
 
 
 # ── Übersichten ───────────────────────────────────────────────────────────────

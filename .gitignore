@@ -7,3 +7,6 @@ instance/
 *.db
 *.sqlite3
 .env
+*.xlsx
+_inspect_legacy.py
+_test_legacy.py
