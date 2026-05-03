@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<style>
+{% if layout == 1 %}
+@page { size: A4 portrait; margin: 1.5cm; }
+.fs-title  { font-size: 13pt; }
+.fs-meta   { font-size: 8.5pt; }
+.fs-name   { font-size: 15pt; }
+.fs-label  { font-size: 7.5pt; }
+.fs-task   { font-size: 8pt; }
+.fs-grade  { font-size: 22pt; }
+.fs-grade2 { font-size: 14pt; }
+.fs-ns     { font-size: 8pt; }
+.fs-sig    { font-size: 7.5pt; }
+.sig-pad   { padding-bottom: 20px; }
+{% elif layout == 2 %}
+@page { size: A4 landscape; margin: 0.7cm; }
+.fs-title  { font-size: 10pt; }
+.fs-meta   { font-size: 7.5pt; }
+.fs-name   { font-size: 12pt; }
+.fs-label  { font-size: 6.5pt; }
+.fs-task   { font-size: 7pt; }
+.fs-grade  { font-size: 18pt; }
+.fs-grade2 { font-size: 11pt; }
+.fs-ns     { font-size: 7pt; }
+.fs-sig    { font-size: 6.5pt; }
+.sig-pad   { padding-bottom: 14px; }
+{% else %}
+@page { size: A4 portrait; margin: 0.5cm; }
+.fs-title  { font-size: 8pt; }
+.fs-meta   { font-size: 6.5pt; }
+.fs-name   { font-size: 9pt; }
+.fs-label  { font-size: 5.5pt; }
+.fs-task   { font-size: 6pt; }
+.fs-grade  { font-size: 14pt; }
+.fs-grade2 { font-size: 9pt; }
+.fs-ns     { font-size: 6pt; }
+.fs-sig    { font-size: 5.5pt; }
+.sig-pad   { padding-bottom: 10px; }
+{% endif %}
+
+body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+
+/* outer card */
+.zettel { width: 100%; border-collapse: collapse; border: 2px solid #1f4e79; margin-bottom: 6px; }
+
+/* dark blue header */
+.td-hdr  { background-color: #1f4e79; padding: 4px 8px; }
+.c-white { color: #ffffff; }
+.c-light { color: #bdd7ee; }
+
+/* meta bar */
+.td-meta { background-color: #dce6f1; padding: 2px 8px; border-bottom: 1px solid #9dc3e6; }
+.c-navy  { color: #1f4e79; }
+
+/* student name */
+.td-name { background-color: #f2f7fd; padding: 3px 8px;
+           border-top: 1px solid #9dc3e6; border-bottom: 1px solid #9dc3e6; }
+
+/* body */
+.td-body { padding: 4px 8px 3px 8px; }
+.c-lbl   { color: #555; }
+
+/* task table */
+.tbl-auf { border-collapse: collapse; width: 100%; margin-bottom: 5px; }
+.tbl-auf th { background-color: #dce6f1; color: #1f4e79; padding: 1px 5px;
+              border: 1px solid #9dc3e6; text-align: center; }
+.tbl-auf td { padding: 1px 5px; border: 1px solid #d0d0d0; text-align: center; }
+.tbl-auf .row-label { text-align: left; color: #555; background: #f5f5f5; }
+
+/* grade result */
+.td-grade { background-color: #e8f0fb; padding: 4px 8px;
+            border-top: 2px solid #4472c4; text-align: center; }
+.c-blue   { color: #1f4e79; }
+
+/* notenspiegel */
+.td-ns { padding: 3px 8px; border-top: 1px solid #ddd; }
+.ns-tbl { border-collapse: collapse; }
+.ns-tbl th { background: #efefef; color: #333; padding: 1px 6px;
+             border: 1px solid #ccc; text-align: center; }
+.ns-tbl td { padding: 1px 6px; border: 1px solid #e0e0e0; text-align: center; }
+
+/* footer */
+.td-foot { padding: 4px 8px; border-top: 1px solid #ccc; }
+.sig-tbl { width: 100%; border-collapse: collapse; }
+.c-hint  { color: #777; font-style: italic; }
+
+/* page break between zettel */
+.pg-break { page-break-after: always; }
+</style>
+</head>
+<body>
+
+{# ─── Zettel macro ──────────────────────────────────────────────────────── #}
+{% macro zettel(s, aufgaben, notenspiegel, avg6) %}
+<table class="zettel">
+
+  {# ── Header ── #}
+  <tr>
+    <td class="td-hdr">
+      <p class="fs-title c-white" style="margin:0 0 1px 0; font-weight:bold;">{{ ln_name }}</p>
+    </td>
+  </tr>
+
+  {# ── Meta ── #}
+  <tr>
+    <td class="td-meta">
+      <p class="fs-meta c-navy" style="margin:0;">
+        {% if klasse %}<strong>Klasse:</strong>&nbsp;{{ klasse }}&nbsp;&nbsp;&nbsp;{% endif %}
+        {% if fach %}<strong>Fach:</strong>&nbsp;{{ fach }}&nbsp;&nbsp;&nbsp;{% endif %}
+        {% if datum %}<strong>Datum:</strong>&nbsp;{{ datum }}&nbsp;&nbsp;&nbsp;{% endif %}
+        {% if thema %}<strong>Thema:</strong>&nbsp;{{ thema }}&nbsp;&nbsp;&nbsp;{% endif %}
+        {% if lehrkraft %}<strong>Lehrkraft:</strong>&nbsp;{{ lehrkraft }}{% endif %}
+      </p>
+    </td>
+  </tr>
+
+  {# ── Student name ── #}
+  <tr>
+    <td class="td-name">
+      <p class="fs-name c-navy" style="margin:0; font-weight:bold;">{{ s.name }}</p>
+    </td>
+  </tr>
+
+  {# ── Task table + total ── #}
+  <tr>
+    <td class="td-body">
+      {% if aufgaben %}
+      <table class="tbl-auf">
+        {# Header row: task labels #}
+        <tr>
+          {% for t in aufgaben %}
+          <th class="fs-task">{{ t.label }}</th>
+          {% endfor %}
+          <th class="fs-task" style="background:#c5d9f1;">&#x3A3;</th>
+        </tr>
+        {# Max row #}
+        <tr>
+          {% for t in aufgaben %}
+          <td class="fs-task">
+            {% set mp = t.max_punkte %}
+            {{ mp | int if mp == (mp | int) else mp }}
+          </td>
+          {% endfor %}
+          <td class="fs-task" style="font-weight:bold;">
+            {% set total_max = aufgaben | sum(attribute='max_punkte') %}
+            {{ total_max | int if total_max == (total_max | int) else total_max }}
+          </td>
+        </tr>
+        {# Achieved row #}
+        <tr>
+          {% set ns = namespace(tot=0) %}
+          {% for t in aufgaben %}
+            {% set p = s.punkte[loop.index0] if loop.index0 < s.punkte | length else none %}
+            <td class="fs-task" style="font-weight:bold; color:#1f4e79;">
+              {% if p is not none %}
+                {% set pr = p | round(2) %}
+                {{ pr | int if pr == (pr | int) else pr }}
+                {% set ns.tot = ns.tot + p %}
+              {% else %}–{% endif %}
+            </td>
+          {% endfor %}
+          <td class="fs-task" style="font-weight:bold; color:#1f4e79;">
+            {% set tr = ns.tot | round(2) %}
+            {{ tr | int if tr == (tr | int) else tr }}
+          </td>
+        </tr>
+      </table>
+      {% endif %}
+    </td>
+  </tr>
+
+  {# ── Grade ── #}
+  <tr>
+    <td class="td-grade">
+      {% if s.note_15 is not none %}
+        <p class="fs-label c-lbl" style="margin:0 0 1px 0;">Note</p>
+        <p style="margin:0;">
+          <span class="fs-grade c-blue" style="font-weight:bold;">{{ "%02d" | format(s.note_15) }}</span>
+          <span class="fs-grade2 c-blue">&nbsp;({{ s.note_6 }})</span>
+        </p>
+      {% else %}
+        <p class="fs-grade2 c-lbl" style="margin:0; font-style:italic;">Note nicht eingetragen</p>
+      {% endif %}
+    </td>
+  </tr>
+
+  {# ── Notenspiegel (6P) ── #}
+  <tr>
+    <td class="td-ns">
+      <p class="fs-label c-lbl" style="margin:0 0 2px 0;"><strong>Notenspiegel (Klasse)</strong></p>
+      <table class="ns-tbl">
+        <tr>
+          <th class="fs-ns">Note</th>
+          {% for g in [1,2,3,4,5,6] %}
+          <th class="fs-ns">{{ g }}</th>
+          {% endfor %}
+          <th class="fs-ns" style="background:#e8f0fb;">&#xD8;</th>
+        </tr>
+        <tr>
+          <td class="fs-ns row-label">Anzahl</td>
+          {% for g in [1,2,3,4,5,6] %}
+          <td class="fs-ns">{{ notenspiegel.get(g, 0) }}</td>
+          {% endfor %}
+          <td class="fs-ns" style="font-weight:bold;">
+            {% if avg6 is not none %}{{ "%.2f" | format(avg6) | replace('.', ',') }}{% else %}–{% endif %}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  {# ── Signature ── #}
+  <tr>
+    <td class="td-foot">
+      <p class="fs-sig c-lbl" style="margin:0 0 2px 0;">{{ today }}</p>
+      <table class="sig-tbl">
+        <tr>
+          <td class="sig-pad" style="width:46%; border-bottom:1px solid #333;">&nbsp;</td>
+          <td style="width:8%;">&nbsp;</td>
+          <td class="sig-pad" style="width:46%; border-bottom:1px solid #333;">&nbsp;</td>
+        </tr>
+        <tr>
+          <td class="fs-sig c-lbl" style="padding-top:2px;">Unterschrift Lehrkraft</td>
+          <td>&nbsp;</td>
+          <td class="fs-sig c-lbl" style="padding-top:2px;">Kenntnisnahme Erziehungsber.</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+</table>
+{% endmacro %}
+
+{# ── Layout ─────────────────────────────────────────────────────────────── #}
+{% if layout == 1 %}
+  {% for s in schueler %}
+  <div{% if not loop.last %} style="page-break-after: always;"{% endif %}>
+    {{ zettel(s, aufgaben, notenspiegel, avg6) }}
+  </div>
+  {% endfor %}
+
+{% elif layout == 2 %}
+  {% for chunk in schueler | batch(2) %}
+  <div{% if not loop.last %} style="page-break-after: always;"{% endif %}>
+    <table style="width: 100%; table-layout: fixed;">
+      <tr>
+        {% for s in chunk %}
+        <td style="width: 50%; vertical-align: top; padding: 0.4cm;{% if not loop.last %} border-right: 1px dotted #bbb;{% endif %}">
+          {{ zettel(s, aufgaben, notenspiegel, avg6) }}
+        </td>
+        {% endfor %}
+        {% if chunk | length < 2 %}<td style="width: 50%;"></td>{% endif %}
+      </tr>
+    </table>
+  </div>
+  {% endfor %}
+
+{% else %}{# layout == 4 #}
+  {% for chunk in schueler | batch(4) %}
+  <div{% if not loop.last %} style="page-break-after: always;"{% endif %}>
+    <table style="width: 100%; table-layout: fixed;">
+      {% for row in chunk | batch(2) %}
+      <tr>
+        {% for s in row %}
+        <td style="width: 50%; vertical-align: top; padding: 0.25cm; border: 1px dotted #bbb;">
+          {{ zettel(s, aufgaben, notenspiegel, avg6) }}
+        </td>
+        {% endfor %}
+        {% if row | length < 2 %}<td style="width: 50%; border: 1px dotted #bbb;"></td>{% endif %}
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+{% endif %}
+
+</body>
+</html>

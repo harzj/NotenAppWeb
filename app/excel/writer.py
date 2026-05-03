@@ -119,6 +119,10 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
         (S.LN_META_SL_VAL,  None, ln.get("sl_zuordnung") or ""),
         (S.LN_META_GSLOT_COL, S.LN_META_GSLOT_LABEL, None),
         (S.LN_META_GSLOT_VAL, None, ln.get("gln_slot") or ""),
+        (S.LN_META_NT_COL,    S.LN_META_NT_LABEL,    None),
+        (S.LN_META_NT_VAL,    None, ln.get("nachtermin_von") or ""),
+        (S.LN_META_RUNDEN_COL, S.LN_META_RUNDEN_LABEL, None),
+        (S.LN_META_RUNDEN_VAL, None, "1" if ln.get("noten_runden", True) else "0"),
     ]:
         c = ws.cell(S.LN_ROW_META, col)
         c.value = label if label is not None else val
@@ -128,6 +132,8 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
     ws.cell(S.LN_ROW_META, S.LN_META_TYP_VAL).value = ln.get("ln_typ", "")
     ws.cell(S.LN_ROW_META, S.LN_META_HJ_VAL).value  = ln.get("hj") or ""
     ws.cell(S.LN_ROW_META, S.LN_META_SL_VAL).value  = ln.get("sl_zuordnung") or ""
+    ws.cell(S.LN_ROW_META, S.LN_META_NT_VAL).value  = ln.get("nachtermin_von") or ""
+    ws.cell(S.LN_ROW_META, S.LN_META_RUNDEN_VAL).value = "1" if ln.get("noten_runden", True) else "0"
 
     # ── Row 2: headers ──
     ws.cell(S.LN_ROW_HEADER, S.LN_COL_NAME, S.LN_HEADER_NAME)

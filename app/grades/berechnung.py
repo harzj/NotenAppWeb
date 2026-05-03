@@ -18,17 +18,46 @@ def get_gewichtung(data: dict) -> dict:
 
 # ── KLN / GLN note extraction ─────────────────────────────────────────────────
 
+def _effective_note(student_name: str, ln: dict, all_lns: list) -> float | None:
+    """Return the effective note for a student in a (parent) LN.
+
+    If the student has no grade in the parent, check if there is a linked
+    Nachtermin (NT) LN – and return the NT grade instead.
+    Ignores students marked as ignored in either.
+    """
+    # Look for student in parent LN
+    for s in ln.get("schueler", []):
+        if s["name"] != student_name:
+            continue
+        if s.get("ignoriert"):
+            return None
+        if s.get("note_15") is not None:
+            return float(s["note_15"])
+        # Student in parent but no grade – check NT
+        nt_sheet = ln["sheet_name"] + "_NT"
+        for nt in all_lns:
+            if nt.get("sheet_name") == nt_sheet:
+                for ns in nt.get("schueler", []):
+                    if ns["name"] == student_name and not ns.get("ignoriert"):
+                        if ns.get("note_15") is not None:
+                            return float(ns["note_15"])
+        return None
+    return None
+
+
 def kln_notes_for_sl(student_name: str, sl_key: str, lns: list) -> list[float]:
-    """Return list of non-ignored KLN note_15 values for student + SL slot."""
+    """Return list of non-ignored KLN note_15 values for student + SL slot.
+    NT (Nachtermin) LNs are skipped — their grade feeds the parent LN."""
     notes = []
     for ln in lns:
         if ln.get("ln_typ") != "KLN" or ln.get("sl_zuordnung") != sl_key:
             continue
-        for s in ln.get("schueler", []):
-            if s["name"] == student_name:
-                if not s.get("ignoriert") and s.get("note_15") is not None:
-                    notes.append(float(s["note_15"]))
-                break
+        if ln.get("nachtermin_von"):   # skip NT – it's not an independent LN
+            continue
+        # Effective note: use NT grade if student is in NT and not in parent
+        effective = _effective_note(student_name, ln, lns)
+        if effective is not None:
+            notes.append(effective)
     return notes
 
 
@@ -38,16 +67,17 @@ def kln_mean_for_sl(student_name: str, sl_key: str, lns: list) -> float | None:
 
 
 def gln_notes_for_hj(student_name: str, hj: str, lns: list) -> list[float]:
-    """Return list of non-ignored GLN note_15 values for student + HJ."""
+    """Return list of non-ignored GLN note_15 values for student + HJ.
+    NT LNs are skipped; parent LN automatically falls back to NT grade."""
     notes = []
     for ln in lns:
         if ln.get("ln_typ") != "GLN" or ln.get("hj") != hj:
             continue
-        for s in ln.get("schueler", []):
-            if s["name"] == student_name:
-                if not s.get("ignoriert") and s.get("note_15") is not None:
-                    notes.append(float(s["note_15"]))
-                break
+        if ln.get("nachtermin_von"):   # skip NT sheets
+            continue
+        effective = _effective_note(student_name, ln, lns)
+        if effective is not None:
+            notes.append(effective)
     return notes
 
 
@@ -181,11 +211,11 @@ def gln_notes_for_hj_kurs(student_name: str, hj: str, lns: list) -> list[float]:
     for ln in lns:
         if ln.get("ln_typ") != "GLN" or ln.get("gln_slot") not in slots:
             continue
-        for s in ln.get("schueler", []):
-            if s["name"] == student_name:
-                if not s.get("ignoriert") and s.get("note_15") is not None:
-                    notes.append(float(s["note_15"]))
-                break
+        if ln.get("nachtermin_von"):   # skip NT sheets
+            continue
+        effective = _effective_note(student_name, ln, lns)
+        if effective is not None:
+            notes.append(effective)
     return notes
 
 

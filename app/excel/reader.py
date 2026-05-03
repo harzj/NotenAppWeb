@@ -203,12 +203,14 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
         data_start    = S.LN_DATA_START_ROW
         ln_typ        = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
                                                values_only=True))[0], S.LN_META_TYP_VAL - 1)
-        hj            = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
-                                               values_only=True))[0], S.LN_META_HJ_VAL - 1) or None
-        sl_zuordnung  = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
-                                               values_only=True))[0], S.LN_META_SL_VAL - 1) or None
-        gln_slot      = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
-                                               values_only=True))[0], S.LN_META_GSLOT_VAL - 1) or None
+        _meta_row     = list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
+                                          values_only=True))[0]
+        hj            = _str(_meta_row, S.LN_META_HJ_VAL - 1) or None
+        sl_zuordnung  = _str(_meta_row, S.LN_META_SL_VAL - 1) or None
+        gln_slot      = _str(_meta_row, S.LN_META_GSLOT_VAL - 1) or None
+        nachtermin_von = _str(_meta_row, S.LN_META_NT_VAL - 1) or None
+        runden_raw    = _str(_meta_row, S.LN_META_RUNDEN_VAL - 1)
+        noten_runden  = (runden_raw != "0")  # default True unless explicitly "0"
     else:
         # Old format: no meta row – rows are shifted by -1
         row_header    = 1
@@ -219,6 +221,8 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
         hj            = None
         sl_zuordnung  = None
         gln_slot      = None
+        nachtermin_von = None
+        noten_runden  = True
 
     header_row = list(ws.iter_rows(min_row=row_header, max_row=row_header, values_only=True))[0]
     afb_row    = list(ws.iter_rows(min_row=row_afb,    max_row=row_afb,    values_only=True))[0]
@@ -290,17 +294,123 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
             "ignoriert": ignoriert,
         })
 
+    # Reconstruct aufgaben_tree from labels (detect hierarchy by dot-notation)
+    aufgaben_tree = _rebuild_tree_from_labels(task_cols)
+
     return {
-        "sheet_name":   sheet_name,
-        "name":         ln_name,
-        "ln_typ":       ln_typ or "KLN",
-        "hj":           hj,
-        "sl_zuordnung": sl_zuordnung,
-        "gln_slot":     gln_slot,
-        "aufgaben":     task_cols,
-        "aufgaben_tree": [],
-        "schueler":     students,
+        "sheet_name":    sheet_name,
+        "name":          ln_name,
+        "ln_typ":        ln_typ or "KLN",
+        "hj":            hj,
+        "sl_zuordnung":  sl_zuordnung,
+        "gln_slot":      gln_slot,
+        "nachtermin_von": nachtermin_von,
+        "noten_runden":  noten_runden,
+        "aufgaben":      task_cols,
+        "aufgaben_tree": aufgaben_tree,
+        "schueler":      students,
     }
+
+
+def _rebuild_tree_from_labels(task_cols: list[dict]) -> list[dict]:
+    """
+    Reconstruct a hierarchical aufgaben_tree from flat task_cols whose labels
+    follow the standard dot-notation (e.g. "1", "1.a", "1.b", "2", "2.1", "2.1.a").
+
+    Falls back to a flat tree (each task as top-level leaf) if the labels do not
+    match the expected pattern.
+    """
+    import re as _re
+
+    def _make_leaf(task: dict, node_id: str) -> dict:
+        label = task.get("label", "")
+        # Detect numbering style of children from label suffix
+        style = "123"
+        return {
+            "id": node_id,
+            "label": label,
+            "custom_label": bool(label),
+            "afb": task.get("afb", ""),
+            "max_punkte": task.get("max_punkte"),
+            "numbering_style": style,
+            "children": [],
+        }
+
+    # Check if any label contains a dot → hierarchical
+    labels = [t.get("label", "") for t in task_cols]
+    has_hierarchy = any("." in lbl for lbl in labels)
+
+    if not has_hierarchy:
+        # Plain flat tree
+        return [_make_leaf(t, f"t{i}") for i, t in enumerate(task_cols)]
+
+    # Build tree by grouping top-level parts
+    # A label like "1.a" → parent "1", child "a"
+    # A label like "1.1.a" → parent "1", child "1", grand-child "a"
+    root_nodes: dict[str, dict] = {}
+    root_order: list[str] = []
+    node_counter = [0]
+
+    def _nid():
+        node_counter[0] += 1
+        return f"t{node_counter[0]}"
+
+    for task in task_cols:
+        label = task.get("label", "")
+        parts = label.split(".")
+        top = parts[0]
+        if top not in root_nodes:
+            root_nodes[top] = {
+                "id": _nid(),
+                "label": top,
+                "custom_label": True,
+                "afb": "",
+                "max_punkte": None,
+                "numbering_style": "123",
+                "children": [],
+            }
+            root_order.append(top)
+
+        if len(parts) == 1:
+            # Top-level leaf – update with actual task data
+            root_nodes[top]["afb"] = task.get("afb", "")
+            root_nodes[top]["max_punkte"] = task.get("max_punkte")
+        elif len(parts) == 2:
+            child_label = parts[1]
+            # Detect style
+            if _re.match(r'^[a-z]$', child_label):
+                root_nodes[top]["numbering_style"] = "abc"
+            child = _make_leaf({"label": child_label, "afb": task.get("afb", ""),
+                                 "max_punkte": task.get("max_punkte")}, _nid())
+            root_nodes[top]["children"].append(child)
+        else:
+            # 3-level: parts[0].parts[1].parts[2]
+            mid_label = parts[1]
+            # Find or create mid node
+            mid = None
+            for c in root_nodes[top]["children"]:
+                if c["label"] == mid_label:
+                    mid = c
+                    break
+            if mid is None:
+                mid = {
+                    "id": _nid(),
+                    "label": mid_label,
+                    "custom_label": True,
+                    "afb": "",
+                    "max_punkte": None,
+                    "numbering_style": "123",
+                    "children": [],
+                }
+                root_nodes[top]["children"].append(mid)
+            child_label = parts[2]
+            if _re.match(r'^[a-z]$', child_label):
+                mid["numbering_style"] = "abc"
+            grandchild = _make_leaf({"label": child_label, "afb": task.get("afb", ""),
+                                      "max_punkte": task.get("max_punkte")}, _nid())
+            mid["children"].append(grandchild)
+
+    return [root_nodes[k] for k in root_order]
 
 
 def _read_noten_zusatz(wb: Workbook) -> dict:

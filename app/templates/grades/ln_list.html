@@ -84,6 +84,16 @@
                              placeholder="z.B. Klausur 1, Kurztest 2, Referat...") }}
             {% for e in new_form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
           </div>
+          <div class="row g-2 mb-3">
+            <div class="col-8">
+              {{ new_form.thema.label(class="form-label") }}
+              {{ new_form.thema(class="form-control", placeholder="optional") }}
+            </div>
+            <div class="col-4">
+              {{ new_form.datum.label(class="form-label") }}
+              {{ new_form.datum(class="form-control", placeholder="2025-05-25") }}
+            </div>
+          </div>
           <div class="mb-3">
             {{ new_form.ln_typ.label(class="form-label") }}
             {{ new_form.ln_typ(class="form-select", id="newLnTyp") }}

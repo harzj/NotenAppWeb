@@ -47,6 +47,8 @@ GLN_SLOT_CHOICES = [
 
 class NewLNForm(FlaskForm):
     name = StringField("Bezeichnung (z.B. Klausur 1)", validators=[DataRequired(), Length(max=80)])
+    thema = StringField("Thema (optional)", validators=[Optional(), Length(max=200)])
+    datum = StringField("Datum (optional, z.B. 2025-05-25)", validators=[Optional(), Length(max=20)])
     ln_typ = SelectField("Typ", choices=LN_TYP_CHOICES, default="GLN")
     hj = SelectField("Halbjahr (für GLN)", choices=HJ_CHOICES, default="HJ1")
     sl_zuordnung = SelectField("SL-Zuordnung (für KLN)", choices=SL_CHOICES, default="SL1")

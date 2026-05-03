@@ -194,3 +194,18 @@ def toggle_admin(user_id):
         status = "Admin" if user.is_admin else "Benutzer"
         flash(f'"{user.username}" ist jetzt {status}.', "success")
     return redirect(url_for("auth.admin_users"))
+
+
+@auth_bp.route("/admin/users/<int:user_id>/toggle-notendatei", methods=["POST"])
+@login_required
+@admin_required
+def toggle_notendatei(user_id):
+    user = db.session.get(User, user_id)
+    if user is None:
+        flash("Benutzer nicht gefunden.", "danger")
+    else:
+        user.notendatei_import = not user.notendatei_import
+        db.session.commit()
+        status = "aktiviert" if user.notendatei_import else "deaktiviert"
+        flash(f'Notendatei-Import für "{user.username}" {status}.', "success")
+    return redirect(url_for("auth.admin_users"))

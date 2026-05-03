@@ -9,6 +9,7 @@ from app.excel.reader import load_gradebook, ExcelReadError, schuljahr_from_date
 from app.excel.writer import build_gradebook
 from app.excel import schema as S
 from app.excel.legacy_reader import probe_legacy_file, import_legacy_file
+from app.excel.notendatei_reader import read_notendatei, is_notendatei
 from app.grades.forms import (
     UploadForm, StammdatenForm, AustrittForm, NewLNForm, MoodleImportForm,
     NotendateiImportForm, ExportForm, KlassenEinstellungenForm, GLN_SLOT_CHOICES,
@@ -16,7 +17,7 @@ from app.grades.forms import (
 from app.grades import moodle as moodle_parser
 from app.grades import berechnung
 from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
-from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf
+from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_zettel_pdf
 
 grades_bp = Blueprint("grades", __name__, template_folder="../templates/grades")
 
@@ -198,6 +199,123 @@ def legacy_wizard():
 
     return render_template("grades/legacy_wizard.html", probe=probe,
                            sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
+
+
+# ── Notendatei-Import (freigeschaltete Nutzer) ────────────────────────────────
+
+def _notendatei_allowed() -> bool:
+    return current_user.is_authenticated and (
+        current_user.is_admin or getattr(current_user, "notendatei_import", False)
+    )
+
+
+@grades_bp.route("/notendatei-import", methods=["GET", "POST"])
+@login_required
+def notendatei_import():
+    if not _notendatei_allowed():
+        abort(403)
+
+    form = NotendateiImportForm()
+    data = _get_gradebook()
+
+    if form.validate_on_submit():
+        file_bytes = form.file.data.read()
+        password   = form.password.data or None
+
+        # Validate it looks like a Notendatei
+        if not is_notendatei(file_bytes, password):
+            flash("Die Datei sieht nicht wie eine Notendatei aus (fehlendes 'Kurs' in A3 oder 'maximale Punkte' in Zeile 12).", "danger")
+            return render_template("grades/notendatei_import.html", form=form, has_data=data is not None)
+
+        try:
+            result = read_notendatei(file_bytes, password)
+        except Exception as e:
+            flash(f"Datei konnte nicht gelesen werden: {e}", "danger")
+            return render_template("grades/notendatei_import.html", form=form, has_data=data is not None)
+
+        if not result["schueler"]:
+            flash("Keine Schüler in der Datei gefunden.", "danger")
+            return render_template("grades/notendatei_import.html", form=form, has_data=data is not None)
+
+        # Determine LN name: user override > thema from file > fallback
+        ln_name = form.name.data.strip() if form.name.data and form.name.data.strip() else (result["thema"] or "Notendatei-Import")
+        ln_typ  = form.ln_typ.data or "GLN"
+        hj      = form.hj.data if ln_typ == "GLN" else None
+        sl      = form.sl_zuordnung.data if ln_typ in ("KLN", "GLN") else None
+        gln_slot = form.gln_slot.data if ln_typ == "GLN" else None
+
+        # Build unique sheet_name
+        safe = ln_name.replace(" ", "_").replace("/", "_")[:20]
+        sheet_name = f"LN_{safe}"
+
+        new_ln = {
+            "sheet_name":      sheet_name,
+            "name":            ln_name,
+            "ln_typ":          ln_typ,
+            "hj":              hj,
+            "sl_zuordnung":    sl,
+            "gln_slot":        gln_slot,
+            "nachtermin_von":  None,
+            "noten_runden":    True,
+            "thema":           result["thema"],
+            "datum":           result["datum"],
+            "aufgaben":        result["aufgaben"],
+            "aufgaben_tree":   result["aufgaben_tree"],
+            "schueler":        result["schueler"],
+        }
+
+        if data is None:
+            # No gradebook open: create minimal one using class from the file
+            data = {
+                "klasse":             result.get("klasse", ""),
+                "fach":               "",
+                "schuljahr":          "",
+                "modus":              "klasse",
+                "stammdaten":         [],
+                "leistungsnachweise": [],
+                "mdl_noten":          {},
+                "sl_noten_actual":    {},
+                "hj_noten":           {},
+                "schuljahr_noten_actual": {},
+                "uebersicht_hj1":     None,
+                "uebersicht_hj2":     None,
+                "uebersicht_jahr":    None,
+                "sl_gewichtung":      None,
+            }
+        else:
+            # Auto-fill Klasse if still empty
+            if not data.get("klasse") and result.get("klasse"):
+                data["klasse"] = result["klasse"]
+
+        # Match students to existing stammdaten (by Nachname, Vorname)
+        existing_names = {
+            f"{s['nachname']}, {s['vorname']}".strip(", ")
+            for s in data.get("stammdaten", [])
+        }
+        new_stammdaten = []
+        for s in new_ln["schueler"]:
+            name = s["name"]
+            if name not in existing_names:
+                parts = name.split(",", 1)
+                nn = parts[0].strip()
+                vn = parts[1].strip() if len(parts) > 1 else ""
+                new_stammdaten.append({
+                    "nachname": nn, "vorname": vn,
+                    "notizen": "", "status": "aktiv", "austritt": ""
+                })
+                existing_names.add(name)
+        if new_stammdaten:
+            data.setdefault("stammdaten", []).extend(new_stammdaten)
+
+        data.setdefault("leistungsnachweise", []).append(new_ln)
+        _save_gradebook(data)
+
+        flash(f"Notendatei importiert: '{ln_name}' mit {len(new_ln['schueler'])} Schülern.", "success")
+        # Find idx of new LN
+        new_idx = len(data["leistungsnachweise"]) - 1
+        return redirect(url_for("grades.ln_detail", ln_idx=new_idx))
+
+    return render_template("grades/notendatei_import.html", form=form, has_data=data is not None)
 
 
 @grades_bp.route("/close")
@@ -491,6 +609,19 @@ def ln_list():
                            gln_slot_choices=GLN_SLOT_CHOICES)
 
 
+@grades_bp.route("/ln/<int:ln_idx>/loeschen", methods=["POST"])
+@login_required
+def ln_loeschen(ln_idx):
+    """Delete a Leistungsnachweis by index."""
+    data = _require_gradebook()
+    lns = data["leistungsnachweise"]
+    if ln_idx < len(lns):
+        lns.pop(ln_idx)
+        _save_gradebook(data)
+        flash("Leistungsnachweis gelöscht.", "success")
+    return redirect(url_for("grades.ln_list"))
+
+
 @grades_bp.route("/ln/neu", methods=["POST"])
 @login_required
 def ln_neu():
@@ -537,6 +668,10 @@ def ln_neu():
             "hj": hj,
             "gln_slot": gln_slot,
             "sl_zuordnung": sl_zuordnung,
+            "nachtermin_von": None,
+            "noten_runden": True,
+            "thema": form.thema.data.strip() if form.thema.data else "",
+            "datum": form.datum.data.strip() if form.datum.data else "",
             "aufgaben": [],
             "aufgaben_tree": [],
             "schueler": schueler,
@@ -558,7 +693,10 @@ def ln_detail(ln_idx):
     if "aufgaben_tree" not in ln:
         ln["aufgaben_tree"] = flat_to_tree(ln.get("aufgaben", []))
         _save_gradebook(data)
+    nt_sheet = _nt_sheet_name(ln["sheet_name"])
+    _, nt_ln = _find_ln_by_sheet(data, nt_sheet)
     return render_template("grades/ln_detail.html", ln=ln, ln_idx=ln_idx,
+                           nachtermin_ln=nt_ln,
                            afb_values=S.AFB_VALUES,
                            grade_scale=S.GRADE_SCALE,
                            note15_to6=S.NOTE_15_TO_6,
@@ -576,6 +714,10 @@ def ln_aufgaben_speichern(ln_idx):
     payload = request.get_json(force=True, silent=True)
     if not payload or "aufgaben_tree" not in payload:
         return {"ok": False, "error": "Invalid payload"}, 400
+
+    # Persist noten_runden if provided
+    if "noten_runden" in payload:
+        data["leistungsnachweise"][ln_idx]["noten_runden"] = bool(payload["noten_runden"])
 
     # Sanitize and auto-label the incoming tree
     tree = [sanitize_node(n) for n in payload["aufgaben_tree"]]
@@ -621,6 +763,7 @@ def ln_noten_speichern(ln_idx):
         return {"ok": False, "error": "Invalid payload"}, 400
 
     ln = data["leistungsnachweise"][ln_idx]
+    runden = ln.get("noten_runden", True)
     for incoming in payload["schueler"]:
         name = incoming.get("name")
         for s in ln["schueler"]:
@@ -632,7 +775,7 @@ def ln_noten_speichern(ln_idx):
                 total = sum(p for p in s["punkte"] if p is not None)
                 max_total = sum(a.get("max_punkte", 0) for a in ln["aufgaben"])
                 has_any = any(p is not None for p in s["punkte"])
-                s["note_15"] = S.percent_to_note15(total, max_total) if has_any else None
+                s["note_15"] = S.percent_to_note15(total, max_total, runden=runden) if has_any else None
                 s["note_6"] = S.note15_to_note6(s["note_15"]) if s["note_15"] is not None else None
                 break
 
@@ -640,9 +783,151 @@ def ln_noten_speichern(ln_idx):
     return {"ok": True}
 
 
-@grades_bp.route("/ln/<int:ln_idx>/loeschen", methods=["POST"])
+@grades_bp.route("/ln/<int:ln_idx>/runden", methods=["POST"])
 @login_required
-def ln_loeschen(ln_idx):
+def ln_runden_speichern(ln_idx):
+    """Toggle noten_runden flag for a LN via JSON POST."""
+    data = _require_gradebook()
+    if ln_idx >= len(data["leistungsnachweise"]):
+        abort(404)
+    payload = request.get_json(force=True, silent=True) or {}
+    ln = data["leistungsnachweise"][ln_idx]
+    ln["noten_runden"] = bool(payload.get("noten_runden", True))
+    # Recalculate all existing notes
+    runden = ln["noten_runden"]
+    for s in ln["schueler"]:
+        if s.get("punkte") and any(p is not None for p in s["punkte"]):
+            total = sum(p for p in s["punkte"] if p is not None)
+            max_total = sum(a.get("max_punkte", 0) for a in ln["aufgaben"])
+            s["note_15"] = S.percent_to_note15(total, max_total, runden=runden)
+            s["note_6"] = S.note15_to_note6(s["note_15"])
+    _save_gradebook(data)
+    return {"ok": True}
+
+
+# ── Nachtermin ────────────────────────────────────────────────────────────────
+
+def _nt_sheet_name(parent_sheet: str) -> str:
+    """Return the Nachtermin sheet name for a given parent LN sheet."""
+    return parent_sheet + "_NT"
+
+
+def _find_ln_by_sheet(data: dict, sheet_name: str) -> tuple[int, dict] | tuple[None, None]:
+    for i, ln in enumerate(data["leistungsnachweise"]):
+        if ln["sheet_name"] == sheet_name:
+            return i, ln
+    return None, None
+
+
+@grades_bp.route("/ln/<int:ln_idx>/nachtermin", methods=["GET"])
+@login_required
+def nachtermin_detail(ln_idx):
+    """View/edit the Nachtermin for a given parent LN."""
+    data = _require_gradebook()
+    if ln_idx >= len(data["leistungsnachweise"]):
+        abort(404)
+    parent_ln = data["leistungsnachweise"][ln_idx]
+    nt_sheet = _nt_sheet_name(parent_ln["sheet_name"])
+    nt_idx, nt_ln = _find_ln_by_sheet(data, nt_sheet)
+
+    if nt_ln is None:
+        flash("Kein Nachtermin vorhanden.", "warning")
+        return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
+
+    # Ensure aufgaben_tree exists
+    if "aufgaben_tree" not in nt_ln:
+        nt_ln["aufgaben_tree"] = flat_to_tree(nt_ln.get("aufgaben", []))
+        _save_gradebook(data)
+
+    return render_template(
+        "grades/nachtermin_detail.html",
+        ln=nt_ln, ln_idx=nt_idx,
+        parent_ln=parent_ln, parent_ln_idx=ln_idx,
+        afb_values=S.AFB_VALUES,
+        grade_scale=S.GRADE_SCALE,
+        note15_to6=S.NOTE_15_TO_6,
+        rot_schwelle=_rot_schwelle(data.get("klasse")),
+    )
+
+
+@grades_bp.route("/ln/<int:ln_idx>/nachtermin/anlegen", methods=["POST"])
+@login_required
+def nachtermin_anlegen(ln_idx):
+    """Create a Nachtermin for the given parent LN."""
+    data = _require_gradebook()
+    if ln_idx >= len(data["leistungsnachweise"]):
+        abort(404)
+    parent_ln = data["leistungsnachweise"][ln_idx]
+    nt_sheet = _nt_sheet_name(parent_ln["sheet_name"])
+
+    # Check not already exists
+    _, existing = _find_ln_by_sheet(data, nt_sheet)
+    if existing is not None:
+        return redirect(url_for("grades.nachtermin_detail", ln_idx=ln_idx))
+
+    # Students who have NO grade in the parent LN (no punkte entered)
+    nt_schueler = []
+    for s in parent_ln["schueler"]:
+        has_grade = (
+            s.get("punkte") and
+            any(p is not None for p in s["punkte"]) and
+            not s.get("ignoriert")
+        )
+        if not has_grade:
+            nt_schueler.append({
+                "name": s["name"],
+                "punkte": [],
+                "note_15": None,
+                "note_6": None,
+                "ignoriert": False,
+            })
+
+    # Copy aufgaben_tree from parent as template
+    import copy
+    parent_tree = copy.deepcopy(parent_ln.get("aufgaben_tree") or [])
+    parent_aufgaben = copy.deepcopy(parent_ln.get("aufgaben") or [])
+
+    # Adjust punkte arrays for NT students
+    n = len(parent_aufgaben)
+    for s in nt_schueler:
+        s["punkte"] = [None] * n
+
+    nt_ln = {
+        "name": parent_ln["name"] + " (NT)",
+        "sheet_name": nt_sheet,
+        "ln_typ": parent_ln.get("ln_typ", "GLN"),
+        "hj": parent_ln.get("hj"),
+        "sl_zuordnung": parent_ln.get("sl_zuordnung"),
+        "gln_slot": parent_ln.get("gln_slot"),
+        "nachtermin_von": parent_ln["sheet_name"],
+        "noten_runden": parent_ln.get("noten_runden", True),
+        "aufgaben_tree": parent_tree,
+        "aufgaben": parent_aufgaben,
+        "schueler": nt_schueler,
+    }
+    data["leistungsnachweise"].append(nt_ln)
+    _save_gradebook(data)
+
+    nt_idx = len(data["leistungsnachweise"]) - 1
+    flash(f"Nachtermin für '{parent_ln['name']}' angelegt ({len(nt_schueler)} Schüler).", "success")
+    return redirect(url_for("grades.nachtermin_detail", ln_idx=ln_idx))
+
+
+@grades_bp.route("/ln/<int:ln_idx>/nachtermin/loeschen", methods=["POST"])
+@login_required
+def nachtermin_loeschen(ln_idx):
+    """Delete the Nachtermin of the given parent LN."""
+    data = _require_gradebook()
+    if ln_idx >= len(data["leistungsnachweise"]):
+        abort(404)
+    parent_ln = data["leistungsnachweise"][ln_idx]
+    nt_sheet = _nt_sheet_name(parent_ln["sheet_name"])
+    nt_idx, _ = _find_ln_by_sheet(data, nt_sheet)
+    if nt_idx is not None:
+        data["leistungsnachweise"].pop(nt_idx)
+        _save_gradebook(data)
+        flash("Nachtermin gelöscht.", "info")
+    return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
     data = _require_gradebook()
     if ln_idx < len(data["leistungsnachweise"]):
         name = data["leistungsnachweise"][ln_idx]["name"]
@@ -1251,6 +1536,89 @@ def export_pdf(pdf_type):
     )
 
 
+# ── LN-Notenzettel drucken ────────────────────────────────────────────────────
+
+@grades_bp.route("/ln/<int:ln_idx>/zettel-drucken", methods=["POST"])
+@login_required
+def ln_zettel_drucken(ln_idx):
+    data = _require_gradebook()
+    if ln_idx >= len(data["leistungsnachweise"]):
+        abort(404)
+    ln = data["leistungsnachweise"][ln_idx]
+
+    layout = request.form.get("layout", 1, type=int)
+    if layout not in (1, 2, 4):
+        layout = 1
+
+    selected = request.form.getlist("student")
+    # Filter to students actually in this LN (security: ignore unknown names)
+    all_names = {s["name"] for s in ln.get("schueler", [])}
+    if not selected:
+        selected = list(all_names)
+    else:
+        selected = [n for n in selected if n in all_names]
+
+    # Build teacher display name
+    lehrkraft_parts = []
+    if current_user.lehrer_vorname:
+        lehrkraft_parts.append(current_user.lehrer_vorname)
+    if current_user.lehrer_nachname:
+        lehrkraft_parts.append(current_user.lehrer_nachname)
+    if not lehrkraft_parts:
+        lehrkraft_parts.append(current_user.username)
+    lehrkraft = " ".join(lehrkraft_parts)
+
+    # Build student data for selected students (preserve LN order)
+    schueler_data = []
+    for s in ln.get("schueler", []):
+        if s["name"] not in selected:
+            continue
+        schueler_data.append({
+            "name": s["name"],
+            "punkte": s.get("punkte", []),
+            "note_15": s.get("note_15"),
+            "note_6": s.get("note_6"),
+            "ignoriert": bool(s.get("ignoriert", False)),
+        })
+
+    # Format datum for display
+    datum_raw = ln.get("datum") or ""
+    if datum_raw:
+        parts = datum_raw.split("-")
+        if len(parts) == 3:
+            datum_display = f"{parts[2]}.{parts[1]}.{parts[0]}"
+        else:
+            datum_display = datum_raw
+    else:
+        datum_display = ""
+
+    try:
+        pdf_bytes = generate_ln_zettel_pdf(
+            klasse=data.get("klasse", ""),
+            fach=data.get("fach", ""),
+            lehrkraft=lehrkraft,
+            ln_name=ln.get("name", ""),
+            thema=ln.get("thema", ""),
+            datum=datum_display,
+            aufgaben=ln.get("aufgaben", []),
+            schueler=schueler_data,
+            layout=layout,
+        )
+    except RuntimeError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
+
+    klasse_safe = "".join(c for c in data.get("klasse", "Klasse") if c.isalnum() or c in "-_")
+    ln_safe = "".join(c for c in ln.get("name", "LN") if c.isalnum() or c in "-_")
+    filename = f"LN-Notenzettel_{ln_safe}_{klasse_safe}.pdf"
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=filename,
+    )
+
+
 # ── Statistik API (JSON für Chart.js) ────────────────────────────────────────
 
 @grades_bp.route("/api/statistik/<int:ln_idx>")
@@ -1261,21 +1629,39 @@ def statistik_json(ln_idx):
         abort(404)
     ln = data["leistungsnachweise"][ln_idx]
 
-    # Note distribution 0-15 (skip ignored students)
-    dist = {i: 0 for i in range(16)}
+    # Note distribution 0-15 (split into normal + ignored)
+    dist15 = {i: 0 for i in range(16)}
+    dist15_ign = {i: 0 for i in range(16)}
+    dist6 = {i: 0 for i in range(1, 7)}
+    dist6_ign = {i: 0 for i in range(1, 7)}
     afb_punkte = {"I": 0, "II": 0, "III": 0}
+
     for s in ln.get("schueler", []):
-        if s.get("ignoriert"):
-            continue
-        note = s.get("note_15")
-        if note is not None:
-            dist[int(note)] += 1
-        for t_idx, task in enumerate(ln.get("aufgaben", [])):
-            afb = task.get("afb", "")
-            if afb in afb_punkte:
-                p = s["punkte"][t_idx] if t_idx < len(s.get("punkte", [])) else None
-                if p is not None:
-                    afb_punkte[afb] += p
+        note15 = s.get("note_15")
+        note6  = s.get("note_6")
+        ign    = bool(s.get("ignoriert"))
+
+        if note15 is not None:
+            n = int(note15)
+            if ign:
+                dist15_ign[n] = dist15_ign.get(n, 0) + 1
+            else:
+                dist15[n] = dist15.get(n, 0) + 1
+
+        if note6 is not None:
+            n6 = int(note6)
+            if ign:
+                dist6_ign[n6] = dist6_ign.get(n6, 0) + 1
+            else:
+                dist6[n6] = dist6.get(n6, 0) + 1
+
+        if not ign:
+            for t_idx, task in enumerate(ln.get("aufgaben", [])):
+                afb = task.get("afb", "")
+                if afb in afb_punkte:
+                    p = s["punkte"][t_idx] if t_idx < len(s.get("punkte", [])) else None
+                    if p is not None:
+                        afb_punkte[afb] += p
 
     # Max points per AFB
     afb_max = {"I": 0, "II": 0, "III": 0}
@@ -1285,7 +1671,10 @@ def statistik_json(ln_idx):
             afb_max[afb] += task.get("max_punkte", 0)
 
     return {
-        "note_distribution": dist,
+        "note_distribution": dist15,
+        "note_distribution_ignored": dist15_ign,
+        "note_distribution_6": dist6,
+        "note_distribution_6_ignored": dist6_ign,
         "afb_punkte": afb_punkte,
         "afb_max": afb_max,
     }

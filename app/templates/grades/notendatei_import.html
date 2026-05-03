@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}Notendatei-Import{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-3">
+  <div class="col-md-7">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h4 class="card-title mb-1">
+          <i class="bi bi-file-earmark-spreadsheet me-2 text-warning"></i>Notendatei importieren
+        </h4>
+        <p class="text-muted small mb-4">
+          Lade eine Excel-Notendatei im Spezialformat hoch (Thema in A1, Kurs in C3, Termin in C4, Aufgaben ab Zeile 11).
+          Die Schüler und Aufgaben werden automatisch erkannt.
+          {% if has_data %}
+          <br><strong>Hinweis:</strong> Ein LN wird der aktuell geladenen Datei hinzugefügt. Neue Schüler werden automatisch in die Stammdaten aufgenommen.
+          {% else %}
+          <br><strong>Hinweis:</strong> Es ist keine Datei geladen. Es wird eine neue Notendatei erstellt.
+          {% endif %}
+        </p>
+
+        <form method="post" enctype="multipart/form-data" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="mb-3">
+            {{ form.file.label(class="form-label fw-semibold") }}
+            {{ form.file(class="form-control" + (" is-invalid" if form.file.errors else ""), accept=".xlsx") }}
+            {% for e in form.file.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div class="mb-3">
+            {{ form.password.label(class="form-label") }}
+            {{ form.password(class="form-control", autocomplete="off",
+                             placeholder="Leer lassen falls ungeschützt") }}
+          </div>
+
+          <hr class="my-3">
+
+          <div class="mb-3">
+            {{ form.name.label(class="form-label") }}
+            {{ form.name(class="form-control", placeholder="Leer = Thema aus Datei übernehmen") }}
+            <div class="form-text">Wird als Bezeichnung des Leistungsnachweises verwendet.</div>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-sm-4">
+              {{ form.ln_typ.label(class="form-label") }}
+              {{ form.ln_typ(class="form-select", id="ln_typ_select") }}
+            </div>
+            <div class="col-sm-4" id="hj_group">
+              {{ form.hj.label(class="form-label") }}
+              {{ form.hj(class="form-select") }}
+            </div>
+            <div class="col-sm-4" id="sl_group">
+              {{ form.sl_zuordnung.label(class="form-label") }}
+              {{ form.sl_zuordnung(class="form-select") }}
+            </div>
+          </div>
+
+          <div class="mb-4" id="gln_slot_group">
+            {{ form.gln_slot.label(class="form-label") }}
+            {{ form.gln_slot(class="form-select") }}
+          </div>
+
+          <div class="d-flex gap-2">
+            {{ form.submit(class="btn btn-warning") }}
+            <a href="{{ url_for('grades.upload') }}" class="btn btn-outline-secondary">Abbrechen</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+const typSel = document.getElementById('ln_typ_select');
+const hjGroup = document.getElementById('hj_group');
+const slGroup = document.getElementById('sl_group');
+const glnSlotGroup = document.getElementById('gln_slot_group');
+
+function updateVisibility() {
+  const val = typSel.value;
+  hjGroup.style.display = val === 'GLN' ? '' : 'none';
+  slGroup.style.display = (val === 'KLN' || val === 'GLN') ? '' : 'none';
+  glnSlotGroup.style.display = val === 'GLN' ? '' : 'none';
+}
+typSel.addEventListener('change', updateVisibility);
+updateVisibility();
+</script>
+{% endblock %}

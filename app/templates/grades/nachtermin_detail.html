@@ -1,8 +1,6 @@
 {% extends "base.html" %}
 {% from "macros.html" import csrf_field %}
-{% block title %}{{ ln.name }} – Leistungsnachweis{% endblock %}
-{% set nt_ln = nachtermin_ln %}
-{% set nt_students = nt_ln.schueler | map(attribute='name') | list if nt_ln else [] %}
+{% block title %}{{ ln.name }} (NT) – Nachtermin{% endblock %}
 {% block extra_head %}
 <style>
   .points-input { width: 4.5rem; text-align: center; padding: 2px 2px;
@@ -19,7 +17,6 @@
   .sticky-col { position: sticky; left: 0; background: #fff; z-index: 1; }
   .table-wrapper { overflow-x: auto; }
   #afbSummary canvas { max-height: 200px; }
-  /* Task tree */
   .task-node { border-left: 2px solid #dee2e6; }
   .task-node .task-node { border-left-color: #adb5bd; background: #f8f9fa; border-radius: 4px; }
   .task-node .task-node .task-node { border-left-color: #6c757d; background: #f0f0f0; }
@@ -29,19 +26,14 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
-    <a href="{{ url_for('grades.ln_list') }}" class="btn btn-sm btn-outline-secondary me-2">
+    <a href="{{ url_for('grades.ln_detail', ln_idx=parent_ln_idx) }}" class="btn btn-sm btn-outline-secondary me-2">
       <i class="bi bi-arrow-left"></i>
     </a>
-    <h4 class="d-inline-block mb-0">{{ ln.name }}</h4>
-    {% if ln.ln_typ == 'GLN' %}
-      <span class="badge bg-danger ms-2">GLN</span>
-      {% if ln.hj %}<span class="badge bg-secondary ms-1">{{ ln.hj }}</span>{% endif %}
-    {% elif ln.ln_typ == 'KLN' %}
-      <span class="badge bg-warning text-dark ms-2">KLN</span>
-      {% if ln.sl_zuordnung %}<span class="badge bg-secondary ms-1">{{ ln.sl_zuordnung }}</span>{% endif %}
-    {% endif %}
-    {% if ln.thema %}<span class="text-muted small ms-2">{{ ln.thema }}</span>{% endif %}
-    {% if ln.datum %}<span class="text-muted small ms-2"><i class="bi bi-calendar3 me-1"></i>{{ ln.datum }}</span>{% endif %}
+    <h4 class="d-inline-block mb-0">
+      {{ ln.name }}
+      <span class="badge bg-warning text-dark ms-1">Nachtermin</span>
+      <span class="text-muted small ms-2">für {{ parent_ln.name }}</span>
+    </h4>
   </div>
   <div class="d-flex gap-2">
     <button class="btn btn-sm btn-success" id="btnSaveAll">
@@ -59,20 +51,14 @@
             data-bs-target="#druckModal">
       <i class="bi bi-printer me-1"></i>Zettel drucken
     </button>
-    {% if nt_ln %}
-    <a href="{{ url_for('grades.nachtermin_detail', ln_idx=ln_idx) }}"
-       class="btn btn-sm btn-outline-warning">
-      <i class="bi bi-calendar2-plus me-1"></i>Nachtermin bearbeiten
-    </a>
-    {% else %}
-    <form method="post" action="{{ url_for('grades.nachtermin_anlegen', ln_idx=ln_idx) }}"
-          style="display:inline">
+    <form method="post" action="{{ url_for('grades.nachtermin_loeschen', ln_idx=parent_ln_idx) }}"
+          style="display:inline"
+          onsubmit="return confirm('Nachtermin wirklich löschen? Alle NT-Noten gehen verloren.')">
       {{ csrf_field() }}
-      <button type="submit" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-calendar2-plus me-1"></i>Nachtermin anlegen
+      <button type="submit" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-trash me-1"></i>Nachtermin löschen
       </button>
     </form>
-    {% endif %}
   </div>
 </div>
 
@@ -82,7 +68,6 @@
     <h6 class="mb-2">Aufgaben konfigurieren</h6>
     <p class="text-muted small mb-3">
       Hauptaufgaben mit <strong>+ Aufgabe</strong> hinzufügen. Pro Aufgabe können Unteraufgaben angelegt werden (max. 3 Ebenen).
-      Aufgaben ohne Unteraufgaben erhalten eine Punktzahl. Aufgaben mit Unteraufgaben summieren automatisch.
     </p>
     <div class="form-check form-switch mb-2">
       <input class="form-check-input" type="checkbox" id="noten_runden"
@@ -136,9 +121,7 @@
     </thead>
     <tbody>
       {% for s in ln.schueler %}
-      {% set in_nt = s.name in nt_students %}
       <tr data-sname="{{ s.name }}" data-ignoriert="{{ 'true' if s.ignoriert else 'false' }}"
-          data-in-nt="{{ 'true' if in_nt else 'false' }}"
           class="{{ 'ln-row-ignored table-secondary' if s.ignoriert else '' }}">
         <td class="sticky-col">{{ s.name }}</td>
         <td class="text-center">
@@ -146,11 +129,6 @@
                  title="LN für diesen Schüler ignorieren"
                  {{ 'checked' if s.ignoriert else '' }}>
         </td>
-        {% if in_nt %}
-        <td colspan="{{ (ln.aufgaben | length) + 1 }}" class="text-center text-muted fst-italic small">
-          Nachtermin
-        </td>
-        {% else %}
         {% for t_idx in range(ln.aufgaben | length) %}
         <td class="text-center points-cell p-1">
           <div class="input-group input-group-sm">
@@ -175,37 +153,21 @@
             {% set _tv = total_pts.v | round(2) %}{{ _tv | int if _tv == (_tv | int) else _tv }}
           {% else %}–{% endif %}
         </td>
-        {% endif %}
         <td class="text-center note-cell student-note15{% if s.note_15 is not none and s.note_15 < rot_schwelle %} text-danger{% endif %}">
-          {% if in_nt %}
-            {% set nt_s = nt_ln.schueler | selectattr('name', 'eq', s.name) | first | default(none) %}
-            <span class="text-muted small" title="Nachtermin-Note">
-              {{ nt_s.note_15 if nt_s and nt_s.note_15 is not none else '–' }}
-              <i class="bi bi-calendar2-plus text-muted ms-1" style="font-size:.7rem"></i>
-            </span>
-          {% else %}
-            {{ s.note_15 if s.note_15 is not none else '–' }}
-          {% endif %}
+          {{ s.note_15 if s.note_15 is not none else '–' }}
         </td>
         <td class="text-center">
-          {% set display_note6 = none %}
-          {% if in_nt %}
-            {% set nt_s = nt_ln.schueler | selectattr('name', 'eq', s.name) | first | default(none) %}
-            {% if nt_s and nt_s.note_6 is not none %}{% set display_note6 = nt_s.note_6 %}{% endif %}
-          {% elif s.note_6 is not none %}
-            {% set display_note6 = s.note_6 %}
-          {% endif %}
-          {% if display_note6 is not none %}
+          {% if s.note_6 is not none %}
           <span class="badge note-6-badge
-            {{ 'bg-success' if display_note6 <= 2 else ('bg-warning text-dark' if display_note6 <= 3 else 'bg-danger') }}">
-            {{ display_note6 }}
+            {{ 'bg-success' if s.note_6 <= 2 else ('bg-warning text-dark' if s.note_6 <= 3 else 'bg-danger') }}">
+            {{ s.note_6 }}
           </span>
           {% else %}–{% endif %}
         </td>
       </tr>
       {% else %}
       <tr><td colspan="{{ ln.aufgaben | length + 5 }}" class="text-center text-muted">
-        Keine Schüler vorhanden. Füge Schüler unter <a href="{{ url_for('grades.stammdaten') }}">Stammdaten</a> hinzu.
+        Keine Schüler vorhanden.
       </td></tr>
       {% endfor %}
     </tbody>
@@ -242,11 +204,10 @@
             target="_blank">
         {{ csrf_field() }}
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-printer me-2"></i>Notenzettel drucken – {{ ln.name }}</h5>
+          <h5 class="modal-title"><i class="bi bi-printer me-2"></i>Notenzettel drucken – {{ ln.name }} (NT)</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <!-- Layout selector -->
           <div class="mb-3">
             <label class="form-label fw-bold">Zettel pro Seite</label>
             <div class="d-flex gap-3">
@@ -264,27 +225,19 @@
               </div>
             </div>
           </div>
-          <!-- Student selection -->
           <div class="mb-2 d-flex gap-2 align-items-center">
             <span class="fw-bold">Schüler/innen:</span>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="druckAlleBtn">Alle</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="druckKeineBtn">Keine</button>
-            {% if nt_students %}
-            <button type="button" class="btn btn-sm btn-outline-warning" id="druckNtBtn">Nachtermin</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" id="druckHtBtn">Haupttermin</button>
-            {% endif %}
           </div>
           <div class="border rounded p-2" style="max-height:320px; overflow-y:auto;">
             {% for s in ln.schueler %}
-            {% set is_nt = s.name in nt_students %}
             <div class="form-check">
               <input class="form-check-input druck-schueler" type="checkbox"
                      name="student" value="{{ s.name }}"
-                     id="ds_{{ loop.index }}" checked
-                     data-in-nt="{{ 'true' if is_nt else 'false' }}">
+                     id="ds_{{ loop.index }}" checked>
               <label class="form-check-label" for="ds_{{ loop.index }}">
                 {{ s.name }}
-                {% if is_nt %}<span class="badge bg-warning text-dark ms-1" style="font-size:.7rem">NT</span>{% endif %}
                 {% if s.ignoriert %}<span class="badge bg-secondary ms-1" style="font-size:.7rem">ign.</span>{% endif %}
               </label>
             </div>
@@ -305,16 +258,11 @@
 {% endblock %}
 {% block extra_scripts %}
 <script>
-// ── Global error handler (debug) ─────────────────────────────────────────────
 window.addEventListener('error', function(e) {
   const msg = e.message + ' (Zeile ' + e.lineno + ')';
   console.error('JS Fehler:', msg);
-  // Show as alert if showToast not yet available
-  if (typeof showToast === 'function') {
-    showToast('JS-Fehler: ' + msg, 'danger');
-  } else {
-    alert('JS-Fehler: ' + msg);
-  }
+  if (typeof showToast === 'function') showToast('JS-Fehler: ' + msg, 'danger');
+  else alert('JS-Fehler: ' + msg);
 });
 
 const LN_IDX = {{ ln_idx }};
@@ -324,9 +272,8 @@ const GRADE_SCALE_RUNDEN = [
   [0.64,9],[0.59,8],[0.54,7],[0.49,6],[0.44,5],[0.39,4],
   [0.32,3],[0.26,2],[0.19,1],[0.0,0]
 ];
-const NOTE15_TO6  = {{ note15_to6  | tojson }};
+const NOTE15_TO6 = {{ note15_to6 | tojson }};
 
-// ── Grade calculation (client-side) ──────────────────────────────────────────
 function getNotenRunden() {
   const cb = document.getElementById('noten_runden');
   return cb ? cb.checked : true;
@@ -337,15 +284,10 @@ function calcNote15(achieved, maximum) {
   const pct = achieved / maximum;
   const scale = getNotenRunden() ? GRADE_SCALE_RUNDEN : GRADE_SCALE;
   if (getNotenRunden()) {
-    // exclusive threshold
-    for (const [threshold, note] of scale) {
-      if (pct > threshold) return note;
-    }
+    for (const [threshold, note] of scale) { if (pct > threshold) return note; }
     return 0;
   } else {
-    for (const [threshold, note] of scale) {
-      if (pct >= threshold) return note;
-    }
+    for (const [threshold, note] of scale) { if (pct >= threshold) return note; }
     return 0;
   }
 }
@@ -355,7 +297,6 @@ function fmtNum(v) {
 }
 
 function updateRowCalc(row) {
-  if (row.dataset.inNt === 'true') return;  // NT students: skip
   const inputs = row.querySelectorAll('.student-points');
   const gestEl  = row.querySelector('.student-gesamt');
   const note15El = row.querySelector('.student-note15');
@@ -382,7 +323,6 @@ function updateRowCalc(row) {
   gestEl.textContent = fmtNum(total);
   note15El.textContent = note15;
 
-  // Note 1-6 badge (last td)
   const tds = row.querySelectorAll('td');
   const lastTd = tds[tds.length - 1];
   let cls = note6 <= 2 ? 'bg-success' : (note6 <= 3 ? 'bg-warning text-dark' : 'bg-danger');
@@ -396,7 +336,6 @@ document.querySelectorAll('#gradeTable tbody tr').forEach(row => {
   updateRowCalc(row);
 });
 
-// ── ±½ step buttons ───────────────────────────────────────────────────────────
 document.getElementById('gradeTable').addEventListener('click', e => {
   const btn = e.target.closest('.half-step-btn');
   if (!btn) return;
@@ -409,8 +348,6 @@ document.getElementById('gradeTable').addEventListener('click', e => {
   inp.dispatchEvent(new Event('input'));
 });
 
-// ── Save all changes ──────────────────────────────────────────────────────────
-// ── Ignoriert checkbox ────────────────────────────────────────────────────────
 document.getElementById('gradeTable').addEventListener('change', e => {
   const cb = e.target.closest('.student-ignoriert');
   if (!cb) return;
@@ -428,7 +365,6 @@ document.getElementById('btnSaveAll').addEventListener('click', async () => {
   const rows = document.querySelectorAll('#gradeTable tbody tr[data-sname]');
   const schueler = [];
   rows.forEach(row => {
-    if (row.dataset.inNt === 'true') return;  // skip NT students
     const name = row.getAttribute('data-sname');
     const ignoriert = row.dataset.ignoriert === 'true';
     const punkte = [];
@@ -446,27 +382,19 @@ document.getElementById('btnSaveAll').addEventListener('click', async () => {
     body: JSON.stringify({ schueler })
   });
   const data = await resp.json();
-  if (data.ok) {
-    showToast('Noten gespeichert.', 'success');
-  } else {
-    showToast('Fehler beim Speichern: ' + (data.error || '?'), 'danger');
-  }
+  if (data.ok) showToast('Noten gespeichert.', 'success');
+  else showToast('Fehler beim Speichern: ' + (data.error || '?'), 'danger');
 });
 
-// ── Task tree editor ─────────────────────────────────────────────────────────
+// ── Task tree ────────────────────────────────────────────────────────────────
 const AFB_VALUES = {{ afb_values | tojson }};
 const INITIAL_TREE = {{ (ln.aufgaben_tree or []) | tojson }};
-
 let taskTree = Array.isArray(INITIAL_TREE) ? JSON.parse(JSON.stringify(INITIAL_TREE)) : [];
 let _idCounter = 0;
-
 function newId() { return 't_' + (++_idCounter) + '_' + Date.now(); }
 
-// ── Label auto-generation ────────────────────────────────────────────────────
 function numLabel(index, style) {
-  if (style === 'abc') {
-    return String.fromCharCode(97 + (index % 26));
-  }
+  if (style === 'abc') return String.fromCharCode(97 + (index % 26));
   return String(index + 1);
 }
 
@@ -485,30 +413,13 @@ function generateLabels(nodes, parentPrefix, parentStyle) {
   });
 }
 
-function getLeaves(nodes) {
-  const result = [];
-  nodes.forEach(n => {
-    if (n.children && n.children.length) {
-      result.push(...getLeaves(n.children));
-    } else {
-      result.push(n);
-    }
-  });
-  return result;
-}
-
 function calcMax(node) {
-  if (!node.children || !node.children.length) {
-    return parseFloat(node.max_punkte) || 0;
-  }
+  if (!node.children || !node.children.length) return parseFloat(node.max_punkte) || 0;
   return node.children.reduce((s, c) => s + calcMax(c), 0);
 }
 
-// ── Render ────────────────────────────────────────────────────────────────────
 function calcNodeMax(node) {
-  if (!node.children || node.children.length === 0) {
-    return typeof node.max_punkte === 'number' ? node.max_punkte : 0;
-  }
+  if (!node.children || node.children.length === 0) return typeof node.max_punkte === 'number' ? node.max_punkte : 0;
   return node.children.reduce((s, c) => s + calcNodeMax(c), 0);
 }
 
@@ -527,24 +438,14 @@ function _updateSumDisplays() {
 function _updateTotalMaxDisplay() {
   const total = taskTree.reduce((s, n) => s + calcNodeMax(n), 0);
   const el = document.getElementById('totalMax');
-  if (el) {
-    el.dataset.exact = total;
-    el.textContent = fmtNum(total);
-  }
+  if (el) { el.dataset.exact = total; el.textContent = fmtNum(total); }
 }
 
 function renderTree() {
-  try {
-    generateLabels(taskTree);
-    const container = document.getElementById('taskTree');
-    container.innerHTML = '';
-    taskTree.forEach((node, i) => {
-      container.appendChild(renderNode(node, taskTree, i, 0));
-    });
-  } catch(e) {
-    console.error('renderTree Fehler:', e);
-    showToast('Fehler beim Rendern: ' + e.message, 'danger');
-  }
+  generateLabels(taskTree);
+  const container = document.getElementById('taskTree');
+  container.innerHTML = '';
+  taskTree.forEach((node, i) => container.appendChild(renderNode(node, taskTree, i, 0)));
 }
 
 function afbSelect(selectedVal) {
@@ -576,38 +477,32 @@ function renderNode(node, siblings, idx, depth) {
              title="Leer lassen für automatische Bezeichnung">
       ${afbSelect(node.afb || '')}
       ${hasChildren
-        ? `<span class="text-muted small ms-1 node-sum-display" style="min-width:80px" data-nodeid="${node.id}">Σ = ${fmtNum(maxPoints)} P</span>`
+        ? `<span class="text-muted small ms-1 node-sum-display" style="min-width:80px" data-nodeid="${node.id}">\u03A3 = ${fmtNum(maxPoints)} P</span>`
         : `<input type="number" class="form-control form-control-sm node-max" style="width:75px"
                   value="${node.max_punkte !== null && node.max_punkte !== undefined ? node.max_punkte : ''}"
                   min="0" step="0.5" placeholder="Pkt">`
       }
-      <button class="btn btn-sm btn-outline-secondary node-style-btn" title="Nummerierungsstil der Kinder wechseln (aktuell: ${node.numbering_style || '123'})">${styleIcon}</button>
-      ${canAddChild ? `<button class="btn btn-sm btn-outline-success node-add-child" title="Unteraufgabe hinzufügen"><i class="bi bi-plus"></i></button>` : ''}
-      <button class="btn btn-sm btn-outline-danger node-remove" title="Aufgabe löschen"><i class="bi bi-trash"></i></button>
-      <button class="btn btn-sm btn-outline-light node-move-up" title="Nach oben" ${idx === 0 ? 'disabled' : ''}><i class="bi bi-arrow-up"></i></button>
-      <button class="btn btn-sm btn-outline-light node-move-down" title="Nach unten" ${idx === siblings.length - 1 ? 'disabled' : ''}><i class="bi bi-arrow-down"></i></button>
+      <button class="btn btn-sm btn-outline-secondary node-style-btn" title="Nummerierungsstil wechseln">${styleIcon}</button>
+      ${canAddChild ? `<button class="btn btn-sm btn-outline-success node-add-child" title="Unteraufgabe"><i class="bi bi-plus"></i></button>` : ''}
+      <button class="btn btn-sm btn-outline-danger node-remove" title="Löschen"><i class="bi bi-trash"></i></button>
+      <button class="btn btn-sm btn-outline-light node-move-up" ${idx === 0 ? 'disabled' : ''}><i class="bi bi-arrow-up"></i></button>
+      <button class="btn btn-sm btn-outline-light node-move-down" ${idx === siblings.length - 1 ? 'disabled' : ''}><i class="bi bi-arrow-down"></i></button>
     </div>
     <div class="node-children"></div>`;
 
-  // Bind events
-  const customLabel = div.querySelector('.node-custom-label');
-  customLabel.addEventListener('input', () => {
-    const val = customLabel.value.trim();
+  div.querySelector('.node-custom-label').addEventListener('input', e => {
+    const val = e.target.value.trim();
     node.custom_label = val.length > 0;
     node.label = val || node.label;
     generateLabels(taskTree);
-    // Update display label without full re-render
     div.querySelector('.node-label-display').textContent = node.label;
   });
-
   div.querySelector('.node-afb').addEventListener('change', e => { node.afb = e.target.value; });
 
   if (!hasChildren) {
     div.querySelector('.node-max').addEventListener('input', e => {
       node.max_punkte = e.target.value === '' ? null : parseFloat(e.target.value);
-      // Update all ancestor sum displays
       _updateSumDisplays();
-      // Update the total max display in grade table header
       _updateTotalMaxDisplay();
     });
   }
@@ -616,19 +511,16 @@ function renderNode(node, siblings, idx, depth) {
     node.numbering_style = node.numbering_style === 'abc' ? '123' : 'abc';
     renderTree();
   });
-
   div.querySelector('.node-remove').addEventListener('click', () => {
     siblings.splice(idx, 1);
     renderTree();
   });
-
   div.querySelector('.node-move-up')?.addEventListener('click', () => {
     if (idx > 0) { [siblings[idx-1], siblings[idx]] = [siblings[idx], siblings[idx-1]]; renderTree(); }
   });
   div.querySelector('.node-move-down')?.addEventListener('click', () => {
     if (idx < siblings.length - 1) { [siblings[idx], siblings[idx+1]] = [siblings[idx+1], siblings[idx]]; renderTree(); }
   });
-
   if (canAddChild) {
     div.querySelector('.node-add-child').addEventListener('click', () => {
       if (!node.children) node.children = [];
@@ -637,32 +529,19 @@ function renderNode(node, siblings, idx, depth) {
     });
   }
 
-  // Render children
   const childContainer = div.querySelector('.node-children');
   if (node.children && node.children.length) {
-    node.children.forEach((child, ci) => {
-      childContainer.appendChild(renderNode(child, node.children, ci, depth + 1));
-    });
+    node.children.forEach((child, ci) => childContainer.appendChild(renderNode(child, node.children, ci, depth + 1)));
   }
-
   return div;
 }
 
 document.getElementById('btnAddRootTask').addEventListener('click', () => {
-  console.log('btnAddRootTask geklickt, taskTree:', taskTree);
-  try {
-    taskTree.push({ id: newId(), label: '', custom_label: false, afb: '', max_punkte: null, numbering_style: '123', children: [] });
-    console.log('taskTree nach push:', taskTree);
-    renderTree();
-    console.log('renderTree() abgeschlossen');
-    // Open the task editor collapse if not already open
-    const editorCollapse = document.getElementById('taskEditor');
-    if (editorCollapse && !editorCollapse.classList.contains('show')) {
-      bootstrap.Collapse.getOrCreateInstance(editorCollapse).show();
-    }
-  } catch(e) {
-    console.error('Aufgabe hinzufügen Fehler:', e);
-    showToast('Fehler: ' + e.message, 'danger');
+  taskTree.push({ id: newId(), label: '', custom_label: false, afb: '', max_punkte: null, numbering_style: '123', children: [] });
+  renderTree();
+  const editorCollapse = document.getElementById('taskEditor');
+  if (editorCollapse && !editorCollapse.classList.contains('show')) {
+    bootstrap.Collapse.getOrCreateInstance(editorCollapse).show();
   }
 });
 
@@ -676,15 +555,10 @@ document.getElementById('btnSaveTasks').addEventListener('click', async () => {
     body: JSON.stringify({ aufgaben_tree: taskTree, noten_runden: runden })
   });
   const data = await resp.json();
-  if (data.ok) {
-    showToast('Aufgaben gespeichert. Seite wird neu geladen…', 'success');
-    setTimeout(() => location.reload(), 800);
-  } else {
-    showToast('Fehler: ' + (data.error || '?'), 'danger');
-  }
+  if (data.ok) { showToast('Aufgaben gespeichert. Seite wird neu geladen…', 'success'); setTimeout(() => location.reload(), 800); }
+  else showToast('Fehler: ' + (data.error || '?'), 'danger');
 });
 
-// ── Noten-runden toggle ───────────────────────────────────────────────────────
 document.getElementById('noten_runden')?.addEventListener('change', async (e) => {
   const runden = e.target.checked;
   await fetch(`/ln/${LN_IDX}/runden`, {
@@ -693,144 +567,96 @@ document.getElementById('noten_runden')?.addEventListener('change', async (e) =>
                 'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
     body: JSON.stringify({ noten_runden: runden })
   });
-  // Recalculate all displayed rows
   document.querySelectorAll('#gradeTable tbody tr[data-sname]').forEach(row => updateRowCalc(row));
 });
 
 renderTree();
-
-// ── Statistik charts ──────────────────────────────────────────────────────────
-let _statData = null;
-let _chartNoten = null;
-let _chartAfb = null;
-
-function buildNotenChart(data) {
-  const use6p = document.getElementById('stat6p').checked;
-  const labels = use6p
-    ? ['1','2','3','4','5','6']
-    : Array.from({length:16}, (_,i) => String(i));
-  const dist    = use6p ? data.note_distribution_6     : data.note_distribution;
-  const distIgn = use6p ? data.note_distribution_6_ignored : data.note_distribution_ignored;
-  const normal  = labels.map(l => dist[l] ?? dist[parseInt(l)] ?? 0);
-  const ignored = labels.map(l => distIgn[l] ?? distIgn[parseInt(l)] ?? 0);
-  document.getElementById('chartNotenTitle').textContent =
-    use6p ? 'Notenverteilung (1–6)' : 'Notenverteilung (0–15)';
-
-  if (_chartNoten) _chartNoten.destroy();
-  _chartNoten = new Chart(document.getElementById('chartNoten'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Schüler', data: normal,
-          backgroundColor: 'rgba(31,78,121,0.7)', borderRadius: 4 },
-        { label: 'Ignoriert', data: ignored,
-          backgroundColor: 'rgba(180,180,180,0.5)', borderRadius: 4 },
-      ]
-    },
-    options: {
-      plugins: { legend: { display: true, position: 'bottom' } },
-      scales: {
-        x: { stacked: true },
-        y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }
-      }
-    }
-  });
-}
 
 document.getElementById('statistikPanel').addEventListener('show.bs.collapse', async () => {
   if (!_statData) {
     const resp = await fetch(`/api/statistik/${LN_IDX}`);
     _statData = await resp.json();
   }
-
   buildNotenChart(_statData);
-
-  // AFB chart (only once)
   if (!_chartAfb) {
     const afbLabels = ['I', 'II', 'III'];
     _chartAfb = new Chart(document.getElementById('chartAfb'), {
       type: 'bar',
-      data: {
-        labels: afbLabels,
-        datasets: [
-          { label: 'Erreicht', data: afbLabels.map(k => _statData.afb_punkte[k] || 0),
-            backgroundColor: 'rgba(40,167,69,0.7)' },
-          { label: 'Maximum', data: afbLabels.map(k => _statData.afb_max[k] || 0),
-            backgroundColor: 'rgba(200,200,200,0.5)' }
-        ]
-      },
-      options: { plugins: { legend: { position: 'bottom' } },
-                 scales: { y: { beginAtZero: true } } }
+      data: { labels: afbLabels, datasets: [
+        { label: 'Erreicht', data: afbLabels.map(k => _statData.afb_punkte[k] || 0), backgroundColor: 'rgba(40,167,69,0.7)' },
+        { label: 'Maximum', data: afbLabels.map(k => _statData.afb_max[k] || 0), backgroundColor: 'rgba(200,200,200,0.5)' }
+      ]},
+      options: { plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
     });
   }
 });
+
+let _statData = null;
+let _chartNoten = null;
+let _chartAfb = null;
+
+function buildNotenChart(data) {
+  const use6p = document.getElementById('stat6p').checked;
+  const labels = use6p ? ['1','2','3','4','5','6'] : Array.from({length:16}, (_,i) => String(i));
+  const dist    = use6p ? data.note_distribution_6     : data.note_distribution;
+  const distIgn = use6p ? data.note_distribution_6_ignored : data.note_distribution_ignored;
+  const normal  = labels.map(l => dist[l] ?? dist[parseInt(l)] ?? 0);
+  const ignored = labels.map(l => distIgn[l] ?? distIgn[parseInt(l)] ?? 0);
+  document.getElementById('chartNotenTitle').textContent =
+    use6p ? 'Notenverteilung (1–6)' : 'Notenverteilung (0–15)';
+  if (_chartNoten) _chartNoten.destroy();
+  _chartNoten = new Chart(document.getElementById('chartNoten'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Schüler', data: normal, backgroundColor: 'rgba(31,78,121,0.7)', borderRadius: 4 },
+        { label: 'Ignoriert', data: ignored, backgroundColor: 'rgba(180,180,180,0.5)', borderRadius: 4 },
+      ]
+    },
+    options: {
+      plugins: { legend: { display: true, position: 'bottom' } },
+      scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } }
+    }
+  });
+}
 
 document.getElementById('stat6p').addEventListener('change', () => {
   if (_statData) buildNotenChart(_statData);
 });
 
-// ── Excel-Paste-Support ───────────────────────────────────────────────────────
-// Wenn Zellen aus Excel (oder einer anderen Tabelle) kopiert werden, liegen sie
-// als TSV im Clipboard vor: Spalten durch Tab, Zeilen durch Newline getrennt.
-// Einfügen beginnt an der fokussierten Zelle und füllt nach rechts / unten.
+// Excel paste support
 document.getElementById('gradeTable').addEventListener('paste', function(e) {
   const target = e.target;
   if (!target.classList.contains('student-points')) return;
-
   e.preventDefault();
-
   const text = (e.clipboardData || window.clipboardData).getData('text');
   if (!text) return;
-
-  // Parse TSV: Zeilen durch \n, Spalten durch \t
   const pastedRows = text.trimEnd().split(/\r?\n/).map(row => row.split('\t'));
-
-  const allStudentRows = Array.from(
-    document.querySelectorAll('#gradeTable tbody tr[data-sname]')
-  );
+  const allStudentRows = Array.from(document.querySelectorAll('#gradeTable tbody tr[data-sname]'));
   const startStudentIdx = allStudentRows.indexOf(target.closest('tr'));
-  const startTaskIdx    = parseInt(target.dataset.tidx, 10);
-
+  const startTaskIdx = parseInt(target.dataset.tidx, 10);
   if (startStudentIdx === -1 || isNaN(startTaskIdx)) return;
-
   let filledCount = 0;
   pastedRows.forEach((cols, rowOffset) => {
     const studentIdx = startStudentIdx + rowOffset;
     if (studentIdx >= allStudentRows.length) return;
     const row = allStudentRows[studentIdx];
-
     cols.forEach((raw, colOffset) => {
       const taskIdx = startTaskIdx + colOffset;
       const inp = row.querySelector(`.student-points[data-tidx="${taskIdx}"]`);
       if (!inp) return;
-
       const trimmed = raw.trim();
-      if (trimmed === '' || trimmed === '-') {
-        inp.value = '';
-        inp.dispatchEvent(new Event('input'));
-        filledCount++;
-        return;
-      }
-      // Deutsches Dezimalkomma → Punkt normalisieren
-      const normalized = trimmed.replace(',', '.');
-      const num = parseFloat(normalized);
+      if (trimmed === '' || trimmed === '-') { inp.value = ''; inp.dispatchEvent(new Event('input')); filledCount++; return; }
+      const num = parseFloat(trimmed.replace(',', '.'));
       if (isNaN(num)) return;
-
       const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
       inp.value = Math.max(0, Math.min(max, num));
       inp.dispatchEvent(new Event('input'));
       filledCount++;
     });
   });
-
-  if (filledCount > 0) {
-    const rowWord = pastedRows.length === 1 ? 'Zeile' : 'Zeilen';
-    showToast(
-      `${pastedRows.length} ${rowWord} aus Zwischenablage eingefügt – bitte speichern!`,
-      'info'
-    );
-  }
+  if (filledCount > 0) showToast(`${pastedRows.length} Zeile(n) eingefügt – bitte speichern!`, 'info');
 });
 
 // ── Drucken quick-select ─────────────────────────────────────────────────────
@@ -840,18 +666,7 @@ document.getElementById('druckAlleBtn')?.addEventListener('click', () => {
 document.getElementById('druckKeineBtn')?.addEventListener('click', () => {
   document.querySelectorAll('.druck-schueler').forEach(cb => cb.checked = false);
 });
-document.getElementById('druckNtBtn')?.addEventListener('click', () => {
-  document.querySelectorAll('.druck-schueler').forEach(cb => {
-    cb.checked = cb.dataset.inNt === 'true';
-  });
-});
-document.getElementById('druckHtBtn')?.addEventListener('click', () => {
-  document.querySelectorAll('.druck-schueler').forEach(cb => {
-    cb.checked = cb.dataset.inNt !== 'true';
-  });
-});
 
-// ── Toast helper ──────────────────────────────────────────────────────────────
 function showToast(msg, type = 'success') {
   const div = document.createElement('div');
   div.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;

@@ -64,6 +64,12 @@ LN_META_SL_VAL    = 6
 LN_META_GSLOT_LABEL = "GLN_SLOT"
 LN_META_GSLOT_COL   = 7
 LN_META_GSLOT_VAL   = 8
+LN_META_NT_LABEL    = "NACHTERMIN_VON"   # sheet name of the parent LN
+LN_META_NT_COL      = 9
+LN_META_NT_VAL      = 10
+LN_META_RUNDEN_LABEL = "NOTEN_RUNDEN"
+LN_META_RUNDEN_COL   = 11
+LN_META_RUNDEN_VAL   = 12
 
 # Column offsets inside an LN sheet (relative to col 1)
 LN_COL_NAME = 1          # "Mustermann, Max"
@@ -171,15 +177,47 @@ NOTE_15_TO_6: dict[int, int] = {
 }
 
 
-def percent_to_note15(achieved: float, maximum: float) -> int:
-    """Calculate note (0-15) from achieved points and maximum points."""
+# Grade scale with rounding (P > threshold → note); thresholds are exclusive
+GRADE_SCALE_RUNDEN: list[tuple[float, int]] = [
+    (0.94, 15),
+    (0.89, 14),
+    (0.84, 13),
+    (0.79, 12),
+    (0.74, 11),
+    (0.69, 10),
+    (0.64, 9),
+    (0.59, 8),
+    (0.54, 7),
+    (0.49, 6),
+    (0.44, 5),
+    (0.39, 4),
+    (0.32, 3),
+    (0.26, 2),
+    (0.19, 1),
+    (0.0,  0),
+]
+
+
+def percent_to_note15(achieved: float, maximum: float, runden: bool = True) -> int:
+    """Calculate note (0-15) from achieved points and maximum points.
+    
+    If *runden* is True (default), rounds up when within 1% of next grade.
+    """
     if maximum <= 0:
         return 0
     pct = achieved / maximum
-    for threshold, note in GRADE_SCALE:
-        if pct >= threshold:
-            return note
-    return 0
+    scale = GRADE_SCALE_RUNDEN if runden else GRADE_SCALE
+    if runden:
+        # exclusive thresholds: P > threshold
+        for threshold, note in scale:
+            if pct > threshold:
+                return note
+        return 0
+    else:
+        for threshold, note in GRADE_SCALE:
+            if pct >= threshold:
+                return note
+        return 0
 
 
 def note15_to_note6(note: int) -> int:
