@@ -37,7 +37,18 @@ def create_app(config_name: str | None = None) -> Flask:
     def inject_meta():
         from flask import session as _sess
         gb = _sess.get("gradebook")
-        return {"current_klasse": gb.get("klasse", "") if gb else ""}
+        current_modus = gb.get("modus", "klasse") if gb else "klasse"
+        kurs_typ = gb.get("kurs_typ", "") if gb else ""
+        kurs_stunden = gb.get("kurs_stunden", "") if gb else ""
+        current_kurs_info = (
+            {"typ": kurs_typ, "stunden": kurs_stunden, "fach": gb.get("fach", "")}
+            if (gb and current_modus == "kurs") else None
+        )
+        return {
+            "current_klasse": gb.get("klasse", "") if gb else "",
+            "current_modus": current_modus,
+            "current_kurs_info": current_kurs_info,
+        }
 
     # Create DB tables
     with app.app_context():

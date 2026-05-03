@@ -138,3 +138,90 @@ def round_note15(x: float | None) -> int | None:
     if x is None:
         return None
     return max(0, min(15, round(x)))
+
+
+# ── Kurs mode ─────────────────────────────────────────────────────────────────
+
+HJ_ORDER = ["HJ1", "HJ2", "HJ3", "HJ4"]
+_GLN_TO_HJ = {
+    "GLN1": "HJ1", "GLN2": "HJ1",
+    "GLN3": "HJ2", "GLN4": "HJ2",
+    "GLN5": "HJ3", "GLN6": "HJ3",
+    "GLN7": "HJ4", "GLN8": "HJ4",
+}
+_HJ_TO_GLN_SLOTS = {
+    "HJ1": ("GLN1", "GLN2"),
+    "HJ2": ("GLN3", "GLN4"),
+    "HJ3": ("GLN5", "GLN6"),
+    "HJ4": ("GLN7", "GLN8"),
+}
+DEFAULT_KURS_GEWICHTUNG = {"hj_gln_pct": 70.0, "hj_mdl_pct": 30.0}
+
+
+def get_kurs_gewichtung(data: dict) -> dict:
+    g = dict(DEFAULT_KURS_GEWICHTUNG)
+    g.update(data.get("kurs_gewichtung") or {})
+    return g
+
+
+def gln_slot_to_hj(gln_slot: str) -> str | None:
+    return _GLN_TO_HJ.get(gln_slot)
+
+
+def valid_gln_slots(kurs_typ: str, kurs_stunden: int) -> list[str]:
+    """GK with 2 or 3 hours: only 7 GLNs (HJ4 gets only 1 Klausur)."""
+    if kurs_typ == "GK" and kurs_stunden in (2, 3):
+        return ["GLN1", "GLN2", "GLN3", "GLN4", "GLN5", "GLN6", "GLN7"]
+    return ["GLN1", "GLN2", "GLN3", "GLN4", "GLN5", "GLN6", "GLN7", "GLN8"]
+
+
+def gln_notes_for_hj_kurs(student_name: str, hj: str, lns: list) -> list[float]:
+    slots = _HJ_TO_GLN_SLOTS.get(hj, ())
+    notes = []
+    for ln in lns:
+        if ln.get("ln_typ") != "GLN" or ln.get("gln_slot") not in slots:
+            continue
+        for s in ln.get("schueler", []):
+            if s["name"] == student_name:
+                if not s.get("ignoriert") and s.get("note_15") is not None:
+                    notes.append(float(s["note_15"]))
+                break
+    return notes
+
+
+def gln_mean_for_hj_kurs(student_name: str, hj: str, lns: list) -> float | None:
+    notes = gln_notes_for_hj_kurs(student_name, hj, lns)
+    return sum(notes) / len(notes) if notes else None
+
+
+def compute_hj_vorschlag_kurs(
+    student_name: str,
+    hj: str,
+    lns: list,
+    mdl_noten_kurs: dict,
+    gewichtung: dict,
+) -> float | None:
+    gln_mean = gln_mean_for_hj_kurs(student_name, hj, lns)
+    kn = mdl_noten_kurs.get(student_name, {})
+    mdl1 = kn.get(f"{hj}_mdl1")
+    mdl2 = kn.get(f"{hj}_mdl2")
+    mdl_vals = [v for v in [mdl1, mdl2] if v is not None]
+    mdl_mean = sum(mdl_vals) / len(mdl_vals) if mdl_vals else None
+    gln_pct = gewichtung.get("hj_gln_pct", 70.0) / 100.0
+    mdl_pct = gewichtung.get("hj_mdl_pct", 30.0) / 100.0
+    if gln_mean is not None and mdl_mean is not None:
+        return round(gln_mean * gln_pct + mdl_mean * mdl_pct, 1)
+    if gln_mean is not None:
+        return round(gln_mean, 1)
+    return None
+
+
+def student_active_in_hj(student: dict, target_hj: str) -> bool:
+    if student.get("status") == "Ausgeschieden":
+        abgang = student.get("abgang_nach_hj")
+        if abgang is None:
+            return False
+        if target_hj not in HJ_ORDER or abgang not in HJ_ORDER:
+            return False
+        return HJ_ORDER.index(target_hj) <= HJ_ORDER.index(abgang)
+    return True

@@ -66,9 +66,38 @@ def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
     }
     noten_zusatz = _read_noten_zusatz(wb)
     result.update(noten_zusatz)
-    gw = _read_einstellungen(wb)
-    if gw:
-        result["sl_gewichtung"] = gw
+    settings = _read_einstellungen(wb)
+    if settings:
+        # Separate sl_gewichtung from kurs settings
+        sl_gw = {k: v for k, v in settings.items() if k in S.ES_GEWICHTUNG_KEYS}
+        if sl_gw:
+            result["sl_gewichtung"] = sl_gw
+        # Kurs settings
+        modus = settings.get("modus", "klasse")
+        result["modus"] = modus if modus in ("klasse", "kurs") else "klasse"
+        kurs_typ = settings.get("kurs_typ", "")
+        if kurs_typ:
+            result["kurs_typ"] = kurs_typ
+        stunden_raw = settings.get("kurs_stunden", "")
+        if stunden_raw:
+            try:
+                result["kurs_stunden"] = int(float(stunden_raw))
+            except (TypeError, ValueError):
+                pass
+        kurs_gln = settings.get("kurs_gln_pct", "")
+        kurs_mdl = settings.get("kurs_mdl_pct", "")
+        if kurs_gln or kurs_mdl:
+            result.setdefault("kurs_gewichtung", {})
+            try:
+                result["kurs_gewichtung"]["hj_gln_pct"] = float(kurs_gln)
+            except (TypeError, ValueError):
+                pass
+            try:
+                result["kurs_gewichtung"]["hj_mdl_pct"] = float(kurs_mdl)
+            except (TypeError, ValueError):
+                pass
+    else:
+        result.setdefault("modus", "klasse")
     return result
 
 
@@ -144,6 +173,7 @@ def _read_stammdaten(wb: Workbook) -> list[dict]:
             "vorname":  _str(row, S.SD_COL_VORNAME  - 1),
             "status":   _str(row, S.SD_COL_STATUS   - 1) or S.SD_STATUS_AKTIV,
             "austritt": _date_str(row, S.SD_COL_AUSTRITT - 1),
+            "abgang_nach_hj": _str(row, S.SD_COL_ABGANG_HJ - 1) or None,
         })
     return students
 
@@ -177,6 +207,8 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
                                                values_only=True))[0], S.LN_META_HJ_VAL - 1) or None
         sl_zuordnung  = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
                                                values_only=True))[0], S.LN_META_SL_VAL - 1) or None
+        gln_slot      = _str(list(ws.iter_rows(min_row=S.LN_ROW_META, max_row=S.LN_ROW_META,
+                                               values_only=True))[0], S.LN_META_GSLOT_VAL - 1) or None
     else:
         # Old format: no meta row – rows are shifted by -1
         row_header    = 1
@@ -186,6 +218,7 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
         ln_typ        = None
         hj            = None
         sl_zuordnung  = None
+        gln_slot      = None
 
     header_row = list(ws.iter_rows(min_row=row_header, max_row=row_header, values_only=True))[0]
     afb_row    = list(ws.iter_rows(min_row=row_afb,    max_row=row_afb,    values_only=True))[0]
@@ -263,6 +296,7 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
         "ln_typ":       ln_typ or "KLN",
         "hj":           hj,
         "sl_zuordnung": sl_zuordnung,
+        "gln_slot":     gln_slot,
         "aufgaben":     task_cols,
         "aufgaben_tree": [],
         "schueler":     students,
@@ -276,6 +310,7 @@ def _read_noten_zusatz(wb: Workbook) -> dict:
         "sl_noten_actual": {},
         "hj_noten": {},
         "schuljahr_noten_actual": {},
+        "mdl_noten_kurs": {},
     }
     if S.SHEET_NOTEN_ZUSATZ not in wb.sheetnames:
         return empty
@@ -285,6 +320,7 @@ def _read_noten_zusatz(wb: Workbook) -> dict:
     sl_act: dict = {}
     hj_act: dict = {}
     sj_act: dict = {}
+    mdl_kurs: dict = {}
 
     for row in ws.iter_rows(min_row=S.NZ_DATA_START, values_only=True):
         name = _str(row, S.NZ_COL_NAME - 1)
@@ -309,31 +345,48 @@ def _read_noten_zusatz(wb: Workbook) -> dict:
         hj_act[name] = {
             "HJ1": _intn(row, S.NZ_COL_HJ_ACT_HJ1),
             "HJ2": _intn(row, S.NZ_COL_HJ_ACT_HJ2),
+            "HJ3": _intn(row, S.NZ_COL_KURS_HJ_ACT_HJ3),
+            "HJ4": _intn(row, S.NZ_COL_KURS_HJ_ACT_HJ4),
         }
         sj_val = _intn(row, S.NZ_COL_SJ_ACT)
         if sj_val is not None:
             sj_act[name] = sj_val
+        mdl_kurs[name] = {
+            "HJ1_mdl1": _intn(row, S.NZ_COL_KURS_MDL_HJ1_1),
+            "HJ1_mdl2": _intn(row, S.NZ_COL_KURS_MDL_HJ1_2),
+            "HJ2_mdl1": _intn(row, S.NZ_COL_KURS_MDL_HJ2_1),
+            "HJ2_mdl2": _intn(row, S.NZ_COL_KURS_MDL_HJ2_2),
+            "HJ3_mdl1": _intn(row, S.NZ_COL_KURS_MDL_HJ3_1),
+            "HJ3_mdl2": _intn(row, S.NZ_COL_KURS_MDL_HJ3_2),
+            "HJ4_mdl1": _intn(row, S.NZ_COL_KURS_MDL_HJ4_1),
+            "HJ4_mdl2": _intn(row, S.NZ_COL_KURS_MDL_HJ4_2),
+        }
 
     return {
         "mdl_noten": mdl,
         "sl_noten_actual": sl_act,
         "hj_noten": hj_act,
         "schuljahr_noten_actual": sj_act,
+        "mdl_noten_kurs": mdl_kurs,
     }
 
 
 def _read_einstellungen(wb: Workbook) -> dict | None:
-    """Read sl_gewichtung from hidden Einstellungen sheet. Returns None if not present."""
+    """Read sl_gewichtung and Kurs settings from hidden Einstellungen sheet."""
     if S.SHEET_EINSTELLUNGEN not in wb.sheetnames:
         return None
     ws: Worksheet = wb[S.SHEET_EINSTELLUNGEN]
-    gw: dict = {}
+    result: dict = {}
     for row in ws.iter_rows(min_row=S.ES_DATA_START, values_only=True):
         key = _str(row, S.ES_COL_KEY - 1)
-        val = _num(row, S.ES_COL_VALUE - 1)
-        if key in S.ES_GEWICHTUNG_KEYS and val is not None:
-            gw[key] = val
-    return gw if gw else None
+        val_raw = row[S.ES_COL_VALUE - 1] if len(row) > S.ES_COL_VALUE - 1 else None
+        if key in S.ES_GEWICHTUNG_KEYS:
+            val = _num(row, S.ES_COL_VALUE - 1)
+            if val is not None:
+                result[key] = val
+        elif key in S.ES_KURS_KEYS:
+            result[key] = str(val_raw).strip() if val_raw is not None else ""
+    return result if result else None
 
 
 # ── Übersichten ───────────────────────────────────────────────────────────────

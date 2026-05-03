@@ -22,7 +22,7 @@
   <thead>
     <tr>
       <th>#</th><th>Nachname</th><th>Vorname</th>
-      <th>Status</th><th>Austrittsdate</th><th>Aktionen</th>
+      <th>Status</th><th>Abgang nach</th><th>Aktionen</th>
     </tr>
   </thead>
   <tbody>
@@ -38,7 +38,7 @@
           <span class="badge bg-secondary">Ausgeschieden</span>
         {% endif %}
       </td>
-      <td class="small text-muted">{{ s.austritt or '–' }}</td>
+      <td class="small text-muted">{{ s.abgang_nach_hj or '–' }}</td>
       <td>
         {% if s.status == 'Aktiv' %}
         <button class="btn btn-sm btn-warning" data-bs-toggle="modal"
@@ -184,9 +184,13 @@
         <div class="modal-body">
           <input type="hidden" name="student_index" id="austrittIdx">
           <div class="mb-3">
-            <label class="form-label">Austrittsdatum (TT.MM.JJJJ)</label>
-            <input type="text" name="austritt_datum" class="form-control"
-                   placeholder="z.B. 31.01.2026">
+            <label class="form-label">Abgang nach Halbjahr</label>
+            <select name="abgang_nach_hj" class="form-select">
+              <option value="HJ1">nach Halbjahr 1</option>
+              <option value="HJ2" selected>nach Halbjahr 2</option>
+              <option value="HJ3">nach Halbjahr 3 (Kurs)</option>
+              <option value="HJ4">nach Halbjahr 4 (Kurs)</option>
+            </select>
           </div>
         </div>
         <div class="modal-footer">

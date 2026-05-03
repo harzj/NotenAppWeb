@@ -48,6 +48,9 @@ def build_gradebook(data: dict, password: str | None = None) -> bytes:
         _write_ln_sheet(wb, ln, name_to_sd_row=name_to_sd_row)
     _write_uebersicht(wb, data, S.SHEET_UEBERSICHT_HJ1, "HJ1")
     _write_uebersicht(wb, data, S.SHEET_UEBERSICHT_HJ2, "HJ2")
+    if data.get("modus") == "kurs":
+        _write_uebersicht(wb, data, S.SHEET_UEBERSICHT_HJ3, "HJ3")
+        _write_uebersicht(wb, data, S.SHEET_UEBERSICHT_HJ4, "HJ4")
     _write_uebersicht(wb, data, S.SHEET_UEBERSICHT_JAHR, "Jahr")
     _write_notentabelle(wb)
     _write_noten_zusatz(wb, data, stammdaten)
@@ -80,13 +83,14 @@ def _write_stammdaten(wb: Workbook, students: list[dict], klasse: str = "", fach
     sj_val = ws.cell(S.SD_INFO_ROW, S.SD_SJ_VALUE_COL, schuljahr)
     sj_val.font = Font(bold=True, size=12, color="1F4E79")
     # Row 2: headers
-    headers = ["Nachname", "Vorname", "Status", "Austrittsdatum"]
+    headers = ["Nachname", "Vorname", "Status", "Austrittsdatum", "Abgang_nach_HJ"]
     _write_header_row(ws, S.SD_HEADER_ROW, headers)
     for i, s in enumerate(students, start=S.SD_DATA_START_ROW):
         ws.cell(i, S.SD_COL_NACHNAME, s.get("nachname", ""))
         ws.cell(i, S.SD_COL_VORNAME,  s.get("vorname",  ""))
         ws.cell(i, S.SD_COL_STATUS,   s.get("status",   S.SD_STATUS_AKTIV))
         ws.cell(i, S.SD_COL_AUSTRITT, s.get("austritt", ""))
+        ws.cell(i, S.SD_COL_ABGANG_HJ, s.get("abgang_nach_hj", ""))
     _autofit(ws)
 
 
@@ -113,6 +117,8 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
         (S.LN_META_HJ_VAL,  None, ln.get("hj") or ""),
         (S.LN_META_SL_COL,  S.LN_META_SL_LABEL,  None),
         (S.LN_META_SL_VAL,  None, ln.get("sl_zuordnung") or ""),
+        (S.LN_META_GSLOT_COL, S.LN_META_GSLOT_LABEL, None),
+        (S.LN_META_GSLOT_VAL, None, ln.get("gln_slot") or ""),
     ]:
         c = ws.cell(S.LN_ROW_META, col)
         c.value = label if label is not None else val
@@ -307,6 +313,7 @@ def _write_noten_zusatz(wb: Workbook, data: dict, stammdaten: list[dict]) -> Non
     sl_noten_actual  = data.get("sl_noten_actual") or {}
     hj_noten         = data.get("hj_noten") or {}
     sj_noten_actual  = data.get("schuljahr_noten_actual") or {}
+    mdl_noten_kurs   = data.get("mdl_noten_kurs") or {}
 
     for i, s in enumerate(stammdaten, start=S.NZ_DATA_START):
         name = f"{s['nachname']}, {s['vorname']}"
@@ -322,17 +329,44 @@ def _write_noten_zusatz(wb: Workbook, data: dict, stammdaten: list[dict]) -> Non
         ws.cell(i, S.NZ_COL_HJ_ACT_HJ1, hj_noten.get(name, {}).get("HJ1"))
         ws.cell(i, S.NZ_COL_HJ_ACT_HJ2, hj_noten.get(name, {}).get("HJ2"))
         ws.cell(i, S.NZ_COL_SJ_ACT,     sj_noten_actual.get(name))
+        # Kurs extra columns
+        mdl_kurs = mdl_noten_kurs.get(name, {})
+        ws.cell(i, S.NZ_COL_KURS_MDL_HJ1_1, mdl_kurs.get("HJ1_mdl1"))
+        ws.cell(i, S.NZ_COL_KURS_MDL_HJ1_2, mdl_kurs.get("HJ1_mdl2"))
+        ws.cell(i, S.NZ_COL_KURS_MDL_HJ2_1, mdl_kurs.get("HJ2_mdl1"))
+        ws.cell(i, S.NZ_COL_KURS_MDL_HJ2_2, mdl_kurs.get("HJ2_mdl2"))
+        ws.cell(i, S.NZ_COL_KURS_MDL_HJ3_1, mdl_kurs.get("HJ3_mdl1"))
+        ws.cell(i, S.NZ_COL_KURS_MDL_HJ3_2, mdl_kurs.get("HJ3_mdl2"))
+        ws.cell(i, S.NZ_COL_KURS_MDL_HJ4_1, mdl_kurs.get("HJ4_mdl1"))
+        ws.cell(i, S.NZ_COL_KURS_MDL_HJ4_2, mdl_kurs.get("HJ4_mdl2"))
+        ws.cell(i, S.NZ_COL_KURS_HJ_ACT_HJ3, hj_noten.get(name, {}).get("HJ3"))
+        ws.cell(i, S.NZ_COL_KURS_HJ_ACT_HJ4, hj_noten.get(name, {}).get("HJ4"))
 
 
 def _write_einstellungen(wb: Workbook, data: dict) -> None:
-    """Write sl_gewichtung key-value pairs to a hidden sheet."""
+    """Write sl_gewichtung and Kurs settings as key-value pairs to a hidden sheet."""
     ws = wb.create_sheet(S.SHEET_EINSTELLUNGEN)
     ws.sheet_state = "hidden"
     _write_header_row(ws, S.ES_HEADER_ROW, ["Einstellung", "Wert"])
     gw = data.get("sl_gewichtung") or {}
-    for i, key in enumerate(S.ES_GEWICHTUNG_KEYS, start=S.ES_DATA_START):
-        ws.cell(i, S.ES_COL_KEY,   key)
-        ws.cell(i, S.ES_COL_VALUE, gw.get(key))
+    kgw = data.get("kurs_gewichtung") or {}
+    row = S.ES_DATA_START
+    for key in S.ES_GEWICHTUNG_KEYS:
+        ws.cell(row, S.ES_COL_KEY,   key)
+        ws.cell(row, S.ES_COL_VALUE, gw.get(key))
+        row += 1
+    # Kurs-specific settings
+    kurs_vals = {
+        "modus":       data.get("modus", "klasse"),
+        "kurs_typ":    data.get("kurs_typ", ""),
+        "kurs_stunden": data.get("kurs_stunden", ""),
+        "kurs_gln_pct": kgw.get("hj_gln_pct", ""),
+        "kurs_mdl_pct": kgw.get("hj_mdl_pct", ""),
+    }
+    for key in S.ES_KURS_KEYS:
+        ws.cell(row, S.ES_COL_KEY,   key)
+        ws.cell(row, S.ES_COL_VALUE, kurs_vals.get(key))
+        row += 1
 
 
 def _write_notentabelle(wb: Workbook) -> None:

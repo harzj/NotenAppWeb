@@ -8,6 +8,8 @@ SHEET_STAMMDATEN = "Stammdaten"
 SHEET_NOTENTABELLE = "Notentabelle"
 SHEET_UEBERSICHT_HJ1 = "Noten_HJ1"
 SHEET_UEBERSICHT_HJ2 = "Noten_HJ2"
+SHEET_UEBERSICHT_HJ3 = "Noten_HJ3"
+SHEET_UEBERSICHT_HJ4 = "Noten_HJ4"
 SHEET_UEBERSICHT_JAHR = "Noten_Jahr"
 SHEET_NOTEN_ZUSATZ = "Noten_Zusatz"    # hidden: mdl/sl/hj/sj actual notes
 SHEET_EINSTELLUNGEN = "Einstellungen"  # hidden: sl_gewichtung
@@ -36,6 +38,7 @@ SD_COL_NACHNAME = 1
 SD_COL_VORNAME  = 2
 SD_COL_STATUS   = 3      # "Aktiv" | "Ausgeschieden"
 SD_COL_AUSTRITT = 4      # Date of leaving, may be empty
+SD_COL_ABGANG_HJ = 5     # Abgang nach Halbjahr (Kurs mode), e.g. "HJ2"
 
 SD_STATUS_AKTIV = "Aktiv"
 SD_STATUS_AUSGESCHIEDEN = "Ausgeschieden"
@@ -58,6 +61,9 @@ LN_META_HJ_VAL    = 4
 LN_META_SL_LABEL  = "SL_ZUORDNUNG"
 LN_META_SL_COL    = 5
 LN_META_SL_VAL    = 6
+LN_META_GSLOT_LABEL = "GLN_SLOT"
+LN_META_GSLOT_COL   = 7
+LN_META_GSLOT_VAL   = 8
 
 # Column offsets inside an LN sheet (relative to col 1)
 LN_COL_NAME = 1          # "Mustermann, Max"
@@ -101,12 +107,28 @@ NZ_COL_SL_ACT_SL4 = 9
 NZ_COL_HJ_ACT_HJ1 = 10
 NZ_COL_HJ_ACT_HJ2 = 11
 NZ_COL_SJ_ACT     = 12
+# Kurs mode extra columns (13-22)
+NZ_COL_KURS_MDL_HJ1_1 = 13
+NZ_COL_KURS_MDL_HJ1_2 = 14
+NZ_COL_KURS_MDL_HJ2_1 = 15
+NZ_COL_KURS_MDL_HJ2_2 = 16
+NZ_COL_KURS_MDL_HJ3_1 = 17
+NZ_COL_KURS_MDL_HJ3_2 = 18
+NZ_COL_KURS_MDL_HJ4_1 = 19
+NZ_COL_KURS_MDL_HJ4_2 = 20
+NZ_COL_KURS_HJ_ACT_HJ3 = 21
+NZ_COL_KURS_HJ_ACT_HJ4 = 22
 NZ_HEADERS = [
     "Schüler",
     "MDL_SL1", "MDL_SL2", "MDL_SL3", "MDL_SL4",
     "SL_Act_SL1", "SL_Act_SL2", "SL_Act_SL3", "SL_Act_SL4",
     "HJ_Act_HJ1", "HJ_Act_HJ2",
     "SJ_Act",
+    "KURS_MDL_HJ1_1", "KURS_MDL_HJ1_2",
+    "KURS_MDL_HJ2_1", "KURS_MDL_HJ2_2",
+    "KURS_MDL_HJ3_1", "KURS_MDL_HJ3_2",
+    "KURS_MDL_HJ4_1", "KURS_MDL_HJ4_2",
+    "KURS_HJ_Act_HJ3", "KURS_HJ_Act_HJ4",
 ]
 
 # ── Einstellungen sheet (key→value rows) ──────────────────────────────────────
@@ -115,6 +137,7 @@ ES_DATA_START = 2
 ES_COL_KEY   = 1
 ES_COL_VALUE = 2
 ES_GEWICHTUNG_KEYS = ["sl_mdl_pct", "sl_kln_pct", "hj_gln_w", "hj_sl1_w", "hj_sl2_w"]
+ES_KURS_KEYS = ["modus", "kurs_typ", "kurs_stunden", "kurs_gln_pct", "kurs_mdl_pct"]
 
 # ── Grade scale (percentage → points 0-15) ──────────────────────────────────
 # List of (min_percent_inclusive, note_0_15) sorted descending by percent

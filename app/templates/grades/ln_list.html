@@ -25,7 +25,11 @@
           <div class="d-flex gap-1 flex-wrap justify-content-end">
             {% if ln.ln_typ == 'GLN' %}
               <span class="badge bg-danger">GLN</span>
-              {% if ln.hj %}<span class="badge bg-secondary">{{ ln.hj }}</span>{% endif %}
+              {% if current_modus == 'kurs' and ln.gln_slot %}
+                <span class="badge bg-secondary">{{ ln.gln_slot }}</span>
+              {% elif ln.hj %}
+                <span class="badge bg-secondary">{{ ln.hj }}</span>
+              {% endif %}
             {% elif ln.ln_typ == 'KLN' %}
               <span class="badge bg-warning text-dark">KLN</span>
               {% if ln.sl_zuordnung %}<span class="badge bg-secondary">{{ ln.sl_zuordnung }}</span>{% endif %}
@@ -88,6 +92,10 @@
             {{ new_form.hj.label(class="form-label") }}
             {{ new_form.hj(class="form-select") }}
           </div>
+          <div class="mb-3 d-none" id="rowGlnSlot">
+            {{ new_form.gln_slot.label(class="form-label") }}
+            {{ new_form.gln_slot(class="form-select") }}
+          </div>
           <div class="mb-3 d-none" id="rowSL">
             {{ new_form.sl_zuordnung.label(class="form-label") }}
             {{ new_form.sl_zuordnung(class="form-select") }}
@@ -104,12 +112,15 @@
 
 <script>
 (function () {
+  const isKurs = {{ 'true' if modus == 'kurs' else 'false' }};
   const typSel = document.getElementById('newLnTyp');
   const rowHJ = document.getElementById('rowHJ');
   const rowSL = document.getElementById('rowSL');
+  const rowGlnSlot = document.getElementById('rowGlnSlot');
   function toggleFields() {
     const isGLN = typSel.value === 'GLN';
-    rowHJ.classList.toggle('d-none', !isGLN);
+    rowHJ.classList.toggle('d-none', !isGLN || isKurs);
+    rowGlnSlot.classList.toggle('d-none', !isGLN || !isKurs);
     rowSL.classList.toggle('d-none', isGLN);
   }
   typSel.addEventListener('change', toggleFields);

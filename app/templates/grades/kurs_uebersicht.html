@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}Kurs-Übersicht {{ hj }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-table me-2"></i>Kurs-Übersicht – {{ hj }}</h4>
+  <div class="d-flex gap-2">
+    {% for h in all_hj %}
+    <a href="{{ url_for('grades.kurs_uebersicht', hj=h) }}"
+       class="btn btn-sm {{ 'btn-primary' if h == hj else 'btn-outline-secondary' }}">{{ h }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if rows %}
+<div class="table-responsive">
+  <table class="table table-bordered table-hover align-middle" id="kuTable">
+    <thead class="table-dark">
+      <tr>
+        <th>Schüler</th>
+        {% for slot in hj_slots %}
+        <th class="text-center">{{ slot }}</th>
+        {% endfor %}
+        <th class="text-center">Ø GLN</th>
+        <th class="text-center">Mündl. 1</th>
+        <th class="text-center">Mündl. 2</th>
+        <th class="text-center">Vorschlag</th>
+        <th class="text-center">Tatsächlich</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.name }}</td>
+        {% for slot in hj_slots %}
+        <td class="text-center">
+          {% set note = row.gln_notes.get(slot) %}
+          {% if note is not none %}{{ note }}{% else %}<span class="text-muted">–</span>{% endif %}
+        </td>
+        {% endfor %}
+        <td class="text-center fw-semibold">
+          {% if row.gln_notes.values() | select('!=', none) | list %}
+            {{ (row.gln_notes.values() | select('!=', none) | list | sum / (row.gln_notes.values() | select('!=', none) | list | length)) | round(1) }}
+          {% else %}
+            <span class="text-muted">–</span>
+          {% endif %}
+        </td>
+        <td class="text-center">
+          <input type="number" class="form-control form-control-sm text-center"
+                 style="width:5rem; display:inline-block;"
+                 min="0" max="15" step="1"
+                 data-name="{{ row.name }}" data-key="{{ hj }}_mdl1"
+                 value="{{ row.mdl1 if row.mdl1 is not none else '' }}">
+        </td>
+        <td class="text-center">
+          <input type="number" class="form-control form-control-sm text-center"
+                 style="width:5rem; display:inline-block;"
+                 min="0" max="15" step="1"
+                 data-name="{{ row.name }}" data-key="{{ hj }}_mdl2"
+                 value="{{ row.mdl2 if row.mdl2 is not none else '' }}">
+        </td>
+        <td class="text-center fw-semibold text-primary">
+          {% if row.vorschlag is not none %}{{ row.vorschlag }}{% else %}<span class="text-muted">–</span>{% endif %}
+        </td>
+        <td class="text-center">
+          <input type="number" class="form-control form-control-sm text-center"
+                 style="width:5rem; display:inline-block;"
+                 min="0" max="15" step="1"
+                 data-name="{{ row.name }}" data-key="tatsaechlich"
+                 value="{{ row.tatsaechlich if row.tatsaechlich is not none else '' }}">
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<button class="btn btn-success mt-2" id="btnSave">
+  <i class="bi bi-save me-1"></i>Speichern
+</button>
+<span id="saveStatus" class="ms-3 text-muted small"></span>
+{% else %}
+<div class="alert alert-info">
+  Keine aktiven Schüler in {{ hj }}.
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_scripts %}
+<script>
+const HJ = {{ hj | tojson }};
+document.getElementById('btnSave')?.addEventListener('click', async () => {
+  const rows = [];
+  const table = document.getElementById('kuTable');
+  const inputs = table.querySelectorAll('input[data-name]');
+  const byName = {};
+  inputs.forEach(inp => {
+    const name = inp.dataset.name;
+    const key  = inp.dataset.key;
+    if (!byName[name]) byName[name] = { name };
+    const v = inp.value.trim();
+    byName[name][key] = v !== '' ? parseFloat(v) : null;
+  });
+  Object.values(byName).forEach(r => rows.push(r));
+
+  const status = document.getElementById('saveStatus');
+  status.textContent = 'Speichern…';
+  try {
+    const resp = await fetch('/api/hj-kurs-speichern', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || ''
+      },
+      body: JSON.stringify({ hj: HJ, rows })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      status.textContent = 'Gespeichert ✓';
+      status.className = 'ms-3 text-success small';
+      setTimeout(() => location.reload(), 600);
+    } else {
+      status.textContent = 'Fehler: ' + (data.error || 'Unbekannt');
+      status.className = 'ms-3 text-danger small';
+    }
+  } catch(e) {
+    status.textContent = 'Netzwerkfehler';
+    status.className = 'ms-3 text-danger small';
+  }
+});
+</script>
+{% endblock %}

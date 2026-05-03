@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
-from wtforms import StringField, PasswordField, SubmitField, SelectField, FloatField, HiddenField
+from wtforms import StringField, PasswordField, SubmitField, SelectField, FloatField, HiddenField, RadioField
 from wtforms.validators import DataRequired, Optional, Length, Regexp, NumberRange
 
 
@@ -23,7 +23,9 @@ class StammdatenForm(FlaskForm):
 class AustrittForm(FlaskForm):
     """Mark student as left."""
     student_index = HiddenField(validators=[DataRequired()])
-    austritt_datum = StringField("Austrittsdatum (TT.MM.JJJJ)", validators=[Optional(), Length(max=20)])
+    abgang_nach_hj = SelectField("Abgang nach Halbjahr", choices=[
+        ("HJ1", "nach Halbjahr 1"), ("HJ2", "nach Halbjahr 2"),
+        ("HJ3", "nach Halbjahr 3 (Kurs)"), ("HJ4", "nach Halbjahr 4 (Kurs)")], default="HJ2")
     submit = SubmitField("Ausscheiden bestätigen")
 
 
@@ -35,6 +37,12 @@ SL_CHOICES = [
     ("SL3", "SL3 (HJ2 – Note 1)"),
     ("SL4", "SL4 (HJ2 – Note 2)"),
 ]
+GLN_SLOT_CHOICES = [
+    ("GLN1", "GLN 1 (HJ1 – 1. Klausur)"), ("GLN2", "GLN 2 (HJ1 – 2. Klausur)"),
+    ("GLN3", "GLN 3 (HJ2 – 1. Klausur)"), ("GLN4", "GLN 4 (HJ2 – 2. Klausur)"),
+    ("GLN5", "GLN 5 (HJ3 – 1. Klausur)"), ("GLN6", "GLN 6 (HJ3 – 2. Klausur)"),
+    ("GLN7", "GLN 7 (HJ4 – 1. Klausur)"), ("GLN8", "GLN 8 (HJ4 – 2. Klausur)"),
+]
 
 
 class NewLNForm(FlaskForm):
@@ -42,6 +50,7 @@ class NewLNForm(FlaskForm):
     ln_typ = SelectField("Typ", choices=LN_TYP_CHOICES, default="GLN")
     hj = SelectField("Halbjahr (für GLN)", choices=HJ_CHOICES, default="HJ1")
     sl_zuordnung = SelectField("SL-Zuordnung (für KLN)", choices=SL_CHOICES, default="SL1")
+    gln_slot = SelectField("GLN-Slot (Kurs)", choices=GLN_SLOT_CHOICES, default="GLN1")
     submit = SubmitField("Leistungsnachweis anlegen")
 
 
@@ -50,6 +59,18 @@ class MoodleImportForm(FlaskForm):
     ln_typ = SelectField("Typ", choices=LN_TYP_CHOICES, default="GLN")
     hj = SelectField("Halbjahr (für GLN)", choices=HJ_CHOICES, default="HJ1")
     sl_zuordnung = SelectField("SL-Zuordnung (für KLN)", choices=SL_CHOICES, default="SL1")
+    gln_slot = SelectField("GLN-Slot (Kurs)", choices=GLN_SLOT_CHOICES, default="GLN1")
+    submit = SubmitField("Importieren")
+
+
+class NotendateiImportForm(FlaskForm):
+    file = FileField("Notendatei (.xlsx)", validators=[FileRequired(), FileAllowed(["xlsx"], "Nur .xlsx-Dateien erlaubt.")])
+    password = PasswordField("Dateipasswort (leer lassen falls ungeschützt)", validators=[Optional()])
+    name = StringField("Bezeichnung (leer = Thema aus Datei)", validators=[Optional(), Length(max=80)])
+    ln_typ = SelectField("Typ", choices=LN_TYP_CHOICES, default="GLN")
+    hj = SelectField("Halbjahr (für GLN)", choices=HJ_CHOICES, default="HJ1")
+    sl_zuordnung = SelectField("SL-Zuordnung (für KLN)", choices=SL_CHOICES, default="SL1")
+    gln_slot = SelectField("GLN-Slot (Kurs)", choices=GLN_SLOT_CHOICES, default="GLN1")
     submit = SubmitField("Importieren")
 
 
@@ -59,6 +80,7 @@ class ExportForm(FlaskForm):
 
 
 class KlassenEinstellungenForm(FlaskForm):
+    modus = RadioField("Modus", choices=[("klasse", "Klasse"), ("kurs", "Kurs (Oberstufe)")], default="klasse")
     klasse = StringField("Klassenbezeichner (z.B. 7p)", validators=[Optional(), Length(max=20)])
     fach = StringField("Fach (z.B. Informatik)", validators=[Optional(), Length(max=80)])
     schuljahr = StringField(
@@ -69,7 +91,9 @@ class KlassenEinstellungenForm(FlaskForm):
             Regexp(r"^\d{4}$", message="Schuljahr muss genau 4 Ziffern haben, z.B. 2526"),
         ],
     )
-    # SL-Note weights
+    kurs_typ = SelectField("Kurstyp", choices=[("LK", "Leistungskurs (LK)"), ("GK", "Grundkurs (GK)")], default="GK")
+    kurs_stunden = SelectField("Wochenstunden", choices=[("2", "2 Stunden"), ("3", "3 Stunden"), ("4", "4 Stunden")], default="4")
+    # SL-Note weights (Klasse mode)
     sl_mdl_pct = FloatField(
         "Gewicht mündl. Note in SL-Note (%)",
         validators=[Optional(), NumberRange(0, 100)],
@@ -80,7 +104,7 @@ class KlassenEinstellungenForm(FlaskForm):
         validators=[Optional(), NumberRange(0, 100)],
         default=30.0,
     )
-    # HJ-Note weights (relative, normalized internally)
+    # HJ-Note weights (Klasse mode, relative, normalized internally)
     hj_gln_w = FloatField(
         "Gewicht GLN in HJ-Note",
         validators=[Optional(), NumberRange(0)],
@@ -96,4 +120,23 @@ class KlassenEinstellungenForm(FlaskForm):
         validators=[Optional(), NumberRange(0)],
         default=1.0,
     )
+    # Kurs mode weights
+    kurs_gln_pct = FloatField(
+        "Gewicht GLN-Mittel in HJ-Note (%)",
+        validators=[Optional(), NumberRange(0, 100)],
+        default=70.0,
+    )
+    kurs_mdl_pct = FloatField(
+        "Gewicht mündl. Noten in HJ-Note (%)",
+        validators=[Optional(), NumberRange(0, 100)],
+        default=30.0,
+    )
     submit = SubmitField("Einstellungen speichern")
+
+
+LAYOUT_CHOICES = [("1", "1 pro Seite (A4 Hochformat)"), ("2", "2 pro Seite (A4 Querformat)"), ("4", "4 pro Seite (A4 Hochformat)")]
+
+
+class LnZettelForm(FlaskForm):
+    layout = SelectField("Zettel pro Seite", choices=LAYOUT_CHOICES, default="1")
+    submit = SubmitField("PDF erstellen")

@@ -81,7 +81,11 @@
       <ul class="nav flex-column gap-1">
         {% if current_klasse %}
         <li class="nav-item text-center py-1 mb-1">
-          <span class="badge bg-primary fs-6 px-3">Klasse {{ current_klasse }}</span>
+          {% if current_modus == 'kurs' %}
+            <span class="badge bg-success fs-6 px-3">Kurs {{ current_kurs_info.typ if current_kurs_info else '' }} {{ current_klasse }}</span>
+          {% else %}
+            <span class="badge bg-primary fs-6 px-3">Klasse {{ current_klasse }}</span>
+          {% endif %}
         </li>
         <hr class="my-1">
         {% endif %}
@@ -128,6 +132,16 @@
         </li>
         <hr class="my-2">
         <li class="nav-item text-muted small px-2 mb-1">ÜBERSICHTEN</li>
+        {% if current_modus == 'kurs' %}
+          {% for hj in ['HJ1','HJ2','HJ3','HJ4'] %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'grades.kurs_uebersicht' and request.view_args.hj == hj %}active{% endif %}"
+               href="{{ url_for('grades.kurs_uebersicht', hj=hj) }}">
+              <i class="bi bi-table"></i> {{ hj }}
+            </a>
+          </li>
+          {% endfor %}
+        {% else %}
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL1' %}active{% endif %}"
              href="{{ url_for('grades.sl_detail', sl_key='SL1') }}">
@@ -170,6 +184,7 @@
             <i class="bi bi-mortarboard"></i> Übersicht Schuljahr
           </a>
         </li>
+        {% endif %}
         <hr class="my-2">
         <li class="nav-item text-muted small px-2 mb-1">EXPORT</li>
         <li class="nav-item">

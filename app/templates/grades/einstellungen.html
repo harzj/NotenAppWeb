@@ -1,95 +1,142 @@
 {% extends "base.html" %}
-{% block title %}Klasseneinstellungen{% endblock %}
+{% block title %}Einstellungen{% endblock %}
 {% block content %}
 <div class="row justify-content-center mt-3">
-  <div class="col-md-6">
-    <div class="card shadow-sm">
+  <div class="col-md-7">
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+
+    <!-- ── Modus ──────────────────────────────────────────────── -->
+    <div class="card shadow-sm mb-3">
       <div class="card-body p-4">
-        <h4 class="card-title mb-3">
-          <i class="bi bi-gear me-2"></i>Klasseneinstellungen
-        </h4>
-        <form method="post" novalidate>
-          {{ form.hidden_tag() }}
-          <div class="mb-3">
-            {{ form.klasse.label(class="form-label") }}
-            {{ form.klasse(class="form-control" + (" is-invalid" if form.klasse.errors else ""),
-                           placeholder="z.B. 7p") }}
-            {% for e in form.klasse.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
-          </div>
-          <div class="mb-3">
-            {{ form.fach.label(class="form-label") }}
-            {{ form.fach(class="form-control" + (" is-invalid" if form.fach.errors else ""),
-                         placeholder="z.B. Informatik") }}
-            {% for e in form.fach.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
-          </div>
-          <div class="mb-4">
-            {{ form.schuljahr.label(class="form-label") }}
-            {{ form.schuljahr(class="form-control" + (" is-invalid" if form.schuljahr.errors else ""),
-                              placeholder="z.B. 2526", maxlength=4) }}
-            <div class="form-text">
-              Wird automatisch bestimmt. Format: 4 Ziffern ohne Trennzeichen, z.B.
-              <strong>2526</strong> für Schuljahr 2025/26.
+        <h4 class="card-title mb-3"><i class="bi bi-gear me-2"></i>Einstellungen</h4>
+        <div class="mb-0">
+          <label class="form-label fw-semibold">Modus</label>
+          <div class="d-flex gap-3">
+            {% for subfield in form.modus %}
+            <div class="form-check">
+              {{ subfield(class="form-check-input", id=subfield.id, onchange="applyModus()") }}
+              <label class="form-check-label" for="{{ subfield.id }}">{{ subfield.label.text }}</label>
             </div>
-            {% for e in form.schuljahr.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            {% endfor %}
           </div>
-          {{ form.submit(class="btn btn-primary") }}
-          <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
-        </form>
+        </div>
       </div>
     </div>
 
-    <div class="card shadow-sm mt-4">
+    <!-- ── Allgemein (immer sichtbar) ────────────────────────── -->
+    <div class="card shadow-sm mb-3">
       <div class="card-body p-4">
-        <h5 class="mb-3"><i class="bi bi-calculator me-2"></i>Notenberechnung</h5>
-        <form method="post" novalidate>
-          {{ form.hidden_tag() }}
+        <h5 class="mb-3"><i class="bi bi-info-circle me-2"></i>Allgemein</h5>
+        <!-- Klasse (nur Klasse-Modus) -->
+        <div class="mb-3" id="row-klasse">
+          {{ form.klasse.label(class="form-label") }}
+          {{ form.klasse(class="form-control" + (" is-invalid" if form.klasse.errors else ""),
+                         placeholder="z.B. 7p") }}
+          {% for e in form.klasse.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+        </div>
+        <!-- Kurs-Typ (nur Kurs-Modus) -->
+        <div class="mb-3" id="row-kurs-typ">
+          {{ form.kurs_typ.label(class="form-label") }}
+          {{ form.kurs_typ(class="form-select", onchange="applyKursTyp()") }}
+        </div>
+        <div class="mb-3" id="row-kurs-stunden">
+          {{ form.kurs_stunden.label(class="form-label") }}
+          {{ form.kurs_stunden(class="form-select") }}
+          <div class="form-text">LK hat immer 5 Stunden (wird automatisch gesetzt).</div>
+        </div>
+        <!-- Gemeinsame Felder -->
+        <div class="mb-3">
+          {{ form.fach.label(class="form-label") }}
+          {{ form.fach(class="form-control", placeholder="z.B. Informatik") }}
+        </div>
+        <div class="mb-0">
+          {{ form.schuljahr.label(class="form-label") }}
+          {{ form.schuljahr(class="form-control" + (" is-invalid" if form.schuljahr.errors else ""),
+                            placeholder="z.B. 2526", maxlength=4) }}
+          <div class="form-text">4 Ziffern, z.B. <strong>2526</strong> für 2025/26.</div>
+          {% for e in form.schuljahr.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+        </div>
+      </div>
+    </div>
 
-          <h6 class="text-muted mb-2">Gewichtung SL-Note</h6>
-          <div class="form-text mb-2">Die Gewichte sollten zusammen 100 ergeben.</div>
+    <!-- ── Notenberechnung Klasse ─────────────────────────────── -->
+    <div id="section-klasse-berechnung">
+      <div class="card shadow-sm mb-4">
+        <div class="card-body p-4">
+          <h5 class="mb-3"><i class="bi bi-calculator me-2"></i>Notenberechnung</h5>
+          <h6 class="text-muted mb-2">Gewichtung SL-Note <small class="fw-normal">(Summe = 100)</small></h6>
           <div class="row g-2 mb-3">
             <div class="col-sm-6">
               {{ form.sl_mdl_pct.label(class="form-label") }}
-              {{ form.sl_mdl_pct(class="form-control" + (" is-invalid" if form.sl_mdl_pct.errors else "")) }}
-              {% for e in form.sl_mdl_pct.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {{ form.sl_mdl_pct(class="form-control") }}
             </div>
             <div class="col-sm-6">
               {{ form.sl_kln_pct.label(class="form-label") }}
-              {{ form.sl_kln_pct(class="form-control" + (" is-invalid" if form.sl_kln_pct.errors else "")) }}
-              {% for e in form.sl_kln_pct.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {{ form.sl_kln_pct(class="form-control") }}
             </div>
           </div>
-
-          <h6 class="text-muted mb-2">Gewichtung HJ-Note <small class="fw-normal">(relative Gewichte)</small></h6>
-          <div class="form-text mb-2">Die Noten werden mit diesen Faktoren gewichtet (z.B. 1.0 = gleiche Gewichtung).</div>
-          <div class="row g-2 mb-3">
+          <h6 class="text-muted mb-2">Gewichtung HJ-Note <small class="fw-normal">(relative Faktoren)</small></h6>
+          <div class="row g-2">
             <div class="col-sm-4">
               {{ form.hj_gln_w.label(class="form-label") }}
-              {{ form.hj_gln_w(class="form-control" + (" is-invalid" if form.hj_gln_w.errors else "")) }}
-              {% for e in form.hj_gln_w.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {{ form.hj_gln_w(class="form-control") }}
             </div>
             <div class="col-sm-4">
               {{ form.hj_sl1_w.label(class="form-label") }}
-              {{ form.hj_sl1_w(class="form-control" + (" is-invalid" if form.hj_sl1_w.errors else "")) }}
-              {% for e in form.hj_sl1_w.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {{ form.hj_sl1_w(class="form-control") }}
             </div>
             <div class="col-sm-4">
               {{ form.hj_sl2_w.label(class="form-label") }}
-              {{ form.hj_sl2_w(class="form-control" + (" is-invalid" if form.hj_sl2_w.errors else "")) }}
-              {% for e in form.hj_sl2_w.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {{ form.hj_sl2_w(class="form-control") }}
             </div>
           </div>
-
-          {{ form.submit(class="btn btn-primary") }}
-          <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
-        </form>
+        </div>
       </div>
     </div>
 
-    <div class="alert alert-info mt-3 small">
-      <i class="bi bi-info-circle me-1"></i>
-      Der Dateiname beim Excel-Export lautet <strong>Noten_&lt;Klasse&gt;_&lt;Schuljahr&gt;.xlsx</strong>,
-      z.B. <code>Noten_7p_2526.xlsx</code>.
+    <!-- ── Notenberechnung Kurs ───────────────────────────────── -->
+    <div id="section-kurs-berechnung">
+      <div class="card shadow-sm mb-4">
+        <div class="card-body p-4">
+          <h5 class="mb-3"><i class="bi bi-calculator me-2"></i>Notenberechnung (Kurs)</h5>
+          <div class="form-text mb-2">Gewichte für die HJ-Note. Summe sollte 100 ergeben.</div>
+          <div class="row g-2">
+            <div class="col-sm-6">
+              {{ form.kurs_gln_pct.label(class="form-label") }}
+              {{ form.kurs_gln_pct(class="form-control") }}
+            </div>
+            <div class="col-sm-6">
+              {{ form.kurs_mdl_pct.label(class="form-label") }}
+              {{ form.kurs_mdl_pct(class="form-control") }}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
+
+      {{ form.submit(class="btn btn-primary") }}
+      <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
+    </form>
   </div>
 </div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+function applyModus() {
+  const modus = document.querySelector('input[name="modus"]:checked')?.value || 'klasse';
+  const isKurs = modus === 'kurs';
+  document.getElementById('row-klasse').style.display            = isKurs ? 'none'  : 'block';
+  document.getElementById('row-kurs-typ').style.display          = isKurs ? 'block' : 'none';
+  document.getElementById('section-klasse-berechnung').style.display = isKurs ? 'none'  : 'block';
+  document.getElementById('section-kurs-berechnung').style.display   = isKurs ? 'block' : 'none';
+  applyKursTyp();
+}
+function applyKursTyp() {
+  const kt = document.querySelector('#kurs_typ')?.value || 'GK';
+  const rowStunden = document.getElementById('row-kurs-stunden');
+  if (rowStunden) rowStunden.style.display = (kt === 'LK') ? 'none' : 'block';
+}
+document.addEventListener('DOMContentLoaded', applyModus);
+</script>
 {% endblock %}

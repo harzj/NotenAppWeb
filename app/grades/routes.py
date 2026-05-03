@@ -11,7 +11,7 @@ from app.excel import schema as S
 from app.excel.legacy_reader import probe_legacy_file, import_legacy_file
 from app.grades.forms import (
     UploadForm, StammdatenForm, AustrittForm, NewLNForm, MoodleImportForm,
-    ExportForm, KlassenEinstellungenForm,
+    NotendateiImportForm, ExportForm, KlassenEinstellungenForm, GLN_SLOT_CHOICES,
 )
 from app.grades import moodle as moodle_parser
 from app.grades import berechnung
@@ -215,6 +215,7 @@ def close_file():
 @login_required
 def new_file():
     empty = {
+        "modus": "klasse",
         "klasse": "",
         "fach": "",
         "schuljahr": schuljahr_from_date(),
@@ -446,10 +447,10 @@ def stammdaten():
 def student_austritt():
     data = _require_gradebook()
     idx = request.form.get("student_index", type=int)
-    datum = request.form.get("austritt_datum", "")
+    abgang_hj = request.form.get("abgang_nach_hj", "HJ2")
     if idx is not None and 0 <= idx < len(data["stammdaten"]):
         data["stammdaten"][idx]["status"] = S.SD_STATUS_AUSGESCHIEDEN
-        data["stammdaten"][idx]["austritt"] = datum
+        data["stammdaten"][idx]["abgang_nach_hj"] = abgang_hj
         _save_gradebook(data)
         flash("Schüler als ausgeschieden markiert.", "success")
     return redirect(url_for("grades.stammdaten"))
@@ -485,7 +486,9 @@ def student_loeschen(idx):
 def ln_list():
     data = _require_gradebook()
     return render_template("grades/ln_list.html", lns=data["leistungsnachweise"],
-                           new_form=NewLNForm())
+                           new_form=NewLNForm(),
+                           modus=data.get("modus", "klasse"),
+                           gln_slot_choices=GLN_SLOT_CHOICES)
 
 
 @grades_bp.route("/ln/neu", methods=["POST"])
@@ -496,8 +499,16 @@ def ln_neu():
     if form.validate_on_submit():
         name = form.name.data.strip()
         ln_typ = form.ln_typ.data          # 'GLN' or 'KLN'
-        hj = form.hj.data if ln_typ == "GLN" else None
-        sl_zuordnung = form.sl_zuordnung.data if ln_typ == "KLN" else None
+        modus = data.get("modus", "klasse")
+
+        if modus == "kurs" and ln_typ == "GLN":
+            gln_slot = form.gln_slot.data
+            hj = berechnung.gln_slot_to_hj(gln_slot)
+            sl_zuordnung = None
+        else:
+            gln_slot = None
+            hj = form.hj.data if ln_typ == "GLN" else None
+            sl_zuordnung = form.sl_zuordnung.data if ln_typ == "KLN" else None
 
         sheet_name = S.LN_SHEET_PREFIX + name
         existing = [ln["sheet_name"] for ln in data["leistungsnachweise"]]
@@ -508,6 +519,10 @@ def ln_neu():
         schueler = []
         for s in data["stammdaten"]:
             if s.get("status") == S.SD_STATUS_AKTIV:
+                # In Kurs mode, only add student if active in that HJ
+                if modus == "kurs" and hj:
+                    if not berechnung.student_active_in_hj(s, hj):
+                        continue
                 schueler.append({
                     "name": f"{s['nachname']}, {s['vorname']}",
                     "punkte": [],
@@ -520,6 +535,7 @@ def ln_neu():
             "name": name,
             "ln_typ": ln_typ,
             "hj": hj,
+            "gln_slot": gln_slot,
             "sl_zuordnung": sl_zuordnung,
             "aufgaben": [],
             "aufgaben_tree": [],
@@ -1162,27 +1178,52 @@ def export_excel():
 def einstellungen():
     data = _require_gradebook()
     gw = berechnung.get_gewichtung(data)
+    kgw = berechnung.get_kurs_gewichtung(data)
+    modus = data.get("modus", "klasse")
+    kurs_typ = data.get("kurs_typ", "GK")
+    raw_stunden = data.get("kurs_stunden", 4)
+    # LK always has 5 Stunden; clamp display to 4 since form only has 2/3/4
+    stunden_display = str(min(int(raw_stunden), 4)) if raw_stunden else "4"
     form = KlassenEinstellungenForm(
+        modus=modus,
         klasse=data.get("klasse", ""),
         fach=data.get("fach", ""),
         schuljahr=data.get("schuljahr", schuljahr_from_date()),
+        kurs_typ=kurs_typ,
+        kurs_stunden=stunden_display,
         sl_mdl_pct=gw["sl_mdl_pct"],
         sl_kln_pct=gw["sl_kln_pct"],
         hj_gln_w=gw["hj_gln_w"],
         hj_sl1_w=gw["hj_sl1_w"],
         hj_sl2_w=gw["hj_sl2_w"],
+        kurs_gln_pct=kgw["hj_gln_pct"],
+        kurs_mdl_pct=kgw["hj_mdl_pct"],
     )
     if form.validate_on_submit():
+        data["modus"] = form.modus.data
         data["klasse"] = form.klasse.data.strip()
         data["fach"] = form.fach.data.strip()
         sj = form.schuljahr.data.strip()
         data["schuljahr"] = sj if sj else schuljahr_from_date()
+
+        new_kurs_typ = form.kurs_typ.data
+        new_stunden = int(form.kurs_stunden.data)
+        # LK always gets 5 Stunden regardless of form selection
+        if new_kurs_typ == "LK":
+            new_stunden = 5
+        data["kurs_typ"] = new_kurs_typ
+        data["kurs_stunden"] = new_stunden
+
         data["sl_gewichtung"] = {
             "sl_mdl_pct": form.sl_mdl_pct.data if form.sl_mdl_pct.data is not None else 70.0,
             "sl_kln_pct": form.sl_kln_pct.data if form.sl_kln_pct.data is not None else 30.0,
             "hj_gln_w": form.hj_gln_w.data if form.hj_gln_w.data is not None else 1.0,
             "hj_sl1_w": form.hj_sl1_w.data if form.hj_sl1_w.data is not None else 1.0,
             "hj_sl2_w": form.hj_sl2_w.data if form.hj_sl2_w.data is not None else 1.0,
+        }
+        data["kurs_gewichtung"] = {
+            "hj_gln_pct": form.kurs_gln_pct.data if form.kurs_gln_pct.data is not None else 70.0,
+            "hj_mdl_pct": form.kurs_mdl_pct.data if form.kurs_mdl_pct.data is not None else 30.0,
         }
         _save_gradebook(data)
         flash("Einstellungen gespeichert.", "success")
@@ -1248,3 +1289,113 @@ def statistik_json(ln_idx):
         "afb_punkte": afb_punkte,
         "afb_max": afb_max,
     }
+
+
+# ── Kurs-Übersicht ────────────────────────────────────────────────────────────
+
+@grades_bp.route("/kurs/uebersicht/<hj>")
+@login_required
+def kurs_uebersicht(hj):
+    data = _require_gradebook()
+    if data.get("modus") != "kurs":
+        flash("Diese Seite ist nur im Kurs-Modus verfügbar.", "warning")
+        return redirect(url_for("grades.index"))
+    if hj not in berechnung.HJ_ORDER:
+        abort(404)
+
+    kurs_typ = data.get("kurs_typ", "GK")
+    kurs_stunden = int(data.get("kurs_stunden", 4))
+    valid_slots = berechnung.valid_gln_slots(kurs_typ, kurs_stunden)
+
+    # Active students in this HJ
+    students = [s for s in data.get("stammdaten", [])
+                if berechnung.student_active_in_hj(s, hj)]
+
+    lns = data.get("leistungsnachweise", [])
+    kgw = berechnung.get_kurs_gewichtung(data)
+    mdl_noten_kurs = data.get("mdl_noten_kurs", {})
+    hj_noten = data.get("hj_noten", {})
+
+    # Build per-student row
+    rows = []
+    for s in students:
+        name = f"{s['nachname']}, {s['vorname']}"
+        gln_notes = {}
+        for slot in valid_slots:
+            slot_hj = berechnung.gln_slot_to_hj(slot)
+            if slot_hj != hj:
+                continue
+            for ln in lns:
+                if ln.get("gln_slot") == slot:
+                    for sc in ln.get("schueler", []):
+                        if sc["name"] == name and not sc.get("ignoriert"):
+                            gln_notes[slot] = sc.get("note_15")
+        kn = mdl_noten_kurs.get(name, {})
+        mdl1 = kn.get(f"{hj}_mdl1")
+        mdl2 = kn.get(f"{hj}_mdl2")
+        vorschlag = berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
+        tatsaechlich = hj_noten.get(name, {}).get(hj)
+        rows.append({
+            "name": name,
+            "gln_notes": gln_notes,
+            "mdl1": mdl1,
+            "mdl2": mdl2,
+            "vorschlag": vorschlag,
+            "tatsaechlich": tatsaechlich,
+        })
+
+    # Only slots for this HJ
+    hj_slots = [sl for sl in valid_slots if berechnung.gln_slot_to_hj(sl) == hj]
+
+    return render_template("grades/kurs_uebersicht.html",
+                           hj=hj, rows=rows, hj_slots=hj_slots,
+                           all_hj=berechnung.HJ_ORDER,
+                           data=data)
+
+
+@grades_bp.route("/api/hj-kurs-speichern", methods=["POST"])
+@login_required
+def hj_kurs_speichern():
+    data = _require_gradebook()
+    if data.get("modus") != "kurs":
+        return {"ok": False, "error": "Not in Kurs mode"}, 400
+
+    payload = request.get_json(force=True, silent=True)
+    if not payload:
+        return {"ok": False, "error": "Invalid payload"}, 400
+
+    hj = payload.get("hj")
+    if hj not in berechnung.HJ_ORDER:
+        return {"ok": False, "error": "Invalid HJ"}, 400
+
+    mdl_noten_kurs = data.setdefault("mdl_noten_kurs", {})
+    hj_noten = data.setdefault("hj_noten", {})
+
+    for entry in payload.get("rows", []):
+        name = entry.get("name", "")
+        if not name:
+            continue
+        kn = mdl_noten_kurs.setdefault(name, {})
+        # Save mündliche Noten
+        for key in (f"{hj}_mdl1", f"{hj}_mdl2"):
+            val = entry.get(key)
+            if val is not None:
+                try:
+                    kn[key] = float(val)
+                except (TypeError, ValueError):
+                    kn[key] = None
+            else:
+                kn[key] = None
+        # Save tatsächliche HJ-Note
+        tats = entry.get("tatsaechlich")
+        hn = hj_noten.setdefault(name, {})
+        if tats is not None:
+            try:
+                hn[hj] = float(tats)
+            except (TypeError, ValueError):
+                hn[hj] = None
+        else:
+            hn[hj] = None
+
+    _save_gradebook(data)
+    return {"ok": True}
