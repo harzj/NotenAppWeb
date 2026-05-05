@@ -42,18 +42,18 @@
   <thead>
     <tr>
       <th rowspan="2" class="align-middle">Schüler</th>
-      <th colspan="4" class="text-center th-hj1">Halbjahr 1</th>
-      <th colspan="4" class="text-center th-hj2">Halbjahr 2</th>
+      <th colspan="{{ 3 + (gln_hj1_list | length) }}" class="text-center th-hj1">Halbjahr 1</th>
+      <th colspan="{{ 3 + (gln_hj2_list | length) }}" class="text-center th-hj2">Halbjahr 2</th>
       <th colspan="2" class="text-center th-sj">Schuljahr</th>
     </tr>
     <tr>
-      <th class="text-center th-sub-hj1">GLN Mittel</th>
       <th class="text-center th-sub-hj1">SL1</th>
       <th class="text-center th-sub-hj1">SL2</th>
+      {% for ln in gln_hj1_list %}<th class="text-center th-sub-hj1">{{ ln.name }}</th>{% endfor %}
       <th class="text-center th-sub-hj1">HJ1 Note</th>
-      <th class="text-center th-sub-hj2">GLN Mittel</th>
       <th class="text-center th-sub-hj2">SL3</th>
       <th class="text-center th-sub-hj2">SL4</th>
+      {% for ln in gln_hj2_list %}<th class="text-center th-sub-hj2">{{ ln.name }}</th>{% endfor %}
       <th class="text-center th-sub-hj2">HJ2 Note</th>
       <th class="text-center th-sub-sj">Vorschlag</th>
       <th class="text-center th-sub-sj">Tatsächlich</th>
@@ -77,9 +77,15 @@
     {% endmacro %}
     <tr data-name="{{ row.name }}">
       <td>{{ row.name }}</td>
-      <td class="text-center">{{ note_cell(row.gln_hj1) }}</td>
       <td class="text-center">{{ sl_cell(row.sl1, row.sl1_actual) }}</td>
       <td class="text-center">{{ sl_cell(row.sl2, row.sl2_actual) }}</td>
+      {% for c in row.gln_hj1_cols %}
+      <td class="text-center">
+        {% if c.note_15 is not none %}
+          <span class="{{ 'text-muted text-decoration-line-through' if c.ignoriert else ('text-danger' if c.note_15 < rot_schwelle else '') }}">{{ c.note_15 }}</span>
+        {% endif %}
+      </td>
+      {% endfor %}
       <td class="text-center">
         {% if row.hj1 is not none %}
           {{ note_cell(row.hj1) }}
@@ -89,9 +95,15 @@
           </span>
         {% endif %}
       </td>
-      <td class="text-center">{{ note_cell(row.gln_hj2) }}</td>
       <td class="text-center">{{ sl_cell(row.sl3, row.sl3_actual) }}</td>
       <td class="text-center">{{ sl_cell(row.sl4, row.sl4_actual) }}</td>
+      {% for c in row.gln_hj2_cols %}
+      <td class="text-center">
+        {% if c.note_15 is not none %}
+          <span class="{{ 'text-muted text-decoration-line-through' if c.ignoriert else ('text-danger' if c.note_15 < rot_schwelle else '') }}">{{ c.note_15 }}</span>
+        {% endif %}
+      </td>
+      {% endfor %}
       <td class="text-center">
         {% if row.hj2 is not none %}
           {{ note_cell(row.hj2) }}

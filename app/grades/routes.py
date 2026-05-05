@@ -1501,6 +1501,8 @@ def schuljahr_uebersicht():
     sl_noten_actual = data.get("sl_noten_actual") or {}
     sj_noten_actual = data.get("schuljahr_noten_actual") or {}
     gw = berechnung.get_gewichtung(data)
+    gln_hj1_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == "HJ1"]
+    gln_hj2_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == "HJ2"]
     students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
 
     def _sl_display(name, sl_key):
@@ -1517,12 +1519,12 @@ def schuljahr_uebersicht():
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
 
-        gln_hj1 = berechnung.round_note15(berechnung.gln_mean_for_hj(name, "HJ1", lns))
+        gln_hj1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj1_list]
         sl1, sl1_actual = _sl_display(name, "SL1")
         sl2, sl2_actual = _sl_display(name, "SL2")
         hj1 = hj_noten.get(name, {}).get("HJ1")
 
-        gln_hj2 = berechnung.round_note15(berechnung.gln_mean_for_hj(name, "HJ2", lns))
+        gln_hj2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj2_list]
         sl3, sl3_actual = _sl_display(name, "SL3")
         sl4, sl4_actual = _sl_display(name, "SL4")
         hj2 = hj_noten.get(name, {}).get("HJ2")
@@ -1532,11 +1534,11 @@ def schuljahr_uebersicht():
 
         rows.append({
             "name": name,
-            "gln_hj1": gln_hj1,
+            "gln_hj1_cols": gln_hj1_cols,
             "sl1": sl1, "sl1_actual": sl1_actual,
             "sl2": sl2, "sl2_actual": sl2_actual,
             "hj1": hj1,
-            "gln_hj2": gln_hj2,
+            "gln_hj2_cols": gln_hj2_cols,
             "sl3": sl3, "sl3_actual": sl3_actual,
             "sl4": sl4, "sl4_actual": sl4_actual,
             "hj2": hj2,
@@ -1547,6 +1549,8 @@ def schuljahr_uebersicht():
     return render_template(
         "grades/schuljahr.html",
         rows=rows,
+        gln_hj1_list=gln_hj1_list,
+        gln_hj2_list=gln_hj2_list,
         note15_to6=S.NOTE_15_TO_6,
         rot_schwelle=_rot_schwelle(data.get("klasse")),
     )

@@ -97,7 +97,7 @@ td:first-child, th:first-child { text-align: left; width: 38mm; }
       <td>{{ rc(row.sl4) }}</td>
       {% for c in row.gln_hj2_cols %}<td>{{ gc(c) }}</td>{% endfor %}
       <td>{{ rc(row.hj2) }}</td>
-      <td>{{ rc(row.sj_actual if row.sj_actual is not none else row.sj_vorschlag) }}</td>
+      <td>{{ rc(row.sj_actual) }}</td>
     </tr>
     {% endfor %}
   </tbody>
