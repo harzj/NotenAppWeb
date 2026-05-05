@@ -1,7 +1,14 @@
 import os
+import sys
 from datetime import timedelta
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# When frozen by PyInstaller, instance/ lives next to the .exe (persistent).
+# During normal development it lives at the repo root.
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
 SESSION_DIR = os.path.join(INSTANCE_DIR, "sessions")
 

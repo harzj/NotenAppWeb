@@ -1,6 +1,7 @@
 """
 Tray-Launcher für NotenApp.
-Startet den Flask-Server + ngrok-Tunnel im Hintergrund und zeigt ein Windows-Tray-Icon.
+Startet den Flask-Server + (optional) ngrok-Tunnel im Hintergrund und zeigt ein Windows-Tray-Icon.
+Im frozen-Modus (Distribution) läuft nur der lokale Server auf localhost:5000.
 Rechtsklick → "Beenden" stoppt Server und App.
 """
 import os
@@ -175,25 +176,49 @@ def _quit(icon, item):
 
 
 def main():
+    # Im frozen-Modus (Distribution) nur lokaler Betrieb, kein ngrok
+    is_frozen = getattr(sys, "frozen", False)
+
     # Flask starten
     t = threading.Thread(target=_run_flask, daemon=True)
     t.start()
 
-    # ngrok starten
-    threading.Thread(target=_run_ngrok, daemon=True).start()
+    if not is_frozen:
+        # ngrok nur im Entwicklungsmodus starten
+        threading.Thread(target=_run_ngrok, daemon=True).start()
+
+    # Kurz warten, dann Browser öffnen
+    def _delayed_open():
+        import time
+        time.sleep(1.5)
+        webbrowser.open("http://localhost:5000")
+
+    threading.Thread(target=_delayed_open, daemon=True).start()
 
     # Tray-Icon erstellen
-    icon = pystray.Icon(
-        name="NotenApp",
-        icon=_make_icon(),
-        title=f"NotenApp → {NGROK_DOMAIN}",
-        menu=pystray.Menu(
+    if is_frozen:
+        menu = pystray.Menu(
+            pystray.MenuItem("Im Browser öffnen", _open_local, default=True),
+            pystray.MenuItem("Konsole anzeigen", _show_console),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Beenden", _quit),
+        )
+        title = "NotenApp – localhost:5000"
+    else:
+        menu = pystray.Menu(
             pystray.MenuItem("Im Browser öffnen (ngrok)", _open_browser, default=True),
             pystray.MenuItem("Lokal öffnen (localhost)", _open_local),
             pystray.MenuItem("Konsole anzeigen", _show_console),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Beenden", _quit),
-        ),
+        )
+        title = f"NotenApp → {NGROK_DOMAIN}"
+
+    icon = pystray.Icon(
+        name="NotenApp",
+        icon=_make_icon(),
+        title=title,
+        menu=menu,
     )
     icon.run()
 

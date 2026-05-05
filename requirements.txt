@@ -13,3 +13,4 @@ WTForms==3.2.1
 email-validator==2.3.0
 pystray==0.19.5
 pillow==12.2.0
+pyinstaller>=6.0

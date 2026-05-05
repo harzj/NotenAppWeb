@@ -281,6 +281,15 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
             note15 = _num(row, gesamt_col_idx + 1)
             note6  = _num(row, gesamt_col_idx + 2)
 
+        # Fallback: recompute note_15 from punkte when the cell contains a
+        # formula string (data_only=False) that _num() cannot parse.
+        if note15 is None and any(p is not None for p in punkte):
+            max_total = sum(t.get("max_punkte") or 0 for t in task_cols)
+            if max_total > 0:
+                total = sum(p for p in punkte if p is not None)
+                note15 = S.percent_to_note15(total, max_total, runden=noten_runden)
+                note6  = S.note15_to_note6(note15)
+
         ignoriert = False
         if ignoriert_col_idx is not None:
             val = row[ignoriert_col_idx] if ignoriert_col_idx < len(row) else None

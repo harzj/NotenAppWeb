@@ -1085,11 +1085,16 @@ def sl_detail(sl_key):
     lns = data.get("leistungsnachweise", [])
     mdl_noten = data.get("mdl_noten") or {}
     gw = berechnung.get_gewichtung(data)
+    kln_weights = berechnung.get_kln_weights(data, sl_key)
 
     sl_noten_actual = data.get("sl_noten_actual") or {}
     kln_list = [ln for ln in lns
-                if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl_key]
+                if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl_key
+                and not ln.get("nachtermin_von")]
     students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+
+    _prev_sl = {"SL2": "SL1", "SL3": "SL2", "SL4": "SL3"}
+    prev_sl_key = _prev_sl.get(sl_key)
 
     rows = []
     for s in students:
@@ -1099,11 +1104,12 @@ def sl_detail(sl_key):
             note_15, ignoriert = _get_student_note(ln, name)
             kln_cols.append({"ln_name": ln["name"], "note_15": note_15, "ignoriert": ignoriert})
 
-        kln_notes_valid = [c["note_15"] for c in kln_cols if not c["ignoriert"] and c["note_15"] is not None]
-        kln_mean = sum(kln_notes_valid) / len(kln_notes_valid) if kln_notes_valid else None
+        # Weighted KLN mean using kln_weights
+        kln_mean = berechnung.kln_mean_for_sl(name, sl_key, lns, kln_weights)
 
         mdl = mdl_noten.get(name, {}).get(sl_key)
-        sl_raw = berechnung.compute_sl_note(name, sl_key, lns, mdl_noten, gw)
+        prev_mdl = mdl_noten.get(name, {}).get(prev_sl_key) if prev_sl_key else None
+        sl_raw = berechnung.compute_sl_note(name, sl_key, lns, mdl_noten, gw, kln_weights)
         sl_note_15 = berechnung.round_note15(sl_raw)
         sl_actual = sl_noten_actual.get(name, {}).get(sl_key)
 
@@ -1112,6 +1118,7 @@ def sl_detail(sl_key):
             "kln_cols": kln_cols,
             "kln_mean": round(kln_mean, 2) if kln_mean is not None else None,
             "mdl": mdl,
+            "prev_mdl": prev_mdl,
             "sl_note_15": sl_note_15,
             "sl_actual": sl_actual,
         })
@@ -1122,9 +1129,39 @@ def sl_detail(sl_key):
         kln_list=kln_list,
         rows=rows,
         gewichtung=gw,
+        kln_weights=kln_weights,
         note15_to6=S.NOTE_15_TO_6,
         rot_schwelle=_rot_schwelle(data.get("klasse")),
     )
+
+
+@grades_bp.route("/api/kln-gewichte/speichern", methods=["POST"])
+@login_required
+def kln_gewichte_speichern():
+    """Save KLN weights and MDL/KLN-Mittel weighting for one SL slot."""
+    data = _require_gradebook()
+    payload = request.get_json(force=True, silent=True)
+    if not payload:
+        return {"ok": False, "error": "Invalid payload"}, 400
+    sl_key = payload.get("sl_key")
+    if sl_key not in ("SL1", "SL2", "SL3", "SL4"):
+        return {"ok": False, "error": "Invalid sl_key"}, 400
+
+    # Save per-KLN weights
+    kln_w = payload.get("kln_weights", {})
+    data.setdefault("kln_weights", {})[sl_key] = {
+        k: float(v) for k, v in kln_w.items() if v not in (None, "")
+    }
+
+    # Save sl_kln_pct / sl_mdl_pct overrides if provided
+    sl_gw = data.setdefault("sl_gewichtung", {})
+    if payload.get("sl_kln_pct") not in (None, ""):
+        sl_gw["sl_kln_pct"] = float(payload["sl_kln_pct"])
+    if payload.get("sl_mdl_pct") not in (None, ""):
+        sl_gw["sl_mdl_pct"] = float(payload["sl_mdl_pct"])
+
+    _save_gradebook(data)
+    return {"ok": True}
 
 
 @grades_bp.route("/api/mdl-noten/speichern", methods=["POST"])
@@ -1253,8 +1290,13 @@ def uebersicht(hj):
     sl1_key, sl2_key = ("SL1", "SL2") if hj_key == "HJ1" else ("SL3", "SL4")
 
     gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key]
-    sl1_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl1_key]
-    sl2_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl2_key]
+    sl1_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl1_key
+                and not ln.get("nachtermin_von")]
+    sl2_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl2_key
+                and not ln.get("nachtermin_von")]
+
+    kln_weights_sl1 = berechnung.get_kln_weights(data, sl1_key)
+    kln_weights_sl2 = berechnung.get_kln_weights(data, sl2_key)
 
     students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
     rows = []
@@ -1268,19 +1310,19 @@ def uebersicht(hj):
         gln_vals = [c["note_15"] for c in gln_cols if not c["ignoriert"] and c["note_15"] is not None]
         gln_mean = sum(gln_vals) / len(gln_vals) if gln_vals else None
 
-        kln_mean_sl1 = berechnung.kln_mean_for_sl(name, sl1_key, lns)
-        kln_mean_sl2 = berechnung.kln_mean_for_sl(name, sl2_key, lns)
+        kln_mean_sl1 = berechnung.kln_mean_for_sl(name, sl1_key, lns, kln_weights_sl1)
+        kln_mean_sl2 = berechnung.kln_mean_for_sl(name, sl2_key, lns, kln_weights_sl2)
 
         mdl1 = mdl_noten.get(name, {}).get(sl1_key)
         mdl2 = mdl_noten.get(name, {}).get(sl2_key)
 
         sl1_note_15 = berechnung.round_note15(
-            berechnung.compute_sl_note(name, sl1_key, lns, mdl_noten, gw))
+            berechnung.compute_sl_note(name, sl1_key, lns, mdl_noten, gw, kln_weights_sl1))
         sl2_note_15 = berechnung.round_note15(
-            berechnung.compute_sl_note(name, sl2_key, lns, mdl_noten, gw))
+            berechnung.compute_sl_note(name, sl2_key, lns, mdl_noten, gw, kln_weights_sl2))
 
         hj_vorschlag = berechnung.round_note15(
-            berechnung.compute_hj_vorschlag(name, hj_key, lns, mdl_noten, gw))
+            berechnung.compute_hj_vorschlag(name, hj_key, lns, mdl_noten, gw, {**kln_weights_sl1, **kln_weights_sl2}))
         hj_actual = hj_noten.get(name, {}).get(hj_key)
 
         rows.append({
@@ -1310,6 +1352,8 @@ def uebersicht(hj):
         sl2_list=sl2_list,
         rows=rows,
         gewichtung=gw,
+        kln_weights_sl1=kln_weights_sl1,
+        kln_weights_sl2=kln_weights_sl2,
         note15_to6=S.NOTE_15_TO_6,
         rot_schwelle=_rot_schwelle(data.get("klasse")),
     )

@@ -1,4 +1,5 @@
 import os
+import sys
 from flask import Flask
 from app.config import config_by_name
 from app.extensions import db, login_manager, sess, csrf, limiter
@@ -8,7 +9,14 @@ def create_app(config_name: str | None = None) -> Flask:
     if config_name is None:
         config_name = os.environ.get("FLASK_ENV", "default")
 
-    app = Flask(__name__, instance_relative_config=False)
+    # When frozen by PyInstaller, templates/static are bundled in _MEIPASS.
+    if getattr(sys, "frozen", False):
+        root_path = sys._MEIPASS  # noqa: SLF001
+    else:
+        root_path = None  # default: package directory
+
+    app = Flask(__name__, instance_relative_config=False,
+                **{"root_path": root_path} if root_path else {})
     app.config.from_object(config_by_name[config_name])
 
     # Ensure instance and session directories exist

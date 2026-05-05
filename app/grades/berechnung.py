@@ -16,6 +16,21 @@ def get_gewichtung(data: dict) -> dict:
     return g
 
 
+def get_kln_weights(data: dict, sl_key: str) -> dict:
+    """Return {sheet_name: weight} for KLN LNs of the given SL slot.
+    Weights default to 1.0. Returns raw weights (not normalised)."""
+    stored: dict = (data.get("kln_weights") or {}).get(sl_key, {})
+    lns = data.get("leistungsnachweise", [])
+    result = {}
+    for ln in lns:
+        if ln.get("ln_typ") != "KLN" or ln.get("sl_zuordnung") != sl_key:
+            continue
+        if ln.get("nachtermin_von"):
+            continue
+        result[ln["sheet_name"]] = float(stored.get(ln["sheet_name"], 1.0))
+    return result
+
+
 # ── KLN / GLN note extraction ─────────────────────────────────────────────────
 
 def _effective_note(student_name: str, ln: dict, all_lns: list) -> float | None:
@@ -61,9 +76,30 @@ def kln_notes_for_sl(student_name: str, sl_key: str, lns: list) -> list[float]:
     return notes
 
 
-def kln_mean_for_sl(student_name: str, sl_key: str, lns: list) -> float | None:
-    notes = kln_notes_for_sl(student_name, sl_key, lns)
-    return sum(notes) / len(notes) if notes else None
+def kln_mean_for_sl(
+    student_name: str,
+    sl_key: str,
+    lns: list,
+    kln_weights: dict | None = None,
+) -> float | None:
+    """Return weighted mean of KLN notes for student + SL slot.
+
+    *kln_weights* maps sheet_name → float weight (default 1.0 for each).
+    """
+    pairs: list[tuple[float, float]] = []
+    for ln in lns:
+        if ln.get("ln_typ") != "KLN" or ln.get("sl_zuordnung") != sl_key:
+            continue
+        if ln.get("nachtermin_von"):
+            continue
+        effective = _effective_note(student_name, ln, lns)
+        if effective is not None:
+            w = float((kln_weights or {}).get(ln["sheet_name"], 1.0))
+            pairs.append((effective, w))
+    if not pairs:
+        return None
+    total_w = sum(w for _, w in pairs)
+    return sum(n * w for n, w in pairs) / total_w if total_w > 0 else None
 
 
 def gln_notes_for_hj(student_name: str, hj: str, lns: list) -> list[float]:
@@ -94,9 +130,10 @@ def compute_sl_note(
     lns: list,
     mdl_noten: dict,
     gewichtung: dict,
+    kln_weights: dict | None = None,
 ) -> float | None:
     """Compute SL note (float, 0-15 scale) – unrounded."""
-    kln_mean = kln_mean_for_sl(student_name, sl_key, lns)
+    kln_mean = kln_mean_for_sl(student_name, sl_key, lns, kln_weights)
     mdl = mdl_noten.get(student_name, {}).get(sl_key)
     if mdl is not None:
         mdl = float(mdl)
@@ -122,13 +159,14 @@ def compute_hj_vorschlag(
     lns: list,
     mdl_noten: dict,
     gewichtung: dict,
+    kln_weights: dict | None = None,
 ) -> float | None:
     """Compute suggested HJ note (float, 0-15 scale) – unrounded."""
     sl1_key, sl2_key = ("SL1", "SL2") if hj == "HJ1" else ("SL3", "SL4")
 
     gln_mean = gln_mean_for_hj(student_name, hj, lns)
-    sl1_note = compute_sl_note(student_name, sl1_key, lns, mdl_noten, gewichtung)
-    sl2_note = compute_sl_note(student_name, sl2_key, lns, mdl_noten, gewichtung)
+    sl1_note = compute_sl_note(student_name, sl1_key, lns, mdl_noten, gewichtung, kln_weights)
+    sl2_note = compute_sl_note(student_name, sl2_key, lns, mdl_noten, gewichtung, kln_weights)
 
     components: list[tuple[float, float]] = []
     if gln_mean is not None:

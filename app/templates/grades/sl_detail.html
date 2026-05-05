@@ -82,11 +82,39 @@
       <th class="text-center bg-warning text-dark">{{ sl_key }}-Note<br><small class="fw-normal">Vorschlag</small></th>
       <th class="text-center bg-success text-white">{{ sl_key }}-Note<br><small class="fw-normal">Tatsächlich</small></th>
     </tr>
+    {% if kln_list %}
+    <tr class="table-secondary" id="gewichtRow">
+      <td class="text-muted small fst-italic">Gewichtung</td>
+      {% for ln in kln_list %}
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm kln-weight-input text-center"
+               min="0" step="0.1"
+               data-sheet="{{ ln.sheet_name }}"
+               value="{{ kln_weights[ln.sheet_name] | default(1) }}">
+      </td>
+      {% endfor %}
+      {# KLN-Mittel weight vs MDL #}
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm text-center" id="wKlnMittel"
+               min="0" step="0.1" title="Gewicht KLN-Mittel in SL-Note"
+               value="{{ gewichtung.sl_kln_pct | round(1) }}">
+      </td>
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm text-center" id="wMdl"
+               min="0" step="0.1" title="Gewicht Mündliche Note in SL-Note"
+               value="{{ gewichtung.sl_mdl_pct | round(1) }}">
+      </td>
+      <td></td>
+      <td></td>
+    </tr>
+    {% endif %}
   </thead>
   <tbody>
     {% for row in rows %}
     <tr data-name="{{ row.name }}"
-        data-kln-mean="{{ row.kln_mean if row.kln_mean is not none else 'null' }}">
+        data-kln-notes="{{ row.kln_cols | map(attribute='note_15') | list | tojson }}"
+        data-kln-sheets="{{ kln_list | map(attribute='sheet_name') | list | tojson }}"
+        data-kln-ignoriert="{{ row.kln_cols | map(attribute='ignoriert') | list | tojson }}">
       <td>{{ row.name }}</td>
       {% for c in row.kln_cols %}
       <td class="text-center">
@@ -98,14 +126,31 @@
       </td>
       {% endfor %}
       {% if kln_list %}
-      <td class="text-center text-muted small" id="kln-mean-{{ loop.index0 }}">
+      <td class="text-center text-muted small kln-mean-cell">
         {{ row.kln_mean if row.kln_mean is not none else '–' }}
       </td>
       {% endif %}
       <td class="text-center bg-info bg-opacity-10">
-        <input type="number" class="form-control form-control-sm mdl-input"
-               min="0" max="15" step="1"
-               value="{{ row.mdl if row.mdl is not none else '' }}">
+        <div class="d-flex align-items-center justify-content-center gap-1">
+          <input type="number" class="form-control form-control-sm mdl-input"
+                 min="0" max="15" step="1"
+                 data-prev-mdl="{{ row.prev_mdl if row.prev_mdl is not none else '' }}"
+                 value="{{ row.mdl if row.mdl is not none else '' }}">
+          {%- if row.prev_mdl is not none -%}
+            {%- if row.mdl is not none -%}
+              {%- set diff = row.mdl - row.prev_mdl -%}
+              {%- if diff > 0 -%}
+              <span class="small text-nowrap mdl-diff" style="color:#5a9a5a">(+{{ diff }})</span>
+              {%- elif diff < 0 -%}
+              <span class="small text-nowrap mdl-diff" style="color:#c0504d">({{ diff }})</span>
+              {%- else -%}
+              <span class="small text-nowrap text-muted mdl-diff">(–)</span>
+              {%- endif -%}
+            {%- else -%}
+            <span class="small text-nowrap text-muted mdl-diff">({{ row.prev_mdl }})</span>
+            {%- endif -%}
+          {%- endif -%}
+        </div>
       </td>
       <td class="text-center note-cell sl-note-display bg-warning bg-opacity-25{% if row.sl_note_15 is not none and row.sl_note_15 < rot_schwelle %} text-danger{% endif %}">
         {{ row.sl_note_15 if row.sl_note_15 is not none else '–' }}
@@ -127,13 +172,41 @@ const SL_KEY = {{ sl_key | tojson }};
 const GW = {{ gewichtung | tojson }};
 const ROT_SCHWELLE = {{ rot_schwelle }};
 
+function getKlnWeights() {
+  // Read from weight input row
+  const w = {};
+  document.querySelectorAll('.kln-weight-input').forEach(inp => {
+    const v = inp.value !== '' ? parseFloat(inp.value) : 1.0;
+    w[inp.dataset.sheet] = isNaN(v) ? 1.0 : v;
+  });
+  return w;
+}
+
+function getSlWeights() {
+  const klnW = parseFloat(document.getElementById('wKlnMittel')?.value) || GW.sl_kln_pct;
+  const mdlW = parseFloat(document.getElementById('wMdl')?.value) || GW.sl_mdl_pct;
+  return { kln: klnW, mdl: mdlW };
+}
+
+function computeKlnMean(notes, ignoriert, sheets, kw) {
+  let sumN = 0, sumW = 0;
+  for (let i = 0; i < notes.length; i++) {
+    if (ignoriert[i] || notes[i] === null) continue;
+    const w = (kw[sheets[i]] !== undefined) ? kw[sheets[i]] : 1.0;
+    sumN += notes[i] * w;
+    sumW += w;
+  }
+  return sumW > 0 ? sumN / sumW : null;
+}
+
 function computeSlNote(mdl, klnMean) {
+  const sw = getSlWeights();
   if (mdl === null && klnMean === null) return null;
   if (mdl === null) return klnMean;
   if (klnMean === null) return mdl;
-  const total = GW.sl_mdl_pct + GW.sl_kln_pct;
+  const total = sw.mdl + sw.kln;
   if (total <= 0) return null;
-  return (mdl * GW.sl_mdl_pct + klnMean * GW.sl_kln_pct) / total;
+  return (mdl * sw.mdl + klnMean * sw.kln) / total;
 }
 
 function roundNote15(x) {
@@ -142,10 +215,49 @@ function roundNote15(x) {
 }
 
 function updateRow(row) {
-  const klnMeanRaw = row.dataset.klnMean;
-  const klnMean = klnMeanRaw === 'null' ? null : parseFloat(klnMeanRaw);
+  const notes    = JSON.parse(row.dataset.klnNotes);
+  const sheets   = JSON.parse(row.dataset.klnSheets);
+  const ignoriert = JSON.parse(row.dataset.klnIgnoriert);
+  const kw = getKlnWeights();
+  const klnMean = computeKlnMean(notes, ignoriert, sheets, kw);
+
+  // Update kln-mean cell
+  const meanCell = row.querySelector('.kln-mean-cell');
+  if (meanCell) {
+    meanCell.textContent = klnMean !== null ? Math.round(klnMean * 100) / 100 : '–';
+  }
+
   const mdlInput = row.querySelector('.mdl-input');
   const mdl = mdlInput.value !== '' ? parseFloat(mdlInput.value) : null;
+
+  // Update diff display
+  const diffSpan = row.querySelector('.mdl-diff');
+  if (diffSpan) {
+    const prevRaw = mdlInput.dataset.prevMdl;
+    if (prevRaw !== '' && prevRaw != null) {
+      const prev = parseFloat(prevRaw);
+      if (mdl === null) {
+        diffSpan.textContent = '(' + prev + ')';
+        diffSpan.style.color = '';
+        diffSpan.className = 'small text-nowrap text-muted mdl-diff';
+      } else {
+        const diff = mdl - prev;
+        if (diff > 0) {
+          diffSpan.textContent = '(+' + diff + ')';
+          diffSpan.style.color = '#5a9a5a';
+          diffSpan.className = 'small text-nowrap mdl-diff';
+        } else if (diff < 0) {
+          diffSpan.textContent = '(' + diff + ')';
+          diffSpan.style.color = '#c0504d';
+          diffSpan.className = 'small text-nowrap mdl-diff';
+        } else {
+          diffSpan.textContent = '(–)';
+          diffSpan.style.color = '';
+          diffSpan.className = 'small text-nowrap text-muted mdl-diff';
+        }
+      }
+    }
+  }
 
   const slNoteDisplay = row.querySelector('.sl-note-display');
   const slRaw = computeSlNote(mdl, klnMean);
@@ -160,13 +272,22 @@ function updateRow(row) {
   }
 }
 
-document.querySelectorAll('#slTable tbody tr').forEach(row => {
+function updateAllRows() {
+  document.querySelectorAll('#slTable tbody tr[data-name]').forEach(row => updateRow(row));
+}
+
+document.querySelectorAll('#slTable tbody tr[data-name]').forEach(row => {
   row.querySelector('.mdl-input')?.addEventListener('input', () => updateRow(row));
+});
+
+// Re-compute all rows when any weight changes
+document.querySelectorAll('.kln-weight-input, #wKlnMittel, #wMdl').forEach(inp => {
+  inp.addEventListener('input', updateAllRows);
 });
 
 document.getElementById('btnSave')?.addEventListener('click', async () => {
   const schueler = [];
-  document.querySelectorAll('#slTable tbody tr').forEach(row => {
+  document.querySelectorAll('#slTable tbody tr[data-name]').forEach(row => {
     const name = row.dataset.name;
     const mdlInp = row.querySelector('.mdl-input');
     const actInp = row.querySelector('.sl-actual-input');
@@ -174,17 +295,34 @@ document.getElementById('btnSave')?.addEventListener('click', async () => {
     const sl_actual = actInp && actInp.value !== '' ? parseInt(actInp.value, 10) : null;
     schueler.push({ name, note, sl_actual });
   });
-  const resp = await fetch('/api/mdl-noten/speichern', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
-    body: JSON.stringify({ sl_key: SL_KEY, schueler })
+
+  // Collect kln weights
+  const kln_weights = {};
+  document.querySelectorAll('.kln-weight-input').forEach(inp => {
+    if (inp.value !== '') kln_weights[inp.dataset.sheet] = parseFloat(inp.value);
   });
-  const data = await resp.json();
-  if (data.ok) {
-    showToast('Noten gespeichert.', 'success');
+  const sw = getSlWeights();
+
+  const [r1, r2] = await Promise.all([
+    fetch('/api/mdl-noten/speichern', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                  'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+      body: JSON.stringify({ sl_key: SL_KEY, schueler })
+    }),
+    fetch('/api/kln-gewichte/speichern', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                  'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+      body: JSON.stringify({ sl_key: SL_KEY, kln_weights, sl_kln_pct: sw.kln, sl_mdl_pct: sw.mdl })
+    }),
+  ]);
+  const d1 = await r1.json();
+  const d2 = await r2.json();
+  if (d1.ok && d2.ok) {
+    showToast('Noten und Gewichtung gespeichert.', 'success');
   } else {
-    showToast('Fehler: ' + (data.error || '?'), 'danger');
+    showToast('Fehler beim Speichern.', 'danger');
   }
 });
 
