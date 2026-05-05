@@ -75,8 +75,8 @@
       {% for ln in kln_list %}
       <th class="text-center">{{ ln.name }}</th>
       {% endfor %}
-      {% if kln_list %}
-      <th class="text-center bg-light">KLN Mittel</th>
+      {% if kln_list | length >= 2 %}
+      <th class="text-center bg-secondary text-white">KLN Mittel</th>
       {% endif %}
       <th class="text-center bg-info text-white">Mündl. Note<br><small class="fw-normal">(0–15)</small></th>
       <th class="text-center bg-warning text-dark">{{ sl_key }}-Note<br><small class="fw-normal">Vorschlag</small></th>
@@ -93,12 +93,14 @@
                value="{{ kln_weights[ln.sheet_name] | default(1) }}">
       </td>
       {% endfor %}
-      {# KLN-Mittel weight vs MDL #}
+      {# KLN-Mittel weight vs MDL – only when >= 2 KLNs #}
+      {% if kln_list | length >= 2 %}
       <td class="text-center">
         <input type="number" class="form-control form-control-sm text-center" id="wKlnMittel"
                min="0" step="0.1" title="Gewicht KLN-Mittel in SL-Note"
                value="{{ gewichtung.sl_kln_pct | round(1) }}">
       </td>
+      {% else %}<td></td>{% endif %}
       <td class="text-center">
         <input type="number" class="form-control form-control-sm text-center" id="wMdl"
                min="0" step="0.1" title="Gewicht Mündliche Note in SL-Note"
@@ -125,9 +127,9 @@
         {% else %}–{% endif %}
       </td>
       {% endfor %}
-      {% if kln_list %}
+      {% if kln_list | length >= 2 %}
       <td class="text-center text-muted small kln-mean-cell">
-        {{ row.kln_mean if row.kln_mean is not none else '–' }}
+        {{ row.kln_mean if row.kln_mean is not none else '' }}
       </td>
       {% endif %}
       <td class="text-center bg-info bg-opacity-10">

@@ -1,5 +1,6 @@
 import io
 import json
+from datetime import datetime
 from flask import (
     Blueprint, render_template, redirect, url_for,
     flash, request, session, send_file, abort,
@@ -1164,6 +1165,25 @@ def kln_gewichte_speichern():
     return {"ok": True}
 
 
+@grades_bp.route("/api/gln-gewichte/speichern", methods=["POST"])
+@login_required
+def gln_gewichte_speichern():
+    """Save individual GLN weights for one HJ."""
+    data = _require_gradebook()
+    payload = request.get_json(force=True, silent=True)
+    if not payload:
+        return {"ok": False, "error": "Invalid payload"}, 400
+    hj_key = payload.get("hj")
+    if hj_key not in ("HJ1", "HJ2"):
+        return {"ok": False, "error": "Invalid hj"}, 400
+    gln_w = payload.get("gln_weights", {})
+    data.setdefault("gln_weights", {})[hj_key] = {
+        k: float(v) for k, v in gln_w.items() if v not in (None, "")
+    }
+    _save_gradebook(data)
+    return {"ok": True}
+
+
 @grades_bp.route("/api/mdl-noten/speichern", methods=["POST"])
 @login_required
 def mdl_noten_speichern():
@@ -1297,6 +1317,7 @@ def uebersicht(hj):
 
     kln_weights_sl1 = berechnung.get_kln_weights(data, sl1_key)
     kln_weights_sl2 = berechnung.get_kln_weights(data, sl2_key)
+    gln_weights = berechnung.get_gln_weights(data, hj_key)
 
     students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
     rows = []
@@ -1306,9 +1327,6 @@ def uebersicht(hj):
         gln_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_list]
         sl1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in sl1_list]
         sl2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in sl2_list]
-
-        gln_vals = [c["note_15"] for c in gln_cols if not c["ignoriert"] and c["note_15"] is not None]
-        gln_mean = sum(gln_vals) / len(gln_vals) if gln_vals else None
 
         kln_mean_sl1 = berechnung.kln_mean_for_sl(name, sl1_key, lns, kln_weights_sl1)
         kln_mean_sl2 = berechnung.kln_mean_for_sl(name, sl2_key, lns, kln_weights_sl2)
@@ -1322,7 +1340,10 @@ def uebersicht(hj):
             berechnung.compute_sl_note(name, sl2_key, lns, mdl_noten, gw, kln_weights_sl2))
 
         hj_vorschlag = berechnung.round_note15(
-            berechnung.compute_hj_vorschlag(name, hj_key, lns, mdl_noten, gw, {**kln_weights_sl1, **kln_weights_sl2}))
+            berechnung.compute_hj_vorschlag(
+                name, hj_key, lns, mdl_noten, gw,
+                {**kln_weights_sl1, **kln_weights_sl2},
+                gln_weights=gln_weights))
         hj_actual = hj_noten.get(name, {}).get(hj_key)
 
         rows.append({
@@ -1330,7 +1351,6 @@ def uebersicht(hj):
             "gln_cols": gln_cols,
             "sl1_cols": sl1_cols,
             "sl2_cols": sl2_cols,
-            "gln_mean": round(gln_mean, 2) if gln_mean is not None else None,
             "kln_mean_sl1": round(kln_mean_sl1, 2) if kln_mean_sl1 is not None else None,
             "kln_mean_sl2": round(kln_mean_sl2, 2) if kln_mean_sl2 is not None else None,
             "mdl1": mdl1,
@@ -1354,6 +1374,7 @@ def uebersicht(hj):
         gewichtung=gw,
         kln_weights_sl1=kln_weights_sl1,
         kln_weights_sl2=kln_weights_sl2,
+        gln_weights=gln_weights,
         note15_to6=S.NOTE_15_TO_6,
         rot_schwelle=_rot_schwelle(data.get("klasse")),
     )
@@ -1391,6 +1412,81 @@ def hj_speichern():
 
     _save_gradebook(data)
     return {"ok": True}
+
+
+# ── HJ-Notenübersicht drucken ─────────────────────────────────────────────────
+
+@grades_bp.route("/uebersicht/<hj>/drucken")
+@login_required
+def hj_druck(hj):
+    if hj not in ("hj1", "hj2"):
+        abort(404)
+    data = _require_gradebook()
+    lns = data.get("leistungsnachweise", [])
+    mdl_noten = data.get("mdl_noten") or {}
+    hj_noten = data.get("hj_noten") or {}
+    sl_noten_actual = data.get("sl_noten_actual") or {}
+    gw = berechnung.get_gewichtung(data)
+
+    hj_key = "HJ1" if hj == "hj1" else "HJ2"
+    sl1_key, sl2_key = ("SL1", "SL2") if hj_key == "HJ1" else ("SL3", "SL4")
+    hj_label = "Halbjahr 1" if hj == "hj1" else "Halbjahr 2"
+
+    gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key]
+    sl1_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl1_key
+                and not ln.get("nachtermin_von")]
+    sl2_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl2_key
+                and not ln.get("nachtermin_von")]
+
+    kln_weights_sl1 = berechnung.get_kln_weights(data, sl1_key)
+    kln_weights_sl2 = berechnung.get_kln_weights(data, sl2_key)
+
+    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    rows = []
+    for s in students:
+        name = f"{s['nachname']}, {s['vorname']}"
+        sl1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in sl1_list]
+        sl2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in sl2_list]
+        gln_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_list]
+
+        kln_mean_sl1 = berechnung.kln_mean_for_sl(name, sl1_key, lns, kln_weights_sl1)
+        kln_mean_sl2 = berechnung.kln_mean_for_sl(name, sl2_key, lns, kln_weights_sl2)
+        mdl1 = mdl_noten.get(name, {}).get(sl1_key)
+        mdl2 = mdl_noten.get(name, {}).get(sl2_key)
+
+        # Prefer saved actual SL note; fall back to computed
+        sl1_act = sl_noten_actual.get(name, {}).get(sl1_key)
+        sl2_act = sl_noten_actual.get(name, {}).get(sl2_key)
+
+        rows.append({
+            "name": name,
+            "sl1_cols": sl1_cols,
+            "sl2_cols": sl2_cols,
+            "gln_cols": gln_cols,
+            "kln_mean_sl1": round(kln_mean_sl1, 1) if kln_mean_sl1 is not None else None,
+            "kln_mean_sl2": round(kln_mean_sl2, 1) if kln_mean_sl2 is not None else None,
+            "mdl1": mdl1,
+            "mdl2": mdl2,
+            "sl1_actual": sl1_act,
+            "sl2_actual": sl2_act,
+            "hj_actual": hj_noten.get(name, {}).get(hj_key),
+        })
+
+    return render_template(
+        "grades/hj_druck.html",
+        hj_label=hj_label,
+        sl1_key=sl1_key,
+        sl2_key=sl2_key,
+        sl1_list=sl1_list,
+        sl2_list=sl2_list,
+        gln_list=gln_list,
+        show_kln1_mean=len(sl1_list) >= 2,
+        show_kln2_mean=len(sl2_list) >= 2,
+        rows=rows,
+        klasse=data.get("klasse", ""),
+        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        now=datetime.now().strftime("%d.%m.%Y"),
+    )
 
 
 # ── Schuljahres-Übersicht ─────────────────────────────────────────────────────
@@ -1472,6 +1568,85 @@ def schuljahr_speichern():
     _save_gradebook(data)
     return {"ok": True}
 
+
+# ── Schuljahres-Notenübersicht drucken ────────────────────────────────────────
+
+@grades_bp.route("/uebersicht/schuljahr/drucken")
+@login_required
+def schuljahr_druck():
+    data = _require_gradebook()
+    lns = data.get("leistungsnachweise", [])
+    mdl_noten = data.get("mdl_noten") or {}
+    hj_noten = data.get("hj_noten") or {}
+    sl_noten_actual = data.get("sl_noten_actual") or {}
+    sj_noten_actual = data.get("schuljahr_noten_actual") or {}
+    gw = berechnung.get_gewichtung(data)
+
+    def _sl_list(sl_key):
+        return [ln for ln in lns
+                if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl_key
+                and not ln.get("nachtermin_von")]
+
+    def _gln_list(hj_key):
+        return [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key]
+
+    sl1_list = _sl_list("SL1"); sl2_list = _sl_list("SL2")
+    sl3_list = _sl_list("SL3"); sl4_list = _sl_list("SL4")
+    gln_hj1_list = _gln_list("HJ1")
+    gln_hj2_list = _gln_list("HJ2")
+
+    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    rows = []
+    for s in students:
+        name = f"{s['nachname']}, {s['vorname']}"
+
+        def _sl_act(sl_key):
+            act = sl_noten_actual.get(name, {}).get(sl_key)
+            if act is not None:
+                return act
+            return berechnung.round_note15(
+                berechnung.compute_sl_note(name, sl_key, lns, mdl_noten, gw))
+
+        kln_mean_sl1 = berechnung.kln_mean_for_sl(name, "SL1", lns)
+        kln_mean_sl2 = berechnung.kln_mean_for_sl(name, "SL2", lns)
+        kln_mean_sl3 = berechnung.kln_mean_for_sl(name, "SL3", lns)
+        kln_mean_sl4 = berechnung.kln_mean_for_sl(name, "SL4", lns)
+
+        gln_hj1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj1_list]
+        gln_hj2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj2_list]
+
+        rows.append({
+            "name": name,
+            "kln_mean_sl1": round(kln_mean_sl1, 1) if kln_mean_sl1 is not None else None,
+            "kln_mean_sl2": round(kln_mean_sl2, 1) if kln_mean_sl2 is not None else None,
+            "kln_mean_sl3": round(kln_mean_sl3, 1) if kln_mean_sl3 is not None else None,
+            "kln_mean_sl4": round(kln_mean_sl4, 1) if kln_mean_sl4 is not None else None,
+            "mdl1": mdl_noten.get(name, {}).get("SL1"),
+            "mdl2": mdl_noten.get(name, {}).get("SL2"),
+            "mdl3": mdl_noten.get(name, {}).get("SL3"),
+            "mdl4": mdl_noten.get(name, {}).get("SL4"),
+            "sl1": _sl_act("SL1"), "sl2": _sl_act("SL2"),
+            "sl3": _sl_act("SL3"), "sl4": _sl_act("SL4"),
+            "gln_hj1_cols": gln_hj1_cols,
+            "gln_hj2_cols": gln_hj2_cols,
+            "hj1": hj_noten.get(name, {}).get("HJ1"),
+            "hj2": hj_noten.get(name, {}).get("HJ2"),
+            "sj_actual": sj_noten_actual.get(name),
+            "sj_vorschlag": berechnung.round_note15(
+                berechnung.compute_schuljahr_note(name, hj_noten)),
+        })
+
+    return render_template(
+        "grades/schuljahr_druck.html",
+        rows=rows,
+        sl1_list=sl1_list, sl2_list=sl2_list,
+        sl3_list=sl3_list, sl4_list=sl4_list,
+        gln_hj1_list=gln_hj1_list,
+        gln_hj2_list=gln_hj2_list,
+        klasse=data.get("klasse", ""),
+        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        now=datetime.now().strftime("%d.%m.%Y"),
+    )
 
 
 # ── Export ────────────────────────────────────────────────────────────────────

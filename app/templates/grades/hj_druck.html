@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Notenübersicht {{ hj_label }} – {{ klasse }}</title>
+<style>
+@page { size: A4 landscape; margin: 8mm; }
+* { box-sizing: border-box; }
+body { font-family: Arial, sans-serif; font-size: 8pt; margin: 0; color: #000; }
+h2 { font-size: 10pt; margin: 0 0 3mm 0; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th, td { border: 0.4pt solid #888; padding: 1px 2px; text-align: center; overflow: hidden; white-space: nowrap; }
+th { font-size: 7pt; }
+td:first-child, th:first-child { text-align: left; width: 42mm; }
+.th-sl1  { background: #155724; color: #fff; }
+.th-sl2  { background: #4a235a; color: #fff; }
+.th-gln  { background: #1f4e79; color: #fff; }
+.th-hj   { background: #7d3c00; color: #fff; }
+.sub-sl1 { background: #1e7e34; color: #fff; font-weight: normal; }
+.sub-sl1m{ background: #5a9a6a; color: #fff; font-weight: normal; }
+.sub-sl2 { background: #6c3483; color: #fff; font-weight: normal; }
+.sub-sl2m{ background: #9b6ab5; color: #fff; font-weight: normal; }
+.sub-gln { background: #2e6da4; color: #fff; font-weight: normal; }
+.sub-hj  { background: #a04000; color: #fff; font-weight: normal; }
+.ign { color: #aaa; text-decoration: line-through; }
+.red { color: #c00; font-weight: bold; }
+.bold { font-weight: bold; }
+.mean { color: #555; font-size: 7pt; }
+.footer { font-size: 6pt; color: #888; margin-top: 2mm; }
+</style>
+</head>
+<body>
+<h2>{{ klasse }} – Notenübersicht {{ hj_label }}</h2>
+
+{% set has_sl1 = sl1_list | length > 0 %}
+{% set has_sl2 = sl2_list | length > 0 %}
+{% set has_gln = gln_list | length > 0 %}
+{% set n_sl1_cols = sl1_list | length + (1 if show_kln1_mean else 0) + 1 %}
+{% set n_sl2_cols = sl2_list | length + (1 if show_kln2_mean else 0) + 1 %}
+
+<table>
+  <thead>
+    <tr>
+      <th rowspan="2"></th>
+      {# SL1 group #}
+      {% if has_sl1 %}
+      <th colspan="{{ n_sl1_cols }}" class="th-sl1">{{ sl1_key }}</th>
+      <th class="th-sl1">{{ sl1_key }}-Note</th>
+      {% else %}
+      <th rowspan="2" class="sub-sl1">Mdl. 1</th>
+      <th rowspan="2" class="th-sl1">{{ sl1_key }}-Note</th>
+      {% endif %}
+      {# SL2 group #}
+      {% if has_sl2 %}
+      <th colspan="{{ n_sl2_cols }}" class="th-sl2">{{ sl2_key }}</th>
+      <th class="th-sl2">{{ sl2_key }}-Note</th>
+      {% else %}
+      <th rowspan="2" class="sub-sl2">Mdl. 2</th>
+      <th rowspan="2" class="th-sl2">{{ sl2_key }}-Note</th>
+      {% endif %}
+      {# GLN group #}
+      {% if has_gln %}
+      <th colspan="{{ gln_list | length }}" class="th-gln">GLN</th>
+      {% endif %}
+      <th class="th-hj">HJ-Note</th>
+    </tr>
+    <tr>
+      {# SL1 sub-headers #}
+      {% for ln in sl1_list %}<th class="sub-sl1">{{ ln.name }}</th>{% endfor %}
+      {% if show_kln1_mean %}<th class="sub-sl1m">KLN ∅</th>{% endif %}
+      {% if has_sl1 %}<th class="sub-sl1">Mdl.</th><th></th>{% endif %}
+      {# SL2 sub-headers #}
+      {% for ln in sl2_list %}<th class="sub-sl2">{{ ln.name }}</th>{% endfor %}
+      {% if show_kln2_mean %}<th class="sub-sl2m">KLN ∅</th>{% endif %}
+      {% if has_sl2 %}<th class="sub-sl2">Mdl.</th><th></th>{% endif %}
+      {# GLN sub-headers #}
+      {% for ln in gln_list %}<th class="sub-gln">{{ ln.name }}</th>{% endfor %}
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.name }}</td>
+      {# SL1 KLN cols #}
+      {% for c in row.sl1_cols %}
+      <td class="{{ 'ign' if c.ignoriert else ('red' if c.note_15 is not none and c.note_15 < rot_schwelle else '') }}">{{ c.note_15 if c.note_15 is not none else '' }}</td>
+      {% endfor %}
+      {% if show_kln1_mean %}<td class="mean">{{ row.kln_mean_sl1 if row.kln_mean_sl1 is not none else '' }}</td>{% endif %}
+      <td>{{ row.mdl1 if row.mdl1 is not none else '' }}</td>
+      <td class="{{ 'red bold' if row.sl1_actual is not none and row.sl1_actual < rot_schwelle else 'bold' }}">{{ row.sl1_actual if row.sl1_actual is not none else '' }}</td>
+      {# SL2 KLN cols #}
+      {% for c in row.sl2_cols %}
+      <td class="{{ 'ign' if c.ignoriert else ('red' if c.note_15 is not none and c.note_15 < rot_schwelle else '') }}">{{ c.note_15 if c.note_15 is not none else '' }}</td>
+      {% endfor %}
+      {% if show_kln2_mean %}<td class="mean">{{ row.kln_mean_sl2 if row.kln_mean_sl2 is not none else '' }}</td>{% endif %}
+      <td>{{ row.mdl2 if row.mdl2 is not none else '' }}</td>
+      <td class="{{ 'red bold' if row.sl2_actual is not none and row.sl2_actual < rot_schwelle else 'bold' }}">{{ row.sl2_actual if row.sl2_actual is not none else '' }}</td>
+      {# GLN cols #}
+      {% for c in row.gln_cols %}
+      <td class="{{ 'ign' if c.ignoriert else ('red' if c.note_15 is not none and c.note_15 < rot_schwelle else '') }}">{{ c.note_15 if c.note_15 is not none else '' }}</td>
+      {% endfor %}
+      <td class="{{ 'red bold' if row.hj_actual is not none and row.hj_actual < rot_schwelle else 'bold' }}">{{ row.hj_actual if row.hj_actual is not none else '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="footer">{{ klasse }} – {{ hj_label }} – Gedruckt: {{ now }}</p>
+<script>window.print();</script>
+</body>
+</html>
