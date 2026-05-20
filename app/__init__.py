@@ -52,10 +52,18 @@ def create_app(config_name: str | None = None) -> Flask:
             {"typ": kurs_typ, "stunden": kurs_stunden, "fach": gb.get("fach", "")}
             if (gb and current_modus == "kurs") else None
         )
+        # Find ABT LN index (first non-NachTermin ABT LN)
+        abt_ln_idx = None
+        if gb:
+            for i, ln in enumerate(gb.get("leistungsnachweise", [])):
+                if ln.get("ln_typ") == "ABT" and not ln.get("nachtermin_von"):
+                    abt_ln_idx = i
+                    break
         return {
             "current_klasse": gb.get("klasse", "") if gb else "",
             "current_modus": current_modus,
             "current_kurs_info": current_kurs_info,
+            "abt_ln_idx": abt_ln_idx,
         }
 
     # Create DB tables

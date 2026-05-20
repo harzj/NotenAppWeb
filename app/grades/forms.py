@@ -29,7 +29,11 @@ class AustrittForm(FlaskForm):
     submit = SubmitField("Ausscheiden bestätigen")
 
 
-LN_TYP_CHOICES = [("GLN", "GLN – Großer Leistungsnachweis"), ("KLN", "KLN – Kleiner Leistungsnachweis")]
+LN_TYP_CHOICES = [
+    ("GLN", "GLN – Großer Leistungsnachweis"),
+    ("KLN", "KLN – Kleiner Leistungsnachweis"),
+    ("ABT", "ABT – Abiturprüfung"),
+]
 HJ_CHOICES = [("HJ1", "Halbjahr 1"), ("HJ2", "Halbjahr 2")]
 SL_CHOICES = [
     ("SL1", "SL1 (HJ1 – Note 1)"),
@@ -86,11 +90,19 @@ class KlassenEinstellungenForm(FlaskForm):
     klasse = StringField("Klassenbezeichner (z.B. 7p)", validators=[Optional(), Length(max=20)])
     fach = StringField("Fach (z.B. Informatik)", validators=[Optional(), Length(max=80)])
     schuljahr = StringField(
-        "Schuljahr (z.B. 2526)",
+        "Schuljahr Start (z.B. 2425)",
         validators=[
             Optional(),
-            Length(min=4, max=4, message="Schuljahr muss genau 4 Ziffern haben, z.B. 2526"),
-            Regexp(r"^\d{4}$", message="Schuljahr muss genau 4 Ziffern haben, z.B. 2526"),
+            Length(min=4, max=4, message="Schuljahr muss genau 4 Ziffern haben, z.B. 2425"),
+            Regexp(r"^\d{4}$", message="Schuljahr muss genau 4 Ziffern haben, z.B. 2425"),
+        ],
+    )
+    schuljahr_bis = StringField(
+        "Schuljahr Ende (z.B. 2526, nur für Kurs-Modus)",
+        validators=[
+            Optional(),
+            Length(min=4, max=4, message="Schuljahr-Ende muss genau 4 Ziffern haben, z.B. 2526"),
+            Regexp(r"^\d{4}$", message="Schuljahr-Ende muss genau 4 Ziffern haben, z.B. 2526"),
         ],
     )
     kurs_typ = SelectField("Kurstyp", choices=[("LK", "Leistungskurs (LK)"), ("GK", "Grundkurs (GK)")], default="GK")

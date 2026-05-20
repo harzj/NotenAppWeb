@@ -27,13 +27,13 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
 
     # Flask-WTF CSRF
-    WTF_CSRF_TIME_LIMIT = 3600
+    WTF_CSRF_TIME_LIMIT = None  # no per-token expiry; session lifetime is the limit
 
     # File upload
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50 MB max upload
 
-    # Rate limiting
-    RATELIMIT_DEFAULT = "200 per day;50 per hour"
+    # Rate limiting (intranet app – limits are generous to allow autosave every 15s)
+    RATELIMIT_DEFAULT = "10000 per day;2000 per hour"
     RATELIMIT_STORAGE_URL = "memory://"
 
 

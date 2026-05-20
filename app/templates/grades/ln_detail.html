@@ -16,7 +16,8 @@
   .afb-select { width: 70px; padding: 2px 4px; font-size: .85rem; }
   .max-input { width: 60px; text-align: center; padding: 2px 4px; }
   .task-label-input { width: 90px; padding: 2px 4px; font-size: .85rem; }
-  .sticky-col { position: sticky; left: 0; background: #fff; z-index: 1; }
+  .sticky-col { position: sticky; left: 0; background: #fff; z-index: 3; box-shadow: 2px 0 4px rgba(0,0,0,.12); }
+  thead .sticky-col { z-index: 4; }
   .table-wrapper { overflow-x: auto; }
   #afbSummary canvas { max-height: 200px; }
   /* Task tree */
@@ -39,6 +40,9 @@
     {% elif ln.ln_typ == 'KLN' %}
       <span class="badge bg-warning text-dark ms-2">KLN</span>
       {% if ln.sl_zuordnung %}<span class="badge bg-secondary ms-1">{{ ln.sl_zuordnung }}</span>{% endif %}
+    {% elif ln.ln_typ == 'ABT' %}
+      <span class="badge bg-dark ms-2">ABT</span>
+      <span class="badge bg-secondary ms-1">Abiturprüfung</span>
     {% endif %}
     {% if ln.thema %}<span class="text-muted small ms-2">{{ ln.thema }}</span>{% endif %}
     {% if ln.datum %}<span class="text-muted small ms-2"><i class="bi bi-calendar3 me-1"></i>{{ ln.datum }}</span>{% endif %}
@@ -59,6 +63,7 @@
             data-bs-target="#druckModal">
       <i class="bi bi-printer me-1"></i>Zettel drucken
     </button>
+    {% if ln.ln_typ != 'ABT' %}
     {% if nt_ln %}
     <a href="{{ url_for('grades.nachtermin_detail', ln_idx=ln_idx) }}"
        class="btn btn-sm btn-outline-warning">
@@ -72,6 +77,7 @@
         <i class="bi bi-calendar2-plus me-1"></i>Nachtermin anlegen
       </button>
     </form>
+    {% endif %}
     {% endif %}
   </div>
 </div>
@@ -107,7 +113,11 @@
     <thead>
       <tr>
         <th class="sticky-col">Schüler</th>
+        {% if ln.ln_typ == 'ABT' %}
+        <th class="text-center" style="width:5rem" title="Kürzel des Prüflings (Pflichtfeld)">Kürzel</th>
+        {% else %}
         <th class="text-center" style="width:3rem" title="Leistungsnachweis für diesen Schüler ignorieren">Ign.</th>
+        {% endif %}
         {% for t in ln.aufgaben %}
         <th class="text-center" title="AFB: {{ t.afb or '–' }}">
           {{ t.label }}
@@ -117,6 +127,12 @@
         <th class="text-center bg-secondary text-white">Gesamt</th>
         <th class="text-center bg-secondary text-white">Note (15P)</th>
         <th class="text-center bg-secondary text-white">Note (6P)</th>
+        {% if ln.ln_typ == 'ABT' %}
+        <th class="text-center bg-dark text-white">Vorhersage</th>
+        <th class="text-center bg-dark text-white">Grenzfall</th>
+        <th class="text-center bg-dark text-white">Nachprüfung</th>
+        <th class="text-center bg-dark text-white">Abw. Vornote</th>
+        {% endif %}
       </tr>
       <tr class="table-secondary small">
         <td class="sticky-col fw-bold">Max. Punkte</td>
@@ -132,6 +148,7 @@
           {{ total_max | int if total_max == (total_max | int) else total_max }}
         </td>
         <td colspan="2"></td>
+        {% if ln.ln_typ == 'ABT' %}<td colspan="4"></td>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -139,13 +156,24 @@
       {% set in_nt = s.name in nt_students %}
       <tr data-sname="{{ s.name }}" data-ignoriert="{{ 'true' if s.ignoriert else 'false' }}"
           data-in-nt="{{ 'true' if in_nt else 'false' }}"
+          {% if ln.ln_typ == 'ABT' %}data-hj-schnitt="{{ abt_hj_schnitt.get(s.name, '') }}"{% endif %}
           class="{{ 'ln-row-ignored table-secondary' if s.ignoriert else '' }}">
         <td class="sticky-col">{{ s.name }}</td>
+        {% if ln.ln_typ == 'ABT' %}
+        <td class="text-center p-1" style="min-width:5rem">
+          <input type="text" class="form-control form-control-sm student-kuerzel text-center"
+                 placeholder="z.B. C26"
+                 value="{{ s.kuerzel or '' }}"
+                 maxlength="20"
+                 title="Kürzel des Prüflings (Pflichtfeld)">
+        </td>
+        {% else %}
         <td class="text-center">
           <input type="checkbox" class="form-check-input student-ignoriert"
                  title="LN für diesen Schüler ignorieren"
                  {{ 'checked' if s.ignoriert else '' }}>
         </td>
+        {% endif %}
         {% if in_nt %}
         <td colspan="{{ (ln.aufgaben | length) + 1 }}" class="text-center text-muted fst-italic small">
           Nachtermin
@@ -159,6 +187,7 @@
             <input type="number"
                    class="form-control form-control-sm points-input student-points text-center"
                    data-tidx="{{ t_idx }}"
+                   data-max="{{ ln.aufgaben[t_idx].max_punkte }}"
                    value="{{ s.punkte[t_idx] if s.punkte[t_idx] is not none else '' }}"
                    min="0"
                    max="{{ ln.aufgaben[t_idx].max_punkte }}"
@@ -202,13 +231,46 @@
           </span>
           {% else %}–{% endif %}
         </td>
+        {% if ln.ln_typ == 'ABT' %}
+        <td class="text-center abt-vorhersage">–</td>
+        <td class="text-center abt-grenzfall">
+          <span class="abt-grenzfall-badge d-none badge bg-warning text-dark">Grenzfall!</span>
+          <span class="abt-grenzfall-ok">–</span>
+          <div class="abt-grenzfall-confirm d-none form-check form-check-inline mt-1">
+            <input type="checkbox" class="form-check-input abt-grenzfall-cb"
+                   id="grenzfall_{{ loop.index }}"
+                   {{ 'checked' if s.abt_grenzfall_bestaetigt else '' }}>
+            <label class="form-check-label small" for="grenzfall_{{ loop.index }}">Bestätigt</label>
+          </div>
+        </td>
+        <td class="text-center abt-nachpruefung">–</td>
+        <td class="text-center abt-abw-vornote">–</td>
+        {% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="{{ ln.aufgaben | length + 5 }}" class="text-center text-muted">
+      <tr><td colspan="{{ ln.aufgaben | length + (9 if ln.ln_typ == 'ABT' else 5) }}" class="text-center text-muted">
         Keine Schüler vorhanden. Füge Schüler unter <a href="{{ url_for('grades.stammdaten') }}">Stammdaten</a> hinzu.
       </td></tr>
       {% endfor %}
     </tbody>
+    {% if ln.ln_typ == 'ABT' %}
+    <tfoot>
+      <tr id="abt-avg-row" class="table-secondary small">
+        <td class="sticky-col fw-bold">Ø Durchschnitt</td>
+        <td></td>
+        {% for t in ln.aufgaben %}
+        <td class="text-center fw-bold abt-avg-task" data-tidx="{{ loop.index0 }}">–</td>
+        {% endfor %}
+        <td class="text-center fw-bold abt-avg-gesamt">–</td>
+        <td class="text-center fw-bold abt-avg-note15">–</td>
+        <td class="text-center fw-bold abt-avg-note6">–</td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td class="text-center fw-bold abt-avg-abw">–</td>
+      </tr>
+    </tfoot>
+    {% endif %}
   </table>
 </div>
 
@@ -242,25 +304,44 @@
             target="_blank">
         {{ csrf_field() }}
         <div class="modal-header">
-          <h5 class="modal-title"><i class="bi bi-printer me-2"></i>Notenzettel drucken – {{ ln.name }}</h5>
+          <h5 class="modal-title"><i class="bi bi-printer me-2"></i>
+            {% if ln.ln_typ == 'ABT' %}ABT-Notenzettel drucken{% else %}Notenzettel drucken{% endif %}
+             – {{ ln.name }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <!-- Layout selector -->
           <div class="mb-3">
-            <label class="form-label fw-bold">Zettel pro Seite</label>
-            <div class="d-flex gap-3">
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="layout" id="layout1" value="1" checked>
-                <label class="form-check-label" for="layout1">1 (A4 Hochformat)</label>
+            <div class="d-flex gap-4">
+              <div>
+                <label class="form-label fw-bold mb-1">Zettel pro Seite</label>
+                <div class="d-flex gap-3">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="layout" id="layout1" value="1" checked>
+                    <label class="form-check-label" for="layout1">1</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="layout" id="layout2" value="2">
+                    <label class="form-check-label" for="layout2">2</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="layout" id="layout4" value="4">
+                    <label class="form-check-label" for="layout4">4</label>
+                  </div>
+                </div>
               </div>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="layout" id="layout2" value="2">
-                <label class="form-check-label" for="layout2">2 (A4 Querformat)</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="layout" id="layout4" value="4">
-                <label class="form-check-label" for="layout4">4 (A4 Hochformat)</label>
+              <div>
+                <label class="form-label fw-bold mb-1">Ausrichtung</label>
+                <div class="d-flex gap-3">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="orientation" id="orientP" value="portrait" checked>
+                    <label class="form-check-label" for="orientP">Hochformat</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="orientation" id="orientL" value="landscape">
+                    <label class="form-check-label" for="orientL">Querformat</label>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -285,7 +366,7 @@
               <label class="form-check-label" for="ds_{{ loop.index }}">
                 {{ s.name }}
                 {% if is_nt %}<span class="badge bg-warning text-dark ms-1" style="font-size:.7rem">NT</span>{% endif %}
-                {% if s.ignoriert %}<span class="badge bg-secondary ms-1" style="font-size:.7rem">ign.</span>{% endif %}
+                {% if s.ignoriert and ln.ln_typ != 'ABT' %}<span class="badge bg-secondary ms-1" style="font-size:.7rem">ign.</span>{% endif %}
               </label>
             </div>
             {% endfor %}
@@ -293,7 +374,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
-          <button type="submit" class="btn btn-primary">
+          <button type="submit" class="btn btn-primary" id="btnDruckSubmit">
             <i class="bi bi-file-earmark-pdf me-1"></i>PDF erstellen
           </button>
         </div>
@@ -318,6 +399,7 @@ window.addEventListener('error', function(e) {
 });
 
 const LN_IDX = {{ ln_idx }};
+const IS_ABT = {{ 'true' if ln.ln_typ == 'ABT' else 'false' }};
 const GRADE_SCALE = {{ grade_scale | tojson }};
 const GRADE_SCALE_RUNDEN = [
   [0.94,15],[0.89,14],[0.84,13],[0.79,12],[0.74,11],[0.69,10],
@@ -361,10 +443,14 @@ function updateRowCalc(row) {
   const note15El = row.querySelector('.student-note15');
   if (!inputs.length || !gestEl || !note15El) return;
 
-  let total = 0, allEmpty = true;
+  let total = 0, allEmpty = true, maxBisher = 0;
   inputs.forEach(inp => {
     const v = parseFloat(inp.value);
-    if (!isNaN(v)) { total += v; allEmpty = false; }
+    if (!isNaN(v)) {
+      total += v;
+      allEmpty = false;
+      maxBisher += parseFloat(inp.dataset.max || '0');
+    }
   });
 
   const maxCell = document.getElementById('totalMax');
@@ -373,6 +459,11 @@ function updateRowCalc(row) {
   if (allEmpty) {
     gestEl.textContent = '–';
     note15El.textContent = '–';
+    if (IS_ABT) {
+      const abwTd = row.querySelector('.abt-abw-vornote');
+      if (abwTd) { abwTd.textContent = '–'; delete abwTd.dataset.abw; }
+      updateAvgRow();
+    }
     return;
   }
 
@@ -382,11 +473,15 @@ function updateRowCalc(row) {
   gestEl.textContent = fmtNum(total);
   note15El.textContent = note15;
 
-  // Note 1-6 badge (last td)
+  // Note 1-6 badge (last td — or 5th from last if ABT, due to Vorhersage/Grenzfall/Nachprüfung/AbwVornote)
   const tds = row.querySelectorAll('td');
-  const lastTd = tds[tds.length - 1];
+  const note6Idx = IS_ABT ? tds.length - 5 : tds.length - 1;
+  const note6Td = tds[note6Idx];
   let cls = note6 <= 2 ? 'bg-success' : (note6 <= 3 ? 'bg-warning text-dark' : 'bg-danger');
-  lastTd.innerHTML = `<span class="badge note-6-badge ${cls}">${note6}</span>`;
+  note6Td.innerHTML = `<span class="badge note-6-badge ${cls}">${note6}</span>`;
+  note6Td.dataset.note6 = note6;
+
+  if (IS_ABT) { updateAbtCols(row, total, maxBisher, maximum, note15); updateAvgRow(); }
 }
 
 document.querySelectorAll('#gradeTable tbody tr').forEach(row => {
@@ -395,6 +490,7 @@ document.querySelectorAll('#gradeTable tbody tr').forEach(row => {
   });
   updateRowCalc(row);
 });
+if (IS_ABT) updateAvgRow();
 
 // ── ±½ step buttons ───────────────────────────────────────────────────────────
 document.getElementById('gradeTable').addEventListener('click', e => {
@@ -409,11 +505,21 @@ document.getElementById('gradeTable').addEventListener('click', e => {
   inp.dispatchEvent(new Event('input'));
 });
 
+// ── Dirty-flag (for autosave) ─────────────────────────────────────────────────
+let _dirty = false;
+document.getElementById('gradeTable').addEventListener('input', e => {
+  if (e.target.classList.contains('student-points') ||
+      e.target.classList.contains('student-kuerzel')) {
+    _dirty = true;
+  }
+});
+
 // ── Save all changes ──────────────────────────────────────────────────────────
 // ── Ignoriert checkbox ────────────────────────────────────────────────────────
 document.getElementById('gradeTable').addEventListener('change', e => {
   const cb = e.target.closest('.student-ignoriert');
   if (!cb) return;
+  _dirty = true;
   const row = cb.closest('tr');
   if (cb.checked) {
     row.classList.add('ln-row-ignored', 'table-secondary');
@@ -424,7 +530,7 @@ document.getElementById('gradeTable').addEventListener('change', e => {
   }
 });
 
-document.getElementById('btnSaveAll').addEventListener('click', async () => {
+function _collectSchueler() {
   const rows = document.querySelectorAll('#gradeTable tbody tr[data-sname]');
   const schueler = [];
   rows.forEach(row => {
@@ -436,21 +542,104 @@ document.getElementById('btnSaveAll').addEventListener('click', async () => {
       const v = inp.value === '' ? null : parseFloat(inp.value);
       punkte.push(v);
     });
-    schueler.push({ name, punkte, ignoriert });
+    const entry = { name, punkte, ignoriert };
+    if (IS_ABT) {
+      const kuerzelInp = row.querySelector('.student-kuerzel');
+      entry.kuerzel = kuerzelInp ? kuerzelInp.value.trim() : '';
+      const cb = row.querySelector('.abt-grenzfall-cb');
+      entry.abt_grenzfall_bestaetigt = cb ? cb.checked : false;
+    }
+    schueler.push(entry);
   });
+  return schueler;
+}
 
-  const resp = await fetch(`/ln/${LN_IDX}/noten`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
-    body: JSON.stringify({ schueler })
+function _validateAbtKuerzel(showErrors) {
+  if (!IS_ABT) return true;
+  const rows = document.querySelectorAll('#gradeTable tbody tr[data-sname]');
+  let missing = [];
+  rows.forEach(row => {
+    if (row.dataset.inNt === 'true') return;
+    const inp = row.querySelector('.student-kuerzel');
+    if (inp && inp.value.trim() === '') {
+      missing.push(row.getAttribute('data-sname'));
+      if (showErrors) inp.classList.add('is-invalid');
+    } else if (inp) {
+      inp.classList.remove('is-invalid');
+    }
   });
-  const data = await resp.json();
+  return missing.length === 0;
+}
+
+async function _doSave(silent) {
+  const schueler = _collectSchueler();
+  let resp;
+  try {
+    resp = await fetch(`/ln/${LN_IDX}/noten`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                  'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+      body: JSON.stringify({ schueler }),
+      keepalive: true,
+    });
+  } catch (networkErr) {
+    showToast('Netzwerkfehler – Speichern fehlgeschlagen.', 'danger');
+    return;
+  }
+  let respText, data;
+  try { respText = await resp.text(); }
+  catch { showToast('Netzwerkfehler beim Lesen der Antwort.', 'danger'); return; }
+  try { data = JSON.parse(respText); }
+  catch {
+    console.error('Speichern: Server-Antwort ist kein JSON. Status:', resp.status, '\nAntwort:', respText.substring(0, 1000));
+    showToast(`Speichern fehlgeschlagen (HTTP ${resp.status}). Details in der Browser-Konsole (F12).`, 'danger', 0);
+    return;
+  }
   if (data.ok) {
-    showToast('Noten gespeichert.', 'success');
+    _dirty = false;
+    if (!silent) showToast('Noten gespeichert.', 'success');
+    else         showToast('Automatisch gespeichert.', 'success', 2000);
   } else {
     showToast('Fehler beim Speichern: ' + (data.error || '?'), 'danger');
   }
+}
+
+document.getElementById('btnSaveAll').addEventListener('click', async () => {
+  await _doSave(false);
+});
+
+// ── Force save before export / PDF navigation ─────────────────────────────────
+document.querySelectorAll('a[href*="/export/"], a[href*="/pdf/"]').forEach(link => {
+  link.addEventListener('click', async e => {
+    if (!_dirty) return;  // nothing to save
+    e.preventDefault();
+    const target = link.href;
+    await _doSave(false);
+    window.location.href = target;
+  });
+});
+
+// ── Autosave every 15 seconds ─────────────────────────────────────────────────
+setInterval(async () => {
+  if (!_dirty) return;
+  await _doSave(true);
+}, 15_000);
+
+// ── Save on page leave (extra safety net) ────────────────────────────────────
+function _saveBeforeLeave() {
+  if (!_dirty) return;
+  const csrfToken = document.querySelector('meta[name=csrf-token]')?.content || '';
+  fetch(`/ln/${LN_IDX}/noten`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+    body: JSON.stringify({ schueler: _collectSchueler() }),
+    keepalive: true,
+  });
+  _dirty = false;
+}
+window.addEventListener('pagehide', _saveBeforeLeave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') _saveBeforeLeave();
 });
 
 // ── Task tree editor ─────────────────────────────────────────────────────────
@@ -851,15 +1040,218 @@ document.getElementById('druckHtBtn')?.addEventListener('click', () => {
   });
 });
 
+// ── ABT print: save kürzel first, then submit form ──────────────────────────
+document.getElementById('btnDruckSubmit')?.addEventListener('click', async e => {
+  if (!IS_ABT) return;  // non-ABT: let form submit normally
+  e.preventDefault();
+  if (!_validateAbtKuerzel(true)) {
+    showToast('Bitte alle Kürzel ausfüllen (Pflichtfeld).', 'warning');
+    return;
+  }
+  try {
+    await _doSave(true);  // save kürzel to session before PDF generation
+    e.target.closest('form').submit();  // open PDF in new tab
+  } catch (err) {
+    showToast('Fehler beim Speichern. Bitte erst manuell speichern.', 'danger', 0);
+  }
+});
+
+// ── ABT – Vorhersage / Grenzfall / Nachprüfung ───────────────────────────────
+// punkte_bisher: sum of filled-in points
+// max_bisher:    sum of max points for filled-in tasks only
+// max_total:     sum of ALL max points
+// actual_note15: grade based on total/max_total (worst-case, 0 for unfilled)
+function updateAbtCols(row, punkte_bisher, max_bisher, max_total, actual_note15) {
+  const vorhersageTd  = row.querySelector('.abt-vorhersage');
+  const grenzfallTd   = row.querySelector('.abt-grenzfall');
+  const nachpruefTd   = row.querySelector('.abt-nachpruefung');
+  const abwTd         = row.querySelector('.abt-abw-vornote');
+  if (!vorhersageTd) return;
+
+  if (max_bisher <= 0) {
+    vorhersageTd.textContent = '–';
+    grenzfallTd.querySelector('.abt-grenzfall-badge').classList.add('d-none');
+    grenzfallTd.querySelector('.abt-grenzfall-ok').textContent = '–';
+    grenzfallTd.querySelector('.abt-grenzfall-confirm').classList.add('d-none');
+    nachpruefTd.innerHTML = '–';
+    if (abwTd) { abwTd.textContent = '–'; delete abwTd.dataset.abw; }
+    return;
+  }
+
+  // Vorhersage: Note aus dem Prozentsatz der bereits korrigierten Aufgaben
+  // Beispiel: 7 von 10 korrigierten Punkten = 70% → Note 10
+  const vorhersage_note15 = calcNote15(punkte_bisher, max_bisher);
+  if (max_bisher < max_total) {
+    // Still tasks remaining – show as forecast
+    vorhersageTd.innerHTML = `<span class="text-primary fw-semibold">${vorhersage_note15}</span>`;
+  } else {
+    // All tasks filled – Vorhersage = Note
+    vorhersageTd.textContent = vorhersage_note15;
+  }
+
+  // Grenzfall: actual note within 1% below a grade boundary?
+  const pct = punkte_bisher / max_total;
+  let isGrenzfall = false;
+  for (const [threshold, note] of GRADE_SCALE) {
+    if (threshold > 0 && pct < threshold && (threshold - pct) < 0.01) {
+      isGrenzfall = true;
+      break;
+    }
+  }
+  const badge   = grenzfallTd.querySelector('.abt-grenzfall-badge');
+  const okSpan  = grenzfallTd.querySelector('.abt-grenzfall-ok');
+  const confirm = grenzfallTd.querySelector('.abt-grenzfall-confirm');
+  if (isGrenzfall) {
+    badge.classList.remove('d-none');
+    okSpan.textContent = '';
+    confirm.classList.remove('d-none');
+  } else {
+    badge.classList.add('d-none');
+    okSpan.textContent = '–';
+    confirm.classList.add('d-none');
+  }
+
+  // Nachprüfung: |note - hj_schnitt| >= 4  → Ampel-Logik
+  // worst case = student gets 0 on remaining tasks = actual_note15
+  // best  case = student gets full points on remaining tasks
+  const hjSchnitt = parseFloat(row.dataset.hjSchnitt);
+  if (isNaN(hjSchnitt)) {
+    nachpruefTd.textContent = '–';
+  } else {
+    const best_note15  = calcNote15(punkte_bisher + (max_total - max_bisher), max_total);
+    const worst_note15 = actual_note15;  // unfilled tasks → 0 pts
+
+    // Safe zone: |note - hjSchnitt| < 4  (strict, handles non-integer notes)
+    const safeMin = hjSchnitt - 4;  // exclusive lower bound
+    const safeMax = hjSchnitt + 4;  // exclusive upper bound
+
+    // Does any achievable note fall inside the safe zone?
+    const canAvoidNP = worst_note15 < safeMax && best_note15 > safeMin;
+    // Do ALL achievable notes fall inside the safe zone?
+    const certainSafe = worst_note15 > safeMin && best_note15 < safeMax;
+    const npVorhersage = Math.abs(vorhersage_note15 - hjSchnitt) >= 4;
+
+    if (!canAvoidNP) {
+      nachpruefTd.innerHTML = '<span class="badge bg-danger">Nachprüfung</span>';
+    } else if (certainSafe) {
+      nachpruefTd.innerHTML = '<span class="badge bg-success">Sicher</span>';
+    } else if (npVorhersage) {
+      // Vorhersage triggers NP but outcome still open
+      nachpruefTd.innerHTML = '<span class="badge bg-warning text-dark">möglich</span>';
+    } else {
+      nachpruefTd.textContent = '–';
+    }
+  }
+
+  // Abweichung zur Vornote: nur wenn alle Aufgaben korrigiert sind
+  if (abwTd) {
+    const allFilled = max_bisher >= max_total;
+    const hjSchnittAbw = parseFloat(row.dataset.hjSchnitt);
+    if (allFilled && !isNaN(hjSchnittAbw)) {
+      const abw = actual_note15 - hjSchnittAbw;
+      const sign = abw >= 0 ? '+' : '';
+      const color = abw >= 0 ? 'text-success' : 'text-danger';
+      abwTd.innerHTML = `<span class="${color} fw-semibold">${sign}${fmtNum(Math.round(abw * 100) / 100).replace('.', ',')}</span>`;
+      abwTd.dataset.abw = abw;
+    } else {
+      abwTd.textContent = '–';
+      delete abwTd.dataset.abw;
+    }
+  }
+}
+
+// ── ABT Durchschnittszeile ────────────────────────────────────────────────────
+function updateAvgRow() {
+  const avgRow = document.getElementById('abt-avg-row');
+  if (!avgRow) return;
+
+  const rows = [...document.querySelectorAll('#gradeTable tbody tr[data-sname]')]
+    .filter(r => r.dataset.inNt !== 'true');
+
+  // Per-task averages
+  const nTasks = (rows[0]?.querySelectorAll('.student-points').length) ?? 0;
+  const taskSums   = new Array(nTasks).fill(0);
+  const taskCounts = new Array(nTasks).fill(0);
+  let gestSum = 0, gestCount = 0;
+  let note15Sum = 0, note15Count = 0;
+  let note6Sum = 0, note6Count = 0;
+  let abwSum = 0, abwCount = 0;
+
+  rows.forEach(row => {
+    row.querySelectorAll('.student-points').forEach((inp, i) => {
+      const v = parseFloat(inp.value);
+      if (!isNaN(v)) { taskSums[i] += v; taskCounts[i]++; }
+    });
+    const gestEl = row.querySelector('.student-gesamt');
+    if (gestEl && gestEl.textContent !== '–') {
+      gestSum += parseFloat(gestEl.textContent.replace(',', '.'));
+      gestCount++;
+    }
+    const note15El = row.querySelector('.student-note15');
+    if (note15El && note15El.textContent !== '–') {
+      note15Sum += parseFloat(note15El.textContent);
+      note15Count++;
+    }
+    // note6 stored as dataset on the td
+    const maxCell = document.getElementById('totalMax');
+    const maximum = parseFloat(maxCell ? maxCell.dataset.exact : 0) || 0;
+    const tds = row.querySelectorAll('td');
+    const note6Td = tds[tds.length - 5];
+    if (note6Td?.dataset.note6 !== undefined && note6Td.dataset.note6 !== '') {
+      note6Sum += parseFloat(note6Td.dataset.note6);
+      note6Count++;
+    }
+    const abwTd = row.querySelector('.abt-abw-vornote');
+    if (abwTd?.dataset.abw !== undefined) {
+      abwSum += parseFloat(abwTd.dataset.abw);
+      abwCount++;
+    }
+  });
+
+  avgRow.querySelectorAll('.abt-avg-task').forEach((td, i) => {
+    td.textContent = taskCounts[i] > 0
+      ? fmtNum(Math.round(taskSums[i] / taskCounts[i] * 100) / 100).replace('.', ',')
+      : '–';
+  });
+
+  const gestTd = avgRow.querySelector('.abt-avg-gesamt');
+  if (gestTd) gestTd.textContent = gestCount > 0
+    ? fmtNum(Math.round(gestSum / gestCount * 100) / 100).replace('.', ',')
+    : '–';
+
+  const note15Td = avgRow.querySelector('.abt-avg-note15');
+  if (note15Td) note15Td.textContent = note15Count > 0
+    ? fmtNum(Math.round(note15Sum / note15Count * 100) / 100).replace('.', ',')
+    : '–';
+
+  const note6Td2 = avgRow.querySelector('.abt-avg-note6');
+  if (note6Td2) note6Td2.textContent = note6Count > 0
+    ? fmtNum(Math.round(note6Sum / note6Count * 100) / 100).replace('.', ',')
+    : '–';
+
+  const abwTd2 = avgRow.querySelector('.abt-avg-abw');
+  if (abwTd2) {
+    if (abwCount > 0) {
+      const avg = abwSum / abwCount;
+      const sign = avg >= 0 ? '+' : '';
+      const color = avg >= 0 ? 'text-success' : 'text-danger';
+      abwTd2.innerHTML = `<span class="${color}">${sign}${fmtNum(Math.round(avg * 100) / 100).replace('.', ',')}</span>`;
+    } else {
+      abwTd2.textContent = '–';
+    }
+  }
+}
+
 // ── Toast helper ──────────────────────────────────────────────────────────────
-function showToast(msg, type = 'success') {
+function showToast(msg, type = 'success', delay = 3000) {
   const div = document.createElement('div');
   div.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
   div.setAttribute('role', 'alert');
   div.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
     <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
   document.body.appendChild(div);
-  new bootstrap.Toast(div, { delay: 3000 }).show();
+  const opts = delay > 0 ? { delay } : { autohide: false };
+  new bootstrap.Toast(div, opts).show();
   div.addEventListener('hidden.bs.toast', () => div.remove());
 }
 </script>

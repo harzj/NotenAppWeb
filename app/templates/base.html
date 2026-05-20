@@ -82,7 +82,14 @@
         {% if current_klasse %}
         <li class="nav-item text-center py-1 mb-1">
           {% if current_modus == 'kurs' %}
-            <span class="badge bg-success fs-6 px-3">Kurs {{ current_kurs_info.typ if current_kurs_info else '' }} {{ current_klasse }}</span>
+            {% set sj = session.gradebook.schuljahr if session.gradebook else '' %}
+            {% set sj_bis = session.gradebook.schuljahr_bis if session.gradebook else '' %}
+            {% if sj and sj_bis and sj|length == 4 and sj_bis|length == 4 %}
+              {% set sj_display = sj[:2] + '–' + sj_bis[2:] %}
+            {% else %}
+              {% set sj_display = sj %}
+            {% endif %}
+            <span class="badge bg-success fs-6 px-3">Kurs {{ current_kurs_info.typ if current_kurs_info else '' }} {{ current_klasse }}{% if sj_display %} <span class="fw-normal opacity-75 small">{{ sj_display }}</span>{% endif %}</span>
           {% else %}
             <span class="badge bg-primary fs-6 px-3">Klasse {{ current_klasse }}</span>
           {% endif %}
@@ -141,6 +148,20 @@
             </a>
           </li>
           {% endfor %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'grades.kurs_gesamt_uebersicht' %}active{% endif %}"
+               href="{{ url_for('grades.kurs_gesamt_uebersicht') }}">
+              <i class="bi bi-grid-3x3-gap"></i> Gesamtübersicht
+            </a>
+          </li>
+          {% if abt_ln_idx is defined and abt_ln_idx is not none %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == 'grades.ln_detail' and request.view_args.ln_idx == abt_ln_idx %}active{% endif %}"
+               href="{{ url_for('grades.ln_detail', ln_idx=abt_ln_idx) }}">
+              <i class="bi bi-pencil-square"></i> Abiturprüfung
+            </a>
+          </li>
+          {% endif %}
         {% else %}
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL1' %}active{% endif %}"
@@ -184,6 +205,14 @@
             <i class="bi bi-mortarboard"></i> Übersicht Schuljahr
           </a>
         </li>
+        {% if abt_ln_idx is defined and abt_ln_idx is not none %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.ln_detail' and request.view_args.ln_idx == abt_ln_idx %}active{% endif %}"
+             href="{{ url_for('grades.ln_detail', ln_idx=abt_ln_idx) }}">
+            <i class="bi bi-pencil-square"></i> Abiturprüfung
+          </a>
+        </li>
+        {% endif %}
         {% endif %}
         <hr class="my-2">
         <li class="nav-item text-muted small px-2 mb-1">EXPORT</li>

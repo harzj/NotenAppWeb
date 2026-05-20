@@ -139,10 +139,11 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
     ws.cell(S.LN_ROW_HEADER, S.LN_COL_NAME, S.LN_HEADER_NAME)
     for t_idx, task in enumerate(aufgaben):
         ws.cell(S.LN_ROW_HEADER, S.LN_COL_TASKS_START + t_idx, task["label"])
+    is_abt = ln.get("ln_typ") == S.LN_TYP_ABT
     ws.cell(S.LN_ROW_HEADER, col_gesamt,    S.LN_HEADER_GESAMT)
     ws.cell(S.LN_ROW_HEADER, col_note15,    S.LN_HEADER_NOTE_15)
     ws.cell(S.LN_ROW_HEADER, col_note6,     S.LN_HEADER_NOTE_6)
-    ws.cell(S.LN_ROW_HEADER, col_ignoriert, S.LN_HEADER_IGNORIERT)
+    ws.cell(S.LN_ROW_HEADER, col_ignoriert, S.LN_HEADER_KUERZEL if is_abt else S.LN_HEADER_IGNORIERT)
     _style_header_row(ws, S.LN_ROW_HEADER, col_ignoriert)
 
     # ── Row 3: Anforderungsbereich ──
@@ -195,8 +196,11 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
             ws.cell(row, col_note6,
                 _note6_formula(get_column_letter(col_note15), row_letter))
 
-        # Ignoriert flag (1 = ignored, blank = not ignored)
-        ws.cell(row, col_ignoriert, 1 if s.get("ignoriert") else None)
+        # Kürzel (ABT) or Ignoriert flag (non-ABT)
+        if is_abt:
+            ws.cell(row, col_ignoriert, s.get("kuerzel") or None)
+        else:
+            ws.cell(row, col_ignoriert, 1 if s.get("ignoriert") else None)
 
         if s_idx % 2 == 1:
             _style_row_bg(ws, row, col_ignoriert, COLOR_ALT_ROW)

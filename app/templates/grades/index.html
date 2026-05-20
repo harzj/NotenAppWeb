@@ -31,8 +31,15 @@
     <div class="card border-success h-100">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-file-earmark-plus text-success me-2"></i>Neue Datei</h5>
-        <p class="card-text text-muted">Erstelle eine neue leere Notendatei für eine neue Klasse/Kurs.</p>
-        <a href="{{ url_for('grades.new_file') }}" class="btn btn-success">Neue Datei erstellen</a>
+        <p class="card-text text-muted">Erstelle eine neue leere Notendatei für eine Klasse oder einen Kurs.</p>
+        <div class="d-flex gap-2 flex-wrap">
+          <a href="{{ url_for('grades.new_file', modus='klasse') }}" class="btn btn-success">
+            <i class="bi bi-people me-1"></i>Neue Klasse
+          </a>
+          <a href="{{ url_for('grades.new_file', modus='kurs') }}" class="btn btn-outline-success">
+            <i class="bi bi-mortarboard me-1"></i>Neuer Kurs (Oberstufe)
+          </a>
+        </div>
       </div>
     </div>
   </div>

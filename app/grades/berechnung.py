@@ -322,3 +322,82 @@ def student_active_in_hj(student: dict, target_hj: str) -> bool:
             return False
         return HJ_ORDER.index(target_hj) <= HJ_ORDER.index(abgang)
     return True
+
+
+# ── Abiturprüfung (ABT) ───────────────────────────────────────────────────────
+
+from app.excel.schema import GRADE_SCALE
+
+
+def compute_abt_vorhersage(punkte_list: list, aufgaben: list) -> int | None:
+    """
+    Hochrechnung: Punkte bisher / Max bisher → gleicher Prozentsatz auf Gesamtmax → Note.
+    Gibt None zurück wenn keine Punkte eingetragen sind.
+    """
+    max_bisher = 0.0
+    punkte_bisher = 0.0
+    gesamtmax = sum(float(a.get("max_punkte", 0)) for a in aufgaben)
+
+    for i, aufgabe in enumerate(aufgaben):
+        if i >= len(punkte_list):
+            continue
+        p = punkte_list[i]
+        if p is not None:
+            max_bisher += float(aufgabe.get("max_punkte", 0))
+            punkte_bisher += float(p)
+
+    if max_bisher <= 0 or gesamtmax <= 0:
+        return None
+
+    pct = punkte_bisher / max_bisher
+    # Convert to note using the grade scale (no rounding / exact thresholds)
+    for threshold, note in GRADE_SCALE:
+        if pct >= threshold:
+            return note
+    return 0
+
+
+def is_abt_grenzfall(punkte_list: list, aufgaben: list) -> tuple[bool, str]:
+    """
+    Check if the current score is within 1% below a grade boundary.
+    Returns (is_grenzfall, next_note_label).
+    """
+    max_bisher = 0.0
+    punkte_bisher = 0.0
+
+    for i, aufgabe in enumerate(aufgaben):
+        if i >= len(punkte_list):
+            continue
+        p = punkte_list[i]
+        if p is not None:
+            max_bisher += float(aufgabe.get("max_punkte", 0))
+            punkte_bisher += float(p)
+
+    if max_bisher <= 0:
+        return False, ""
+
+    pct = punkte_bisher / max_bisher
+    # Check if within 1% below any threshold
+    for threshold, note in GRADE_SCALE:
+        if threshold > 0 and pct < threshold and (threshold - pct) < 0.01:
+            return True, str(note)
+
+    return False, ""
+
+
+def compute_abt_hj_schnitt(student_name: str, hj_noten: dict) -> float | None:
+    """
+    Arithmetic mean of all HJ notes (HJ1-HJ4) for the given student.
+    """
+    student_noten = hj_noten.get(student_name, {})
+    vals = [float(v) for v in student_noten.values() if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
+def compute_abt_nachpruefung(abt_note15: int | None, hj_schnitt: float | None) -> bool:
+    """
+    Returns True if the Abitur grade deviates by >= 4 points from the HJ average.
+    """
+    if abt_note15 is None or hj_schnitt is None:
+        return False
+    return abs(float(abt_note15) - hj_schnitt) >= 4.0

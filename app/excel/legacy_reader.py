@@ -125,10 +125,42 @@ def probe_legacy_file(file_bytes: bytes, password: Optional[str] = None) -> dict
     for use in the import wizard.
     """
     wb = _open_wb(file_bytes, password)
-    students = _get_students(wb)
 
+    # ── Detect Oberstufen-Kurs format ─────────────────────────────────────────
+    # Criterion: sheets GLN1 and GLN2 exist AND no KLN sheets
+    gln_numbers = []
+    for name in wb.sheetnames:
+        m = re.match(r"^GLN\s*(\d+)$", name, re.I)
+        if m:
+            gln_numbers.append((int(m.group(1)), name))
+    gln_numbers.sort()
+    has_kln = any(re.match(r"^KLN\s*\d+$", n, re.I) for n in wb.sheetnames)
+    is_oberstufe = len(gln_numbers) >= 2 and not has_kln
+
+    if is_oberstufe:
+        students = _get_students_oberstufe(wb)
+        gln_sheets = [name for _, name in gln_numbers]
+        # Detect Zeugnisnoten sheets
+        zeugnisnoten_sheets = [
+            n for n in wb.sheetnames
+            if re.match(r"^Zeugnisnoten(\s*\(\d+\))?$", n, re.I)
+        ]
+        return {
+            "students":           students,
+            "student_count":      len(students),
+            "is_oberstufe":       True,
+            "kln_sheets":         [],
+            "gln_sheets":         gln_sheets,
+            "gln_auto_slots":     _gln_auto_slots(gln_sheets),
+            "zeugnisnoten_sheets": zeugnisnoten_sheets,
+            "has_noten":          False,
+            "has_noten2":         False,
+        }
+
+    # ── Standard (Klasse) format ──────────────────────────────────────────────
+    students = _get_students(wb)
     kln_sheets: list[dict] = []
-    gln_sheets: list[str] = []
+    gln_sheets_std: list[str] = []
 
     for name in wb.sheetnames:
         if re.match(r"^KLN\s*\d+$", name, re.I):
@@ -136,15 +168,345 @@ def probe_legacy_file(file_bytes: bytes, password: Optional[str] = None) -> dict
             if hue_list:
                 kln_sheets.append({"sheet": name, "hue_list": hue_list})
         elif re.match(r"^GLN\s*\d+$", name, re.I):
-            gln_sheets.append(name)
+            gln_sheets_std.append(name)
 
     return {
-        "students": students,
+        "students":      students,
         "student_count": len(students),
-        "kln_sheets": kln_sheets,
-        "gln_sheets": gln_sheets,
-        "has_noten": "Noten" in wb.sheetnames,
-        "has_noten2": "Noten (2)" in wb.sheetnames,
+        "is_oberstufe":  False,
+        "kln_sheets":    kln_sheets,
+        "gln_sheets":    gln_sheets_std,
+        "has_noten":     "Noten" in wb.sheetnames,
+        "has_noten2":    "Noten (2)" in wb.sheetnames,
+    }
+
+
+# ── Auto-slot mapping for Oberstufe GLN sheets ────────────────────────────────
+
+_GLN_SLOT_MAP = {
+    1: ("GLN1", "HJ1"), 2: ("GLN2", "HJ1"),
+    3: ("GLN3", "HJ2"), 4: ("GLN4", "HJ2"),
+    5: ("GLN5", "HJ3"), 6: ("GLN6", "HJ3"),
+    7: ("GLN7", "HJ4"), 8: ("GLN8", "HJ4"),
+}
+
+
+def _gln_auto_slots(gln_sheets: list[str]) -> dict:
+    """Return {sheet_name: {slot, hj}} for auto-assignment."""
+    result = {}
+    for name in gln_sheets:
+        m = re.match(r"^GLN\s*(\d+)$", name, re.I)
+        if m:
+            num = int(m.group(1))
+            slot, hj = _GLN_SLOT_MAP.get(num, (f"GLN{num}", "HJ1"))
+            result[name] = {"slot": slot, "hj": hj}
+    return result
+
+
+# ── Oberstufe: student extraction from Zeugnisnoten ──────────────────────────
+
+def _get_students_oberstufe(wb: Workbook) -> list[str]:
+    """Extract student names from the first available Zeugnisnoten sheet (col A, row 6+)."""
+    candidates = [n for n in wb.sheetnames if re.match(r"^Zeugnisnoten(\s*\(\d+\))?$", n, re.I)]
+    # Also fall back to GLN1 if no Zeugnisnoten sheet found
+    if not candidates:
+        candidates = [n for n in wb.sheetnames if re.match(r"^GLN\s*1$", n, re.I)]
+    for sheet_name in candidates:
+        ws = wb[sheet_name]
+        names = []
+        for r in range(6, ws.max_row + 1):
+            v = ws.cell(r, 1).value
+            if not v:
+                continue
+            name = str(v).strip()
+            if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
+                continue
+            names.append(name)
+        if names:
+            return names
+    return []
+
+
+# ── Oberstufe: GLN sheet reader (new Oberstufe format) ───────────────────────
+
+def _read_oberstufe_gln(wb: Workbook, sheet_name: str, students: list[str],
+                         gln_slot: str, hj: str) -> Optional[dict]:
+    """
+    Read an Oberstufen-GLN sheet.
+
+    Layout:
+      Row 4: some cells; "Gesamt" label appears in the Summen-column (e.g. col 14)
+      Row 5: Max-Punkte per Aufgabe in cols B...(gesamt_col-1), Gesamt in gesamt_col
+      Row 6+: Col A = Schülername, Col B..gesamt_col-1 = Punkte,
+              Col gesamt_col = Gesamtpunkte (formula, may be None),
+              Col gesamt_col+1 = Note 15P
+    """
+    if sheet_name not in wb.sheetnames:
+        return None
+    ws = wb[sheet_name]
+
+    # Find "Gesamt" entry in row 4
+    max_col = ws.max_column or 30
+    gesamt_col: Optional[int] = None
+    for c in range(1, max_col + 1):
+        v = ws.cell(4, c).value
+        if isinstance(v, str) and "gesamt" in v.strip().lower():
+            gesamt_col = c
+            break
+    if gesamt_col is None or gesamt_col <= 2:
+        # Fallback: use old-style "Gesamt" in row 2
+        for c in range(1, max_col + 1):
+            v = ws.cell(2, c).value
+            if isinstance(v, str) and "gesamt" in v.strip().lower():
+                gesamt_col = c
+                break
+
+    if gesamt_col is None:
+        gesamt_col = max_col  # last resort
+
+    # Row 5: max points for tasks in cols B..gesamt_col-1
+    aufgaben = []
+    for c in range(2, gesamt_col):
+        raw = ws.cell(5, c).value
+        try:
+            mp = float(raw) if raw is not None else None
+        except (ValueError, TypeError):
+            mp = None
+        if mp is not None and mp > 0:
+            aufgaben.append({"label": str(c - 1), "afb": "", "max_punkte": mp})
+
+    if not aufgaben:
+        # Fallback: treat as single-task GLN with total from gesamt_col row 5
+        raw = ws.cell(5, gesamt_col).value if gesamt_col else None
+        try:
+            mp = float(raw) if raw is not None else 100.0
+        except (ValueError, TypeError):
+            mp = 100.0
+        aufgaben = [{"label": "Gesamt", "afb": "", "max_punkte": mp}]
+
+    # Row 6+: student data
+    schueler = []
+    for r in range(6, ws.max_row + 1):
+        raw_name = ws.cell(r, 1).value
+        if not raw_name:
+            continue
+        name = str(raw_name).strip()
+        if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
+            continue
+
+        punkte: list[Optional[float]] = []
+        if len(aufgaben) == 1 and aufgaben[0]["label"] == "Gesamt":
+            # Single-task fallback: read from gesamt_col
+            raw_pts = ws.cell(r, gesamt_col).value if gesamt_col else None
+            try:
+                pts = round(float(raw_pts), 2) if raw_pts is not None else None
+            except (ValueError, TypeError):
+                pts = None
+            punkte = [pts]
+        else:
+            for c in range(2, gesamt_col):
+                col_idx = c - 2
+                if col_idx >= len(aufgaben):
+                    break
+                raw_pts = ws.cell(r, c).value
+                try:
+                    pts = round(float(raw_pts), 2) if raw_pts is not None else None
+                except (ValueError, TypeError):
+                    pts = None
+                punkte.append(pts)
+
+        # Note 15P is in col gesamt_col+1
+        note15: Optional[int] = None
+        if gesamt_col:
+            note15 = _int_or_none(ws.cell(r, gesamt_col + 1).value)
+
+        schueler.append({
+            "name": name,
+            "punkte": punkte,
+            "note_15": note15,
+            "note_6": None,
+            "ignoriert": False,
+        })
+
+    ln_name = sheet_name.replace(" ", "")
+    return {
+        "sheet_name":    f"LN_{ln_name}",
+        "name":          ln_name,
+        "ln_typ":        "GLN",
+        "hj":            hj,
+        "gln_slot":      gln_slot,
+        "sl_zuordnung":  None,
+        "nachtermin_von": None,
+        "noten_runden":  False,
+        "thema":         "",
+        "datum":         "",
+        "aufgaben":      aufgaben,
+        "aufgaben_tree": [],
+        "schueler":      schueler,
+    }
+
+
+# ── Oberstufe: Zeugnisnoten sheet reader ─────────────────────────────────────
+
+_ZEUGNIS_HJ_MAP = {
+    "Zeugnisnoten": "HJ1",
+    "Zeugnisnoten (2)": "HJ2",
+    "Zeugnisnoten (3)": "HJ3",
+    "Zeugnisnoten (4)": "HJ4",
+}
+
+
+def _read_zeugnisnoten(ws, students: list[str], hj_key: str) -> dict:
+    """
+    Extract from a Zeugnisnoten sheet:
+      - Row 5: B5=Gewicht GLN1, C5=Gewicht GLN2, D5=Gewicht MDL1, E5=Gewicht MDL2
+      - Row 4: "Note" label appears in some column (e.g. H4) → note_col
+      - Row 6+: Col A = Schülername, Note from note_col
+    Returns: {"hj_noten": {name: note15}, "mdl_noten_kurs": {name: {f"{hj_key}_mdl1": v, ...}}}
+    """
+    max_col = ws.max_column or 20
+    note_col: Optional[int] = None
+    for c in range(1, max_col + 1):
+        v = ws.cell(4, c).value
+        if isinstance(v, str) and v.strip().lower() == "note":
+            note_col = c
+            break
+
+    hj_noten: dict = {}
+    mdl_noten_kurs: dict = {}
+
+    for r in range(6, ws.max_row + 1):
+        raw_name = ws.cell(r, 1).value
+        if not raw_name:
+            continue
+        name = str(raw_name).strip()
+        if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
+            continue
+
+        # MDL1 from col D (4), MDL2 from col E (5)
+        mdl1 = _note_from_cell(ws, r, 4)
+        mdl2 = _note_from_cell(ws, r, 5)
+        if mdl1 is not None or mdl2 is not None:
+            mdl_noten_kurs.setdefault(name, {})
+            if mdl1 is not None:
+                mdl_noten_kurs[name][f"{hj_key}_mdl1"] = mdl1
+            if mdl2 is not None:
+                mdl_noten_kurs[name][f"{hj_key}_mdl2"] = mdl2
+
+        # Zeugnisnote from note_col (two rows below "Note" header: row 6 not row 4+2)
+        if note_col:
+            note = _note_from_cell(ws, r, note_col)
+            if note is not None:
+                hj_noten[name] = note
+
+    return {"hj_noten": hj_noten, "mdl_noten_kurs": mdl_noten_kurs}
+
+
+# ── Oberstufe: full import orchestration ─────────────────────────────────────
+
+def import_oberstufe_legacy_file(wb, selections: dict, students: list[str]) -> dict:
+    """
+    Import an Oberstufen-Kurs legacy file.
+    Returns a complete gradebook dict with modus='kurs'.
+    """
+    lns: list[dict] = []
+    mdl_noten_kurs: dict = {}
+    hj_noten: dict = {}
+
+    auto_slots = selections.get("gln_auto_slots", {})
+
+    # ── GLN sheets ────────────────────────────────────────────────────────────
+    for gname in selections.get("gln_sheets_selected", []):
+        slot_info = auto_slots.get(gname, {})
+        gln_slot = slot_info.get("slot", "GLN1")
+        hj = slot_info.get("hj", "HJ1")
+        ln = _read_oberstufe_gln(wb, gname, students, gln_slot, hj)
+        if ln:
+            lns.append(ln)
+
+    # ── Zeugnisnoten sheets ───────────────────────────────────────────────────
+    for zname in _ZEUGNIS_HJ_MAP:
+        if zname not in wb.sheetnames:
+            continue
+        hj_key = _ZEUGNIS_HJ_MAP[zname]
+        result = _read_zeugnisnoten(wb[zname], students, hj_key)
+        # Merge hj_noten
+        for name, note in result["hj_noten"].items():
+            hj_noten.setdefault(name, {})[hj_key] = note
+        # Merge mdl_noten_kurs
+        for name, vals in result["mdl_noten_kurs"].items():
+            mdl_noten_kurs.setdefault(name, {}).update(vals)
+
+    # ── Build stammdaten ──────────────────────────────────────────────────────
+    stammdaten = []
+    for name in students:
+        parts = name.split(",", 1)
+        nachname = parts[0].strip()
+        vorname = parts[1].strip() if len(parts) > 1 else ""
+        stammdaten.append({
+            "nachname": nachname,
+            "vorname": vorname,
+            "notizen": "",
+            "status": S.SD_STATUS_AKTIV,
+            "austritt": "",
+        })
+
+    # ── Auto-detect students who left early ──────────────────────────────────
+    # Check which students appear in each Zeugnisnoten sheet (col A, row 6+).
+    # If a student is missing from a later sheet but appeared in an earlier one,
+    # they are marked as ausgeschieden after their last HJ.
+    _hj_order = ["HJ1", "HJ2", "HJ3", "HJ4"]
+    hj_students_present: dict[str, set] = {}
+    for zname, hj_key in _ZEUGNIS_HJ_MAP.items():
+        if zname not in wb.sheetnames:
+            continue
+        ws_z = wb[zname]
+        present: set[str] = set()
+        for r in range(6, ws_z.max_row + 1):
+            v = ws_z.cell(r, 1).value
+            if not v:
+                continue
+            n = str(v).strip()
+            if n and not n.startswith("#") and n.lower() not in _SKIP_NAMES:
+                present.add(n)
+        if present:
+            hj_students_present[hj_key] = present
+
+    if len(hj_students_present) >= 2:
+        max_hj_idx = max(
+            _hj_order.index(hj) for hj in hj_students_present
+        )
+        for sd in stammdaten:
+            full_name = f"{sd['nachname']}, {sd['vorname']}" if sd['vorname'] else sd['nachname']
+            last_hj_idx = -1
+            for idx, hj in enumerate(_hj_order):
+                if full_name in hj_students_present.get(hj, set()):
+                    last_hj_idx = idx
+            if 0 <= last_hj_idx < max_hj_idx:
+                sd["status"] = S.SD_STATUS_AUSGESCHIEDEN
+                sd["abgang_nach_hj"] = _hj_order[last_hj_idx]
+
+
+    return {
+        "klasse":         selections.get("klasse", ""),
+        "fach":           selections.get("fach", ""),
+        "schuljahr":      selections.get("schuljahr", ""),
+        "schuljahr_bis":  selections.get("schuljahr_bis", ""),
+        "modus":          "kurs",
+        "kurs_typ":       "GK",
+        "kurs_stunden":   4,
+        "kurs_gewichtung": {"hj_gln_pct": 70.0, "hj_mdl_pct": 30.0},
+        "stammdaten":     stammdaten,
+        "leistungsnachweise": lns,
+        "mdl_noten_kurs": mdl_noten_kurs,
+        "hj_noten":       hj_noten,
+        "mdl_noten":      {},
+        "sl_noten_actual": {},
+        "schuljahr_noten_actual": {},
+        "uebersicht_hj1": None,
+        "uebersicht_hj2": None,
+        "uebersicht_jahr": None,
+        "sl_gewichtung":  None,
     }
 
 
@@ -156,6 +518,12 @@ def import_legacy_file(file_bytes: bytes, password: Optional[str], selections: d
     Returns a dict compatible with the standard gradebook session format.
     """
     wb = _open_wb(file_bytes, password)
+
+    # ── Delegate to Oberstufe import if flagged ───────────────────────────────
+    if selections.get("is_oberstufe"):
+        students = _get_students_oberstufe(wb) or _get_students(wb)
+        return import_oberstufe_legacy_file(wb, selections, students)
+
     students = _get_students(wb)
 
     lns: list[dict] = []

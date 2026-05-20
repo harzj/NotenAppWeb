@@ -244,12 +244,16 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
             "max_punkte": _num(max_row, i),
         })
 
-    # Find Ignoriert column (after Note 1-6)
+    # Find Ignoriert or Kürzel column (after Note 1-6)
+    kuerzel_col_idx = None
     if gesamt_col_idx is not None:
         for i in range(gesamt_col_idx + 1, len(header_row)):
             v = header_row[i]
             if isinstance(v, str) and v.strip() == S.LN_HEADER_IGNORIERT:
                 ignoriert_col_idx = i
+                break
+            if isinstance(v, str) and v.strip() == S.LN_HEADER_KUERZEL:
+                kuerzel_col_idx = i
                 break
 
     # Read student rows
@@ -295,12 +299,21 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
             val = row[ignoriert_col_idx] if ignoriert_col_idx < len(row) else None
             ignoriert = bool(val) if val is not None else False
 
+        kuerzel = ""
+        if kuerzel_col_idx is not None:
+            val = row[kuerzel_col_idx] if kuerzel_col_idx < len(row) else None
+            kuerzel = str(val).strip() if val is not None else ""
+        # Backward compat: old ABT sheet with Ignoriert column → force ignoriert=False
+        if ln_typ == S.LN_TYP_ABT:
+            ignoriert = False
+
         students.append({
             "name":      student_name,
             "punkte":    punkte,
             "note_15":   int(note15) if note15 is not None else None,
             "note_6":    int(note6)  if note6  is not None else None,
             "ignoriert": ignoriert,
+            "kuerzel":   kuerzel,
         })
 
     # Reconstruct aufgaben_tree from labels (detect hierarchy by dot-notation)

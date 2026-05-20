@@ -15,6 +15,7 @@ SHEET_NOTEN_ZUSATZ = "Noten_Zusatz"    # hidden: mdl/sl/hj/sj actual notes
 SHEET_EINSTELLUNGEN = "Einstellungen"  # hidden: sl_gewichtung
 
 LN_SHEET_PREFIX = "LN_"
+LN_TYP_ABT = "ABT"  # Abiturprüfung
 
 # ── Stammdaten sheet rows and columns (1-based) ───────────────────────────────
 # Row 1:  class name metadata  ("Klasse:" | "7p")
@@ -84,7 +85,8 @@ LN_HEADER_MAX_LABEL = "Max. Punkte"
 LN_HEADER_GESAMT = "Gesamt"
 LN_HEADER_NOTE_15 = "Note (0-15)"
 LN_HEADER_NOTE_6 = "Note (1-6)"
-LN_HEADER_IGNORIERT = "Ignoriert"   # per-student ignore flag column
+LN_HEADER_IGNORIERT = "Ignoriert"   # per-student ignore flag column (non-ABT)
+LN_HEADER_KUERZEL = "Kürzel"       # exam candidate code for ABT sheets
 
 AFB_VALUES = ("I", "II", "III", "")
 

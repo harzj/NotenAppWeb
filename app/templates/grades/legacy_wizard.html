@@ -11,6 +11,9 @@
 <div class="d-flex align-items-center mb-3 gap-2">
   <h4 class="mb-0"><i class="bi bi-archive me-2 text-warning"></i>Legacy-Import – Auswahl</h4>
   <span class="badge bg-warning text-dark">Admin</span>
+  {% if probe.is_oberstufe %}
+  <span class="badge bg-info text-dark ms-1"><i class="bi bi-mortarboard me-1"></i>Oberstufen-Kurs</span>
+  {% endif %}
 </div>
 <p class="text-muted small">
   Es wurden <strong>{{ probe.student_count }}</strong> Schüler gefunden.
@@ -20,28 +23,86 @@
 <form method="post" novalidate>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-  {# ── Stammdaten ─────────────────────────────────────────────────────────── #}
+  {# Stammdaten #}
   <div class="card section-card shadow-sm">
     <div class="card-header bg-primary text-white"><i class="bi bi-info-circle me-1"></i>Allgemeine Angaben</div>
     <div class="card-body">
       <div class="row g-3">
         <div class="col-md-4">
-          <label class="form-label">Klasse</label>
-          <input type="text" name="klasse" class="form-control" placeholder="z.B. 9a">
+          <label class="form-label">Klasse / Kursbezeichnung</label>
+          <input type="text" name="klasse" class="form-control" placeholder="z.B. Q12 Inf">
         </div>
         <div class="col-md-4">
           <label class="form-label">Fach</label>
           <input type="text" name="fach" class="form-control" placeholder="z.B. Informatik">
         </div>
-        <div class="col-md-4">
-          <label class="form-label">Schuljahr</label>
-          <input type="text" name="schuljahr" class="form-control" placeholder="z.B. 2024/25">
+        <div class="col-md-2">
+          <label class="form-label">Schuljahr Start</label>
+          <input type="text" name="schuljahr" class="form-control" placeholder="z.B. 2425" maxlength="4">
         </div>
+        {% if probe.is_oberstufe %}
+        <div class="col-md-2">
+          <label class="form-label">Schuljahr Ende</label>
+          <input type="text" name="schuljahr_bis" class="form-control" placeholder="z.B. 2526" maxlength="4">
+          <div class="form-text">Für Kurszeitraum (Abi-Jahrgang)</div>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
 
-  {# ── KLN Sheets ─────────────────────────────────────────────────────────── #}
+  {% if probe.is_oberstufe %}
+  {# OBERSTUFE: GLN-Sheets (auto-assigned) #}
+  <div class="card section-card shadow-sm">
+    <div class="card-header bg-info text-white">
+      <i class="bi bi-file-earmark-text me-1"></i>Große Leistungsnachweise (GLN) – automatische Zuordnung
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-sm table-bordered mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:40px"></th>
+            <th>Blatt</th>
+            <th>GLN-Slot</th>
+            <th>Halbjahr</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for gname in probe.gln_sheets %}
+          {% set slot_info = probe.gln_auto_slots.get(gname, {}) %}
+          <tr>
+            <td class="text-center">
+              <input type="checkbox" class="form-check-input"
+                     name="gln_{{ gname }}" checked>
+            </td>
+            <td><code>{{ gname }}</code></td>
+            <td><span class="badge bg-secondary">{{ slot_info.slot or '–' }}</span></td>
+            <td><span class="badge bg-primary">{{ slot_info.hj or '–' }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if probe.zeugnisnoten_sheets %}
+  <div class="card section-card shadow-sm">
+    <div class="card-header bg-success text-white">
+      <i class="bi bi-journal-text me-1"></i>Zeugnisnoten &amp; mündliche Noten (werden automatisch importiert)
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-1">Folgende Blätter werden ausgelesen (mündliche Noten + Halbjahresnoten):</p>
+      <div class="d-flex flex-wrap gap-2">
+        {% for zname in probe.zeugnisnoten_sheets %}
+        <span class="badge bg-light text-dark border">{{ zname }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  {# STANDARD: KLN Sheets #}
   {% if probe.kln_sheets %}
   <div class="card section-card shadow-sm">
     <div class="card-header bg-success text-white"><i class="bi bi-check2-square me-1"></i>Kleine Leistungsnachweise (KLN)</div>
@@ -95,7 +156,7 @@
   <div class="alert alert-secondary">Keine KLN-Blätter gefunden.</div>
   {% endif %}
 
-  {# ── GLN Sheets ─────────────────────────────────────────────────────────── #}
+  {# STANDARD: GLN Sheets #}
   {% if probe.gln_sheets %}
   <div class="card section-card shadow-sm">
     <div class="card-header bg-info text-white"><i class="bi bi-file-earmark-text me-1"></i>Große Leistungsnachweise (GLN)</div>
@@ -137,7 +198,7 @@
   <div class="alert alert-secondary">Keine GLN-Blätter gefunden.</div>
   {% endif %}
 
-  {# ── Noten / MDL / SL actuals ───────────────────────────────────────────── #}
+  {# STANDARD: Noten / MDL / SL #}
   <div class="card section-card shadow-sm">
     <div class="card-header bg-warning text-dark"><i class="bi bi-journal-text me-1"></i>Noten &amp; mündliche Noten</div>
     <div class="card-body">
@@ -153,12 +214,12 @@
         <div class="col-auto">
           <select name="bis_sl" id="bis_sl" class="form-select">
             {% if probe.has_noten %}
-            <option value="SL1">SL1 — nur MDL1 &amp; SL1-Endnote</option>
-            <option value="SL2" selected>SL2 — MDL1, MDL2, SL1, SL2 + Halbjahresnote</option>
+            <option value="SL1">SL1 – nur MDL1 &amp; SL1-Endnote</option>
+            <option value="SL2" selected>SL2 – MDL1, MDL2, SL1, SL2 + Halbjahresnote</option>
             {% endif %}
             {% if probe.has_noten2 %}
-            <option value="SL3">SL3 — + MDL3 &amp; SL3-Endnote (kein Ganzjahr)</option>
-            <option value="SL4">SL4 — + MDL4, SL4, Ganzjahresnote (komplett)</option>
+            <option value="SL3">SL3 – + MDL3 &amp; SL3-Endnote (kein Ganzjahr)</option>
+            <option value="SL4">SL4 – + MDL4, SL4, Ganzjahresnote (komplett)</option>
             {% endif %}
             {% if not probe.has_noten and not probe.has_noten2 %}
             <option value="" disabled selected>Keine Noten-Blätter gefunden</option>
@@ -171,8 +232,9 @@
       {% endif %}
     </div>
   </div>
+  {% endif %}{# end if probe.is_oberstufe #}
 
-  {# ── Schülerliste (preview) ─────────────────────────────────────────────── #}
+  {# Schülerliste (preview) #}
   <div class="card section-card shadow-sm">
     <div class="card-header bg-light">
       <a class="text-decoration-none text-dark" data-bs-toggle="collapse" href="#studentPreview">

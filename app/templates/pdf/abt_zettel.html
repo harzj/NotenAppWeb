@@ -1,0 +1,217 @@
+﻿<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<style>
+{% if layout == 4 %}
+@page { size: A4 {{ orientation }} ; margin: 0.8cm; }
+body { font-size: 7pt; }
+{% elif layout == 2 %}
+@page { size: A4 {{ orientation }} ; margin: 1.2cm; }
+body { font-size: 8pt; }
+{% else %}
+@page { size: A4 {{ orientation }} ; margin: 2cm; }
+body { font-size: 9.5pt; }
+{% endif %}
+
+body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+
+.zettel { page-break-inside: avoid; }
+
+.meta {
+  color: #555;
+  margin: 0 0 8pt 0;
+}
+
+/* Aufgabe table – horizontal layout */
+table.aufg {
+  border-collapse: collapse;
+  margin-bottom: 7pt;
+}
+table.aufg th, table.aufg td {
+  border: 1pt solid #333;
+  padding: 2pt 5pt;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+table.aufg th.title {
+  font-weight: bold;
+  background: #ebebeb;
+  text-align: left;
+}
+table.aufg th.row-lbl {
+  font-weight: normal;
+  background: #f5f5f5;
+  text-align: left;
+  min-width: 45pt;
+}
+
+/* Summary block */
+hr.sep {
+  border: none;
+  border-top: 0.5pt solid #555;
+  margin: 8pt 0 6pt 0;
+}
+table.summ {
+  border-collapse: collapse;
+  margin: 0;
+}
+table.summ td {
+  padding: 1pt 8pt 1pt 0;
+  vertical-align: top;
+}
+table.summ td.lbl { color: #444; }
+table.summ td.val { font-weight: bold; }
+
+.note-disp {
+  font-size: 1.5em;
+  font-weight: bold;
+}
+.note-red { color: #cc0000; }
+
+.kuerzel {
+  font-size: 1.3em;
+  font-weight: bold;
+  margin-top: 8pt;
+}
+
+.pg-break { page-break-after: always; }
+</style>
+</head>
+<body>
+
+{# ── Number formatter: integer if whole, else German decimal comma ── #}
+{% macro fmt(v) -%}
+  {%- if v is none -%}&ndash;
+  {%- elif v == (v | int) -%}{{ v | int }}
+  {%- else -%}{{ (v | round(2) | string) | replace('.', ',') }}
+  {%- endif -%}
+{%- endmacro %}
+
+{# ── Single student slip ── #}
+{% macro zettel(s) %}
+<div class="zettel">
+
+  <p class="meta">{% if datum %}{{ datum }}{% endif %}{% if klasse %} &middot; {{ klasse }}{% endif %}</p>
+
+  {# One horizontal table per Aufgabe section #}
+  {% for sec_idx in range(sections | length) %}
+  {% set sec = sections[sec_idx] %}
+  {% set sd  = s._sec_data[sec_idx] %}
+  <table class="aufg">
+    <thead>
+      <tr>
+        <th class="title" colspan="{{ sec.rows | length + 2 }}">Aufgabe {{ sec.label }}</th>
+      </tr>
+      <tr>
+        <th class="row-lbl">Aufgabe</th>
+        {% for r in sec.rows %}<td>{{ r.label }}</td>{% endfor %}
+        <td>&Sigma;</td>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th class="row-lbl">Max</th>
+        {% for r in sec.rows %}<td>{{ fmt(r.max) }}</td>{% endfor %}
+        <td>{{ fmt(sec.max) }}</td>
+      </tr>
+      <tr>
+        <th class="row-lbl">Punkte</th>
+        {% for r_idx in range(sec.rows | length) %}<td>{{ fmt(sd.pts[r_idx]) }}</td>{% endfor %}
+        <td>{{ fmt(sd.sum) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endfor %}
+
+  <hr class="sep">
+
+  <table class="summ">
+    <tr>
+      <td class="lbl">Gesamt-Punktzahl:</td>
+      <td class="val">{{ fmt(s._total) }} / {{ fmt(total_max) }}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Prozent:</td>
+      <td class="val">{% if s._pct is not none %}{{ fmt(s._pct) }}&thinsp;%{% else %}&ndash;{% endif %}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Note:</td>
+      <td class="val">
+        <span class="note-disp{% if s.note_15 is not none and s.note_15 <= 4 %} note-red{% endif %}">
+          {%- if s.note_15 is not none %}{% if s.note_15 < 10 %}0{% endif %}{{ s.note_15 }}{% else %}&ndash;{% endif -%}
+        </span>
+      </td>
+    </tr>
+  </table>
+
+  <div class="kuerzel">{{ s.kuerzel if s.kuerzel else '&ndash;' }}</div>
+
+</div>
+{% endmacro %}
+
+{# ── Layout rendering ── #}
+{# per_page = number of slips per physical page #}
+{% set per_page = layout %}
+
+{% if per_page == 1 %}
+  {# Single slip per page #}
+  {% for i in range(schueler | length) %}
+  {{ zettel(schueler[i]) }}
+  {% if i + 1 < schueler | length %}<div class="pg-break"></div>{% endif %}
+  {% endfor %}
+
+{% elif per_page == 2 %}
+  {% if orientation == 'landscape' %}
+    {# Landscape: two columns side by side #}
+    {% for i in range(0, schueler | length, 2) %}
+    <table style="width:100%; border-collapse:collapse">
+      <tr>
+        <td style="width:50%; padding-right:6px; vertical-align:top">{{ zettel(schueler[i]) }}</td>
+        {% if i + 1 < schueler | length %}
+        <td style="width:50%; padding-left:6px; vertical-align:top">{{ zettel(schueler[i + 1]) }}</td>
+        {% else %}
+        <td style="width:50%"></td>
+        {% endif %}
+      </tr>
+    </table>
+    {% if i + 2 < schueler | length %}<div class="pg-break"></div>{% endif %}
+    {% endfor %}
+  {% else %}
+    {# Portrait: two slips stacked vertically #}
+    {% for i in range(0, schueler | length, 2) %}
+    {{ zettel(schueler[i]) }}
+    {% if i + 1 < schueler | length %}
+    <hr style="border:none;border-top:0.5pt dashed #bbb;margin:10pt 0">
+    {{ zettel(schueler[i + 1]) }}
+    {% endif %}
+    {% if i + 2 < schueler | length %}<div class="pg-break"></div>{% endif %}
+    {% endfor %}
+  {% endif %}
+
+{% elif per_page == 4 %}
+  {# 2×2 grid – works for both portrait and landscape #}
+  {% for i in range(0, schueler | length, 4) %}
+  <table style="width:100%; border-collapse:collapse">
+    {% for row_start in [i, i + 2] %}
+    <tr>
+      {% for col_offset in [0, 1] %}
+      {% set idx = row_start + col_offset %}
+      <td style="width:50%;
+                 {% if col_offset == 0 %}padding-right:4px;{% else %}padding-left:4px;{% endif %}
+                 {% if row_start > i %}padding-top:8px;{% endif %}
+                 vertical-align:top">
+        {% if idx < schueler | length %}{{ zettel(schueler[idx]) }}{% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% if i + 4 < schueler | length %}<div class="pg-break"></div>{% endif %}
+  {% endfor %}
+
+{% endif %}
+
+</body>
+</html>

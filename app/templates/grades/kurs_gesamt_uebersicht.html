@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Kurs-Gesamtübersicht{% endblock %}
+{% block extra_head %}
+<style>
+  .hj-group th, .hj-group td { border-right: 2px solid #6c757d !important; }
+  .hj-header { background-color: #1f4e79; color: #fff; text-align: center; }
+  .hj-sub { background-color: #dee2e6; font-size:.8rem; text-align: center; }
+  .note-cell { font-weight: 700; text-align: center; }
+  .note-good  { background-color: #d4edda; }
+  .note-ok    { background-color: #fff3cd; }
+  .note-fail  { background-color: #f8d7da; }
+  .note-proj  { color: #0d6efd; font-style: italic; }
+  td.ausgeschieden { opacity: .6; }
+  .sticky-col { position: sticky; left: 0; background: #fff; z-index: 1; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-table me-2"></i>Kurs-Gesamtübersicht</h4>
+  <div class="d-flex gap-2">
+    {% for hj in hj_order %}
+    <a href="{{ url_for('grades.kurs_uebersicht', hj=hj) }}"
+       class="btn btn-sm btn-outline-secondary">{{ hj }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% macro note_td(val, cls_extra='') %}
+  {% if val is not none %}
+    {% set bg = 'note-good' if val >= 10 else ('note-ok' if val >= 5 else 'note-fail') %}
+    <td class="note-cell {{ bg }} {{ cls_extra }}">{{ val }}</td>
+  {% else %}
+    <td class="text-center text-muted {{ cls_extra }}">–</td>
+  {% endif %}
+{% endmacro %}
+
+{% macro render_table(rows, show_abgang=false) %}
+{% if rows %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm table-bordered align-middle" style="white-space:nowrap">
+    <thead>
+      <tr>
+        <th class="sticky-col" rowspan="2">Schüler</th>
+        {% for hj in hj_order %}
+        {% set slots = hj_slots_map[hj] %}
+        <th class="hj-header hj-group" colspan="{{ slots|length + 4 }}">{{ hj }}</th>
+        {% endfor %}
+        <th class="hj-header" rowspan="2">ABT</th>
+        <th class="hj-header" rowspan="2">Ø Gesamt</th>
+        {% if show_abgang %}
+        <th class="hj-header" rowspan="2">Abgang</th>
+        {% endif %}
+      </tr>
+      <tr>
+        {% for hj in hj_order %}
+        {% set slots = hj_slots_map[hj] %}
+        {% for slot in slots %}
+        <th class="hj-sub">{{ slot }}</th>
+        {% endfor %}
+        <th class="hj-sub">Ø GLN</th>
+        <th class="hj-sub">Mdl 1</th>
+        <th class="hj-sub">Mdl 2</th>
+        <th class="hj-sub hj-group">Note</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td class="sticky-col">{{ row.name }}</td>
+        {% for hj in hj_order %}
+        {% set hd = row.hj[hj] %}
+        {% set slots = hj_slots_map[hj] %}
+        {% for slot in slots %}
+          {{ note_td(hd.gln_notes.get(slot)) }}
+        {% endfor %}
+        {{ note_td(hd.gln_mean) }}
+        <!-- MDL 1 -->
+        {% if hd.mdl1 is not none %}
+          <td class="text-center">{{ hd.mdl1 }}</td>
+        {% else %}
+          <td class="text-center text-muted">–</td>
+        {% endif %}
+        <!-- MDL 2 -->
+        {% if hd.mdl2 is not none %}
+          <td class="text-center">{{ hd.mdl2 }}</td>
+        {% else %}
+          <td class="text-center text-muted">–</td>
+        {% endif %}
+        <!-- HJ Note (actual or proposed) -->
+        {% if hd.tatsaechlich is not none %}
+          {{ note_td(hd.tatsaechlich, 'hj-group') }}
+        {% elif hd.vorschlag is not none %}
+          <td class="text-center note-proj hj-group" title="Vorschlag (noch nicht festgelegt)">{{ hd.vorschlag }}?</td>
+        {% else %}
+          <td class="text-center text-muted hj-group">–</td>
+        {% endif %}
+        {% endfor %}
+        <!-- ABT -->
+        {{ note_td(row.abt_note) }}
+        <!-- Gesamtschnitt -->
+        {% if row.gesamtschnitt is not none %}
+          {% set gs = row.gesamtschnitt %}
+          {% set bg = 'note-good' if gs >= 10 else ('note-ok' if gs >= 5 else 'note-fail') %}
+          <td class="note-cell {{ bg }}">{{ gs }}</td>
+        {% else %}
+          <td class="text-center text-muted">–</td>
+        {% endif %}
+        {% if show_abgang %}
+        <td class="text-center text-muted small">{{ row.abgang_nach_hj or '–' }}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted">Keine Einträge.</p>
+{% endif %}
+{% endmacro %}
+
+<h5 class="mb-2">Aktive Schüler ({{ rows_aktiv|length }})</h5>
+{{ render_table(rows_aktiv) }}
+
+{% if rows_ausgeschieden %}
+<h5 class="mb-2 mt-4 text-muted">Ausgeschieden ({{ rows_ausgeschieden|length }})</h5>
+{{ render_table(rows_ausgeschieden, show_abgang=true) }}
+{% endif %}
+
+{% endblock %}

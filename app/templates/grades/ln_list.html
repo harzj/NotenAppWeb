@@ -128,10 +128,10 @@
   const rowSL = document.getElementById('rowSL');
   const rowGlnSlot = document.getElementById('rowGlnSlot');
   function toggleFields() {
-    const isGLN = typSel.value === 'GLN';
-    rowHJ.classList.toggle('d-none', !isGLN || isKurs);
-    rowGlnSlot.classList.toggle('d-none', !isGLN || !isKurs);
-    rowSL.classList.toggle('d-none', isGLN);
+    const typ = typSel.value;
+    rowHJ.classList.toggle('d-none', typ !== 'GLN' || isKurs);
+    rowGlnSlot.classList.toggle('d-none', typ !== 'GLN' || !isKurs);
+    rowSL.classList.toggle('d-none', typ !== 'KLN' || isKurs);
   }
   typSel.addEventListener('change', toggleFields);
   toggleFields();

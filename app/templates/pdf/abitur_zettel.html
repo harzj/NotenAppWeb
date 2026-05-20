@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<style>
+@page { size: A4 landscape; margin: 1cm; }
+body { font-family: Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0; }
+h2 { font-size: 13pt; margin: 0 0 4px 0; color: #1f4e79; }
+.meta { font-size: 8pt; color: #555; margin-bottom: 8px; }
+table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+th { background: #1f4e79; color: #fff; padding: 4px 6px; text-align: center; font-size: 8pt; }
+th.col-name { text-align: left; }
+td { border: 1px solid #ccc; padding: 3px 5px; font-size: 8pt; text-align: center; }
+td.col-name { text-align: left; white-space: nowrap; }
+tr:nth-child(even) { background: #f2f2f2; }
+.note-good  { background: #c6efce; font-weight: bold; }
+.note-ok    { background: #ffeb9c; }
+.note-fail  { background: #ffc7ce; }
+.footer { margin-top: 12px; font-size: 8pt; color: #555; }
+</style>
+</head>
+<body>
+<h2>Abiturprüfung – {{ ln_name }}{% if thema %}: {{ thema }}{% endif %}</h2>
+<div class="meta">
+  <strong>Klasse/Kurs:</strong> {{ klasse }}&nbsp;&nbsp;
+  <strong>Fach:</strong> {{ fach }}&nbsp;&nbsp;
+  {% if datum %}<strong>Datum:</strong> {{ datum }}&nbsp;&nbsp;{% endif %}
+  {% if lehrkraft %}<strong>Lehrkraft:</strong> {{ lehrkraft }}&nbsp;&nbsp;{% endif %}
+  <strong>Stand:</strong> {{ today }}
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th class="col-name" style="min-width:120px">Name</th>
+      {% for a in aufgaben %}
+      <th>{{ a.label }}<br><span style="font-weight:normal">({{ a.max_punkte | int if a.max_punkte == (a.max_punkte | int) else a.max_punkte }}P)</span></th>
+      {% endfor %}
+      <th>Gesamt</th>
+      <th>Note (15P)</th>
+      <th>Note (6P)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% set gesamtmax = aufgaben | sum(attribute='max_punkte') %}
+    {% for s in schueler %}
+    {% if not s.ignoriert %}
+    {% set total = namespace(v=0) %}
+    {% for p in s.punkte %}{% if p is not none %}{% set total.v = total.v + p %}{% endif %}{% endfor %}
+    {% set n6 = s.note_6 %}
+    <tr>
+      <td class="col-name">{{ s.name }}</td>
+      {% for t_idx in range(aufgaben | length) %}
+      <td>{{ s.punkte[t_idx] if t_idx < s.punkte | length and s.punkte[t_idx] is not none else '–' }}</td>
+      {% endfor %}
+      <td><strong>{{ (total.v | round(2) | int) if total.v == (total.v | int) else (total.v | round(2)) }} / {{ gesamtmax | int if gesamtmax == (gesamtmax | int) else gesamtmax }}</strong></td>
+      <td>{{ s.note_15 if s.note_15 is not none else '–' }}</td>
+      <td class="{{ 'note-good' if n6 is not none and n6 <= 2 else ('note-ok' if n6 is not none and n6 <= 3 else 'note-fail') }}">
+        <strong>{{ n6 if n6 is not none else '–' }}</strong>
+      </td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if avg6 is not none %}
+<div class="footer">
+  <strong>Klassenschnitt (6P):</strong> {{ avg6 }}
+</div>
+{% endif %}
+</body>
+</html>

@@ -157,3 +157,168 @@ def generate_ln_zettel_pdf(
         layout=layout,
     )
     return _pisa_render(html)
+
+
+def generate_abitur_pdf(
+    klasse: str,
+    fach: str,
+    lehrkraft: str,
+    ln_name: str,
+    thema: str,
+    datum: str,
+    aufgaben: list[dict],
+    schueler: list[dict],
+) -> bytes:
+    """
+    Generate a plain Abitur result table: Name | task cols | Gesamt | Note (15P) | Note (6P).
+    """
+    note6_vals: list[int] = [int(s["note_6"]) for s in schueler
+                              if not s.get("ignoriert") and s.get("note_6") is not None]
+    avg6 = round(sum(note6_vals) / len(note6_vals), 2) if note6_vals else None
+
+    html = render_template(
+        "pdf/abitur_zettel.html",
+        klasse=klasse,
+        fach=fach,
+        lehrkraft=lehrkraft,
+        ln_name=ln_name,
+        thema=thema,
+        datum=datum,
+        aufgaben=aufgaben,
+        schueler=schueler,
+        avg6=avg6,
+        today=date.today().strftime("%d.%m.%Y"),
+    )
+    return _pisa_render(html)
+
+
+# ── ABT per-student Zettel ────────────────────────────────────────────────────
+
+def _build_abt_sections(aufgaben_tree: list[dict]) -> list[dict]:
+    """
+    Build print sections from the aufgaben_tree.
+
+    If ALL root nodes are leaves (flat tree) → one combined section.
+    If any root has children → one section per root node.
+
+    Returns list of sections:
+        [{label, rows: [{label, max, idx, afb}], max}, ...]
+    """
+    if not aufgaben_tree:
+        return []
+
+    leaf_counter = [0]
+
+    def collect_leaves(nodes: list[dict], parent_label: str = "") -> list[dict]:
+        rows = []
+        for node in nodes:
+            node_label = node.get("label", "")
+            full_label = f"{parent_label}.{node_label}" if parent_label else node_label
+            children = node.get("children") or []
+            if children:
+                rows.extend(collect_leaves(children, full_label))
+            else:
+                rows.append({
+                    "label": full_label,
+                    "max":   float(node.get("max_punkte") or 0),
+                    "idx":   leaf_counter[0],
+                    "afb":   node.get("afb", ""),
+                })
+                leaf_counter[0] += 1
+        return rows
+
+    all_flat = all(not (node.get("children") or []) for node in aufgaben_tree)
+
+    sections = []
+    for root in aufgaben_tree:
+        children = root.get("children") or []
+        root_label = root.get("label", "")
+        if children:
+            rows = collect_leaves(children, root_label)
+        else:
+            rows = [{
+                "label": root.get("label", ""),
+                "max":   float(root.get("max_punkte") or 0),
+                "idx":   leaf_counter[0],
+                "afb":   root.get("afb", ""),
+            }]
+            leaf_counter[0] += 1
+        sections.append({
+            "label": root.get("label", ""),
+            "rows":  rows,
+            "max":   sum(r["max"] for r in rows),
+        })
+    return sections
+
+
+def generate_abt_zettel_pdf(
+    klasse: str,
+    fach: str,
+    lehrkraft: str,
+    ln_name: str,
+    thema: str,
+    datum: str,
+    aufgaben_tree: list[dict],
+    schueler: list[dict],
+    layout: int = 1,
+    orientation: str = "portrait",
+) -> bytes:
+    """
+    Generate ABT per-student feedback slips.
+
+    Each entry in `schueler` must contain:
+        kuerzel   – exam candidate code (shown instead of name)
+        punkte    – flat list of floats/None, parallel to leaves in aufgaben_tree
+        note_15   – int or None
+        note_6    – int or None  (unused in output, note_15 is the ABT grade)
+
+    layout:      1 / 2 / 4  slips per page
+    orientation: 'portrait' or 'landscape'
+    """
+    sections = _build_abt_sections(aufgaben_tree)
+    total_max = sum(s["max"] for s in sections)
+
+    # Pre-compute per-student section sums
+    for student in schueler:
+        punkte = student.get("punkte") or []
+        sec_data = []
+        for sec in sections:
+            sec_pts = []
+            sec_sum = 0.0
+            has_any = False
+            for row in sec["rows"]:
+                idx = row["idx"]
+                val = punkte[idx] if idx < len(punkte) else None
+                sec_pts.append(val)
+                if val is not None:
+                    sec_sum += val
+                    has_any = True
+            sec_data.append({
+                "pts":    sec_pts,
+                "sum":    sec_sum if has_any else None,
+                "has_any": has_any,
+            })
+        student["_sec_data"] = sec_data
+
+        # Total & percent
+        total = sum(sd["sum"] for sd in sec_data if sd["sum"] is not None)
+        has_total = any(sd["has_any"] for sd in sec_data)
+        student["_total"]   = total if has_total else None
+        student["_pct"]     = round(total / total_max * 100, 1) if (has_total and total_max > 0) else None
+
+    html = render_template(
+        "pdf/abt_zettel.html",
+        klasse=klasse,
+        fach=fach,
+        orientation=orientation,
+        lehrkraft=lehrkraft,
+        ln_name=ln_name,
+        thema=thema,
+        datum=datum,
+        sections=sections,
+        total_max=total_max,
+        schueler=schueler,
+        today=date.today().strftime("%d.%m.%Y"),
+        layout=layout,
+    )
+    return _pisa_render(html)

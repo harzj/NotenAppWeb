@@ -97,7 +97,7 @@ _LEGACY_FILE_KEY   = "_legacy_bytes"
 _LEGACY_PW_KEY     = "_legacy_pw"
 _LEGACY_PROBE_KEY  = "_legacy_probe"
 _SL_CHOICES        = ["SL1", "SL2", "SL3", "SL4"]
-_HJ_CHOICES        = ["HJ1", "HJ2"]
+_HJ_CHOICES        = ["HJ1", "HJ2", "HJ3", "HJ4"]
 
 
 def _admin_required():
@@ -141,6 +141,36 @@ def legacy_wizard():
     if request.method == "POST":
         file_bytes = session.get(_LEGACY_FILE_KEY)
         password   = session.get(_LEGACY_PW_KEY)
+
+        # ── Oberstufen-Kurs import (auto-assigned slots, no KLN/SL) ──────────
+        if probe.get("is_oberstufe"):
+            gln_sheets_selected = [
+                gname for gname in probe.get("gln_sheets", [])
+                if request.form.get(f"gln_{gname}")
+            ]
+            selections = {
+                "is_oberstufe":       True,
+                "klasse":             request.form.get("klasse", "").strip(),
+                "fach":               request.form.get("fach", "").strip(),
+                "schuljahr":          request.form.get("schuljahr", "").strip(),
+                "schuljahr_bis":      request.form.get("schuljahr_bis", "").strip(),
+                "gln_sheets_selected": gln_sheets_selected,
+                "gln_auto_slots":     probe.get("gln_auto_slots", {}),
+            }
+            try:
+                data = import_legacy_file(file_bytes, password, selections)
+            except Exception as e:
+                flash(f"Import fehlgeschlagen: {e}", "danger")
+                return render_template("grades/legacy_wizard.html", probe=probe,
+                                       sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
+            _save_gradebook(data)
+            for k in (_LEGACY_FILE_KEY, _LEGACY_PW_KEY, _LEGACY_PROBE_KEY):
+                session.pop(k, None)
+            session.modified = True
+            n_lns = len(data["leistungsnachweise"])
+            n_s   = len(data["stammdaten"])
+            flash(f"Oberstufen-Import erfolgreich: {n_s} Schüler, {n_lns} Leistungsnachweise.", "success")
+            return redirect(url_for("grades.index"))
 
         # ── collect KLN selections ────────────────────────────────────────
         kln_imports = []
@@ -333,8 +363,11 @@ def close_file():
 @grades_bp.route("/new")
 @login_required
 def new_file():
+    modus = request.args.get("modus", "klasse")
+    if modus not in ("klasse", "kurs"):
+        modus = "klasse"
     empty = {
-        "modus": "klasse",
+        "modus": modus,
         "klasse": "",
         "fach": "",
         "schuljahr": schuljahr_from_date(),
@@ -344,8 +377,17 @@ def new_file():
         "uebersicht_hj2": None,
         "uebersicht_jahr": None,
     }
+    if modus == "kurs":
+        empty["kurs_typ"] = "GK"
+        empty["kurs_stunden"] = 4
+        empty["kurs_gewichtung"] = {"hj_gln_pct": 70.0, "hj_mdl_pct": 30.0}
+        empty["mdl_noten_kurs"] = {}
+        empty["hj_noten"] = {}
+        label = "Neuer Kurs (Oberstufe) erstellt."
+    else:
+        label = "Neue leere Datei erstellt."
     _save_gradebook(empty)
-    flash("Neue leere Datei erstellt.", "success")
+    flash(label, "success")
     return redirect(url_for("grades.index"))
 
 
@@ -633,7 +675,11 @@ def ln_neu():
         ln_typ = form.ln_typ.data          # 'GLN' or 'KLN'
         modus = data.get("modus", "klasse")
 
-        if modus == "kurs" and ln_typ == "GLN":
+        if ln_typ == "ABT":
+            gln_slot = None
+            hj = None
+            sl_zuordnung = None
+        elif modus == "kurs" and ln_typ == "GLN":
             gln_slot = form.gln_slot.data
             hj = berechnung.gln_slot_to_hj(gln_slot)
             sl_zuordnung = None
@@ -651,8 +697,8 @@ def ln_neu():
         schueler = []
         for s in data["stammdaten"]:
             if s.get("status") == S.SD_STATUS_AKTIV:
-                # In Kurs mode, only add student if active in that HJ
-                if modus == "kurs" and hj:
+                # In Kurs mode with GLN, only add student if active in that HJ
+                if ln_typ == "GLN" and modus == "kurs" and hj:
                     if not berechnung.student_active_in_hj(s, hj):
                         continue
                 schueler.append({
@@ -670,7 +716,7 @@ def ln_neu():
             "gln_slot": gln_slot,
             "sl_zuordnung": sl_zuordnung,
             "nachtermin_von": None,
-            "noten_runden": True,
+            "noten_runden": False if ln_typ == "ABT" else True,
             "thema": form.thema.data.strip() if form.thema.data else "",
             "datum": form.datum.data.strip() if form.datum.data else "",
             "aufgaben": [],
@@ -696,12 +742,22 @@ def ln_detail(ln_idx):
         _save_gradebook(data)
     nt_sheet = _nt_sheet_name(ln["sheet_name"])
     _, nt_ln = _find_ln_by_sheet(data, nt_sheet)
+    # For ABT LNs, compute per-student HJ-Schnitt
+    abt_hj_schnitt = {}
+    if ln.get("ln_typ") == S.LN_TYP_ABT:
+        hj_noten = data.get("hj_noten", {})
+        for s in ln.get("schueler", []):
+            sname = s["name"]
+            schnitt = berechnung.compute_abt_hj_schnitt(sname, hj_noten)
+            if schnitt is not None:
+                abt_hj_schnitt[sname] = round(schnitt, 2)
     return render_template("grades/ln_detail.html", ln=ln, ln_idx=ln_idx,
                            nachtermin_ln=nt_ln,
                            afb_values=S.AFB_VALUES,
                            grade_scale=S.GRADE_SCALE,
                            note15_to6=S.NOTE_15_TO_6,
-                           rot_schwelle=_rot_schwelle(data.get("klasse")))
+                           rot_schwelle=_rot_schwelle(data.get("klasse")),
+                           abt_hj_schnitt=abt_hj_schnitt)
 
 
 @grades_bp.route("/ln/<int:ln_idx>/aufgaben", methods=["POST"])
@@ -771,13 +827,19 @@ def ln_noten_speichern(ln_idx):
             if s["name"] == name:
                 raw = incoming.get("punkte", [])
                 s["punkte"] = [float(p) if p not in (None, "") else None for p in raw]
-                s["ignoriert"] = bool(incoming.get("ignoriert", False))
                 # Recalculate grades server-side
                 total = sum(p for p in s["punkte"] if p is not None)
                 max_total = sum(a.get("max_punkte", 0) for a in ln["aufgaben"])
                 has_any = any(p is not None for p in s["punkte"])
                 s["note_15"] = S.percent_to_note15(total, max_total, runden=runden) if has_any else None
                 s["note_6"] = S.note15_to_note6(s["note_15"]) if s["note_15"] is not None else None
+                if ln.get("ln_typ") == S.LN_TYP_ABT:
+                    # ABT: save Kürzel and Grenzfall-Bestätigung; never ignoriert
+                    s["kuerzel"] = str(incoming.get("kuerzel") or "").strip()
+                    s["ignoriert"] = False
+                    s["abt_grenzfall_bestaetigt"] = bool(incoming.get("abt_grenzfall_bestaetigt", False))
+                else:
+                    s["ignoriert"] = bool(incoming.get("ignoriert", False))
                 break
 
     _save_gradebook(data)
@@ -1669,6 +1731,10 @@ def export_excel():
             return render_template("grades/export.html", form=form)
         klasse = data.get("klasse", "Klasse") or "Klasse"
         schuljahr = data.get("schuljahr", "") or schuljahr_from_date()
+        # For Kurs mode with a time span, combine e.g. "2425"+"2526" → "2426"
+        schuljahr_bis = data.get("schuljahr_bis", "")
+        if data.get("modus") == "kurs" and schuljahr_bis and len(schuljahr) == 4 and len(schuljahr_bis) == 4:
+            schuljahr = schuljahr[:2] + schuljahr_bis[2:]
         filename = f"Noten_{klasse}_{schuljahr}.xlsx"
         return send_file(
             io.BytesIO(file_bytes),
@@ -1697,6 +1763,7 @@ def einstellungen():
         klasse=data.get("klasse", ""),
         fach=data.get("fach", ""),
         schuljahr=data.get("schuljahr", schuljahr_from_date()),
+        schuljahr_bis=data.get("schuljahr_bis", ""),
         kurs_typ=kurs_typ,
         kurs_stunden=stunden_display,
         sl_mdl_pct=gw["sl_mdl_pct"],
@@ -1713,6 +1780,8 @@ def einstellungen():
         data["fach"] = form.fach.data.strip()
         sj = form.schuljahr.data.strip()
         data["schuljahr"] = sj if sj else schuljahr_from_date()
+        sj_bis = form.schuljahr_bis.data.strip() if form.schuljahr_bis.data else ""
+        data["schuljahr_bis"] = sj_bis if sj_bis else ""
 
         new_kurs_typ = form.kurs_typ.data
         new_stunden = int(form.kurs_stunden.data)
@@ -1772,6 +1841,9 @@ def ln_zettel_drucken(ln_idx):
     layout = request.form.get("layout", 1, type=int)
     if layout not in (1, 2, 4):
         layout = 1
+    orientation = request.form.get("orientation", "portrait")
+    if orientation not in ("portrait", "landscape"):
+        orientation = "portrait"
 
     selected = request.form.getlist("student")
     # Filter to students actually in this LN (security: ignore unknown names)
@@ -1791,7 +1863,64 @@ def ln_zettel_drucken(ln_idx):
         lehrkraft_parts.append(current_user.username)
     lehrkraft = " ".join(lehrkraft_parts)
 
-    # Build student data for selected students (preserve LN order)
+    # Format datum for display
+    datum_raw = ln.get("datum") or ""
+    if datum_raw:
+        parts = datum_raw.split("-")
+        if len(parts) == 3:
+            datum_display = f"{parts[2]}.{parts[1]}.{parts[0]}"
+        else:
+            datum_display = datum_raw
+    else:
+        datum_display = ""
+
+    klasse_safe = "".join(c for c in data.get("klasse", "Klasse") if c.isalnum() or c in "-_")
+    ln_safe = "".join(c for c in ln.get("name", "LN") if c.isalnum() or c in "-_")
+
+    if ln.get("ln_typ") == S.LN_TYP_ABT:
+        # ABT: generate per-student ABT slips
+        from app.pdf.generator import generate_abt_zettel_pdf
+        # Ensure aufgaben_tree exists
+        if "aufgaben_tree" not in ln:
+            ln["aufgaben_tree"] = flat_to_tree(ln.get("aufgaben", []))
+            _save_gradebook(data)
+        schueler_data = []
+        for s in ln.get("schueler", []):
+            if s["name"] not in selected:
+                continue
+            schueler_data.append({
+                "name":     s["name"],
+                "kuerzel":  s.get("kuerzel", ""),
+                "punkte":   s.get("punkte", []),
+                "note_15":  s.get("note_15"),
+                "note_6":   s.get("note_6"),
+                "ignoriert": False,
+            })
+        try:
+            pdf_bytes = generate_abt_zettel_pdf(
+                klasse=data.get("klasse", ""),
+                fach=data.get("fach", ""),
+                lehrkraft=lehrkraft,
+                ln_name=ln.get("name", ""),
+                thema=ln.get("thema", ""),
+                datum=datum_display,
+                aufgaben_tree=ln["aufgaben_tree"],
+                schueler=schueler_data,
+                layout=layout,
+                orientation=orientation,
+            )
+        except RuntimeError as exc:
+            flash(str(exc), "danger")
+            return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
+        filename = f"ABT-Zettel_{ln_safe}_{klasse_safe}.pdf"
+        return send_file(
+            io.BytesIO(pdf_bytes),
+            mimetype="application/pdf",
+            as_attachment=False,
+            download_name=filename,
+        )
+
+    # Non-ABT: standard LN feedback slips
     schueler_data = []
     for s in ln.get("schueler", []):
         if s["name"] not in selected:
@@ -1803,17 +1932,6 @@ def ln_zettel_drucken(ln_idx):
             "note_6": s.get("note_6"),
             "ignoriert": bool(s.get("ignoriert", False)),
         })
-
-    # Format datum for display
-    datum_raw = ln.get("datum") or ""
-    if datum_raw:
-        parts = datum_raw.split("-")
-        if len(parts) == 3:
-            datum_display = f"{parts[2]}.{parts[1]}.{parts[0]}"
-        else:
-            datum_display = datum_raw
-    else:
-        datum_display = ""
 
     try:
         pdf_bytes = generate_ln_zettel_pdf(
@@ -1831,8 +1949,6 @@ def ln_zettel_drucken(ln_idx):
         flash(str(exc), "danger")
         return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
 
-    klasse_safe = "".join(c for c in data.get("klasse", "Klasse") if c.isalnum() or c in "-_")
-    ln_safe = "".join(c for c in ln.get("name", "LN") if c.isalnum() or c in "-_")
     filename = f"LN-Notenzettel_{ln_safe}_{klasse_safe}.pdf"
     return send_file(
         io.BytesIO(pdf_bytes),
@@ -1840,6 +1956,9 @@ def ln_zettel_drucken(ln_idx):
         as_attachment=False,
         download_name=filename,
     )
+
+
+# ln_abitur_drucken removed – ABT slips now handled by ln_zettel_drucken
 
 
 # ── Statistik API (JSON für Chart.js) ────────────────────────────────────────
@@ -2011,3 +2130,100 @@ def hj_kurs_speichern():
 
     _save_gradebook(data)
     return {"ok": True}
+
+
+# ── Kurs-Gesamtübersicht (alle HJ) ───────────────────────────────────────────
+
+@grades_bp.route("/kurs/uebersicht/gesamt")
+@login_required
+def kurs_gesamt_uebersicht():
+    data = _require_gradebook()
+    if data.get("modus") != "kurs":
+        flash("Diese Seite ist nur im Kurs-Modus verfügbar.", "warning")
+        return redirect(url_for("grades.index"))
+
+    kurs_typ = data.get("kurs_typ", "GK")
+    kurs_stunden = int(data.get("kurs_stunden", 4))
+    valid_slots = berechnung.valid_gln_slots(kurs_typ, kurs_stunden)
+    lns = data.get("leistungsnachweise", [])
+    kgw = berechnung.get_kurs_gewichtung(data)
+    mdl_noten_kurs = data.get("mdl_noten_kurs", {})
+    hj_noten = data.get("hj_noten", {})
+
+    # Slots per HJ
+    hj_slots_map = {
+        hj: [sl for sl in valid_slots if berechnung.gln_slot_to_hj(sl) == hj]
+        for hj in berechnung.HJ_ORDER
+    }
+
+    # ABT LNs (there may be one or none)
+    abt_lns = [ln for ln in lns if ln.get("ln_typ") == S.LN_TYP_ABT and not ln.get("nachtermin_von")]
+
+    # All students (including ausgeschieden)
+    all_students = data.get("stammdaten", [])
+    aktiv = [s for s in all_students if s.get("status") == S.SD_STATUS_AKTIV]
+    ausgeschieden = [s for s in all_students if s.get("status") != S.SD_STATUS_AKTIV]
+
+    def _build_row(s):
+        name = f"{s['nachname']}, {s['vorname']}"
+        hj_data = {}
+        for hj in berechnung.HJ_ORDER:
+            slots = hj_slots_map[hj]
+            gln_notes = {}
+            for slot in slots:
+                for ln in lns:
+                    if ln.get("gln_slot") == slot:
+                        for sc in ln.get("schueler", []):
+                            if sc["name"] == name and not sc.get("ignoriert"):
+                                gln_notes[slot] = sc.get("note_15")
+            gln_vals = [v for v in gln_notes.values() if v is not None]
+            gln_mean = round(sum(gln_vals) / len(gln_vals), 1) if gln_vals else None
+            kn = mdl_noten_kurs.get(name, {})
+            mdl1 = kn.get(f"{hj}_mdl1")
+            mdl2 = kn.get(f"{hj}_mdl2")
+            vorschlag = berechnung.round_note15(
+                berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
+            )
+            tatsaechlich = hj_noten.get(name, {}).get(hj)
+            hj_data[hj] = {
+                "gln_notes": gln_notes,
+                "gln_mean": gln_mean,
+                "mdl1": mdl1,
+                "mdl2": mdl2,
+                "vorschlag": vorschlag,
+                "tatsaechlich": tatsaechlich,
+            }
+        # ABT note (first ABT LN that has this student)
+        abt_note = None
+        for abt_ln in abt_lns:
+            for sc in abt_ln.get("schueler", []):
+                if sc["name"] == name and not sc.get("ignoriert"):
+                    abt_note = sc.get("note_15")
+                    break
+            if abt_note is not None:
+                break
+        # Gesamtschnitt: mean of actual HJ notes
+        actual_vals = [hj_data[hj]["tatsaechlich"] for hj in berechnung.HJ_ORDER
+                       if hj_data[hj]["tatsaechlich"] is not None]
+        gesamtschnitt = round(sum(actual_vals) / len(actual_vals), 2) if actual_vals else None
+        return {
+            "name": name,
+            "status": s.get("status", S.SD_STATUS_AKTIV),
+            "abgang_nach_hj": s.get("abgang_nach_hj"),
+            "hj": hj_data,
+            "abt_note": abt_note,
+            "gesamtschnitt": gesamtschnitt,
+        }
+
+    rows_aktiv = [_build_row(s) for s in aktiv]
+    rows_ausgeschieden = [_build_row(s) for s in ausgeschieden]
+
+    return render_template(
+        "grades/kurs_gesamt_uebersicht.html",
+        rows_aktiv=rows_aktiv,
+        rows_ausgeschieden=rows_ausgeschieden,
+        hj_order=berechnung.HJ_ORDER,
+        hj_slots_map=hj_slots_map,
+        valid_slots=valid_slots,
+        data=data,
+    )
