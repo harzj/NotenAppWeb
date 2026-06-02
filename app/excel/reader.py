@@ -168,12 +168,27 @@ def _read_stammdaten(wb: Workbook) -> list[dict]:
     for row in ws.iter_rows(min_row=S.SD_DATA_START_ROW, values_only=True):
         if not any(row):
             continue
+        # Read optional vorherige Noten (previous school notes for mid-year enrollment)
+        def _intn_sd(col):
+            v = _num(row, col - 1)
+            return int(v) if v is not None else None
+
+        prev_noten = {}
+        for hj, col in [("HJ1", S.SD_COL_AUFNAHME_PREV_HJ1),
+                         ("HJ2", S.SD_COL_AUFNAHME_PREV_HJ2),
+                         ("HJ3", S.SD_COL_AUFNAHME_PREV_HJ3)]:
+            v = _intn_sd(col)
+            if v is not None:
+                prev_noten[hj] = v
+
         students.append({
             "nachname": _str(row, S.SD_COL_NACHNAME - 1),
             "vorname":  _str(row, S.SD_COL_VORNAME  - 1),
             "status":   _str(row, S.SD_COL_STATUS   - 1) or S.SD_STATUS_AKTIV,
             "austritt": _date_str(row, S.SD_COL_AUSTRITT - 1),
             "abgang_nach_hj": _str(row, S.SD_COL_ABGANG_HJ - 1) or None,
+            "aufnahme_ab_hj": _str(row, S.SD_COL_AUFNAHME_HJ - 1) or None,
+            "aufnahme_vorherige_noten": prev_noten,
         })
     return students
 

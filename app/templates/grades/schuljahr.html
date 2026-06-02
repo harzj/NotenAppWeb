@@ -13,6 +13,10 @@
   .sj-actual-input { width: 52px; text-align: center; -moz-appearance: textfield; }
   .sj-actual-input::-webkit-outer-spin-button,
   .sj-actual-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .aufnahme-cell { background-color: #e9ecef !important; color: #6c757d; }
+  .vorherige-note-input { width: 52px; text-align: center; -moz-appearance: textfield; }
+  .vorherige-note-input::-webkit-outer-spin-button,
+  .vorherige-note-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 </style>
 {% endblock %}
 {% block content %}
@@ -75,19 +79,39 @@
         {% endif %}
       {% else %}–{% endif %}
     {% endmacro %}
-    <tr data-name="{{ row.name }}">
-      <td>{{ row.name }}</td>
-      <td class="text-center">{{ sl_cell(row.sl1, row.sl1_actual) }}</td>
-      <td class="text-center">{{ sl_cell(row.sl2, row.sl2_actual) }}</td>
+    <tr data-name="{{ row.name }}" data-aufnahme="{{ row.aufnahme_ab_hj or '' }}">
+      <td>
+        {{ row.name }}
+        {% if row.is_aufnahme_hj2 %}
+          <span class="badge bg-info text-dark ms-1" title="Aufnahme zum Halbjahr 2">ab HJ2</span>
+        {% endif %}
+      </td>
+      <td class="text-center {{ 'aufnahme-cell' if row.is_aufnahme_hj2 else '' }}">
+        {% if row.is_aufnahme_hj2 %}–{% else %}{{ sl_cell(row.sl1, row.sl1_actual) }}{% endif %}
+      </td>
+      <td class="text-center {{ 'aufnahme-cell' if row.is_aufnahme_hj2 else '' }}">
+        {% if row.is_aufnahme_hj2 %}–{% else %}{{ sl_cell(row.sl2, row.sl2_actual) }}{% endif %}
+      </td>
       {% for c in row.gln_hj1_cols %}
-      <td class="text-center">
-        {% if c.note_15 is not none %}
+      <td class="text-center {{ 'aufnahme-cell' if row.is_aufnahme_hj2 else '' }}">
+        {% if row.is_aufnahme_hj2 %}–
+        {% elif c.note_15 is not none %}
           <span class="{{ 'text-muted text-decoration-line-through' if c.ignoriert else ('text-danger' if c.note_15 < rot_schwelle else '') }}">{{ c.note_15 }}</span>
         {% endif %}
       </td>
       {% endfor %}
-      <td class="text-center">
-        {% if row.hj1 is not none %}
+      <td class="text-center {{ 'aufnahme-cell' if row.is_aufnahme_hj2 else '' }}">
+        {% if row.is_aufnahme_hj2 %}
+          <div class="d-flex flex-column align-items-center gap-1">
+            <span class="badge bg-info text-dark small">Aufnahme</span>
+            <input type="number" class="form-control form-control-sm vorherige-note-input"
+                   min="0" max="15" step="1"
+                   placeholder="Vorh."
+                   title="Vorherige HJ1-Note (andere Schule)"
+                   data-hj="HJ1"
+                   value="{{ row.vorherige_hj1 if row.vorherige_hj1 is not none else '' }}">
+          </div>
+        {% elif row.hj1 is not none %}
           {{ note_cell(row.hj1) }}
         {% else %}
           <span class="text-muted small fst-italic">
@@ -156,6 +180,24 @@ document.getElementById('btnSave')?.addEventListener('click', async () => {
   document.body.appendChild(d);
   new bootstrap.Toast(d, { delay: 3000 }).show();
   d.addEventListener('hidden.bs.toast', () => d.remove());
+});
+
+// Save vorherige HJ note for aufnahme students on blur
+document.querySelectorAll('#sjTable .vorherige-note-input').forEach(inp => {
+  inp.addEventListener('change', async () => {
+    const row = inp.closest('tr');
+    const name = row.dataset.name;
+    const hj = inp.dataset.hj;
+    const val = inp.value !== '' ? parseInt(inp.value, 10) : null;
+    const resp = await fetch('/api/aufnahme-vorherige-note-speichern', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                  'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+      body: JSON.stringify({ name, hj, note: val })
+    });
+    const data = await resp.json();
+    if (!data.ok) alert('Fehler beim Speichern: ' + (data.error || '?'));
+  });
 });
 </script>
 {% endblock %}

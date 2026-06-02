@@ -83,7 +83,8 @@ def _write_stammdaten(wb: Workbook, students: list[dict], klasse: str = "", fach
     sj_val = ws.cell(S.SD_INFO_ROW, S.SD_SJ_VALUE_COL, schuljahr)
     sj_val.font = Font(bold=True, size=12, color="1F4E79")
     # Row 2: headers
-    headers = ["Nachname", "Vorname", "Status", "Austrittsdatum", "Abgang_nach_HJ"]
+    headers = ["Nachname", "Vorname", "Status", "Austrittsdatum", "Abgang_nach_HJ",
+               "Aufnahme_ab_HJ", "Aufnahme_Vorh_HJ1", "Aufnahme_Vorh_HJ2", "Aufnahme_Vorh_HJ3"]
     _write_header_row(ws, S.SD_HEADER_ROW, headers)
     for i, s in enumerate(students, start=S.SD_DATA_START_ROW):
         ws.cell(i, S.SD_COL_NACHNAME, s.get("nachname", ""))
@@ -91,6 +92,11 @@ def _write_stammdaten(wb: Workbook, students: list[dict], klasse: str = "", fach
         ws.cell(i, S.SD_COL_STATUS,   s.get("status",   S.SD_STATUS_AKTIV))
         ws.cell(i, S.SD_COL_AUSTRITT, s.get("austritt", ""))
         ws.cell(i, S.SD_COL_ABGANG_HJ, s.get("abgang_nach_hj", ""))
+        ws.cell(i, S.SD_COL_AUFNAHME_HJ, s.get("aufnahme_ab_hj") or "")
+        prev = s.get("aufnahme_vorherige_noten") or {}
+        ws.cell(i, S.SD_COL_AUFNAHME_PREV_HJ1, prev.get("HJ1") if prev.get("HJ1") is not None else "")
+        ws.cell(i, S.SD_COL_AUFNAHME_PREV_HJ2, prev.get("HJ2") if prev.get("HJ2") is not None else "")
+        ws.cell(i, S.SD_COL_AUFNAHME_PREV_HJ3, prev.get("HJ3") if prev.get("HJ3") is not None else "")
     _autofit(ws)
 
 

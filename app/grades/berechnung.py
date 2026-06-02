@@ -237,6 +237,31 @@ def compute_schuljahr_note(student_name: str, hj_noten: dict) -> float | None:
     return (1.0 / 3) * float(hj1) + (2.0 / 3) * float(hj2)
 
 
+def compute_schuljahr_note_klasse(
+    student_name: str,
+    hj_noten: dict,
+    aufnahme_ab_hj: str | None,
+    vorherige_noten: dict | None,
+) -> float | None:
+    """Schuljahrnote for Klasse mode, respecting mid-year enrollment.
+
+    If the student was enrolled mid-year (aufnahme_ab_hj == 'HJ2'):
+    - No previous note: SJ = HJ2 directly
+    - Previous HJ1 note provided: SJ = 1/3 * vorherige_hj1 + 2/3 * HJ2 (normal weighting)
+
+    Otherwise falls back to the standard 1/3 HJ1 + 2/3 HJ2 formula.
+    """
+    if aufnahme_ab_hj == "HJ2":
+        hj2 = hj_noten.get(student_name, {}).get("HJ2")
+        if hj2 is None:
+            return None
+        vorherige_hj1 = (vorherige_noten or {}).get("HJ1")
+        if vorherige_hj1 is not None:
+            return (1.0 / 3) * float(vorherige_hj1) + (2.0 / 3) * float(hj2)
+        return float(hj2)
+    return compute_schuljahr_note(student_name, hj_noten)
+
+
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def round_note15(x: float | None) -> int | None:
@@ -323,6 +348,12 @@ def compute_hj_vorschlag_kurs(
 
 
 def student_active_in_hj(student: dict, target_hj: str) -> bool:
+    # Check mid-year enrollment: student is only active from aufnahme_ab_hj onwards
+    aufnahme = student.get("aufnahme_ab_hj")
+    if aufnahme and aufnahme in HJ_ORDER and target_hj in HJ_ORDER:
+        if HJ_ORDER.index(target_hj) < HJ_ORDER.index(aufnahme):
+            return False
+    # Check mid-year unenrollment: student is only active up to abgang_nach_hj
     if student.get("status") == "Ausgeschieden":
         abgang = student.get("abgang_nach_hj")
         if abgang is None:

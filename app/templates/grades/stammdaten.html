@@ -22,7 +22,7 @@
   <thead>
     <tr>
       <th>#</th><th>Nachname</th><th>Vorname</th>
-      <th>Status</th><th>Abgang nach</th><th>Aktionen</th>
+      <th>Status</th><th>Abgang nach</th><th>Aufnahme ab</th><th>Aktionen</th>
     </tr>
   </thead>
   <tbody>
@@ -39,12 +39,32 @@
         {% endif %}
       </td>
       <td class="small text-muted">{{ s.abgang_nach_hj or '–' }}</td>
+      <td class="small">
+        {% if s.aufnahme_ab_hj %}
+          <span class="badge bg-info text-dark">{{ s.aufnahme_ab_hj }}</span>
+        {% else %}
+          <span class="text-muted">–</span>
+        {% endif %}
+      </td>
       <td>
         {% if s.status == 'Aktiv' %}
         <button class="btn btn-sm btn-warning" data-bs-toggle="modal"
                 data-bs-target="#austrittModal" data-idx="{{ i }}">
           <i class="bi bi-person-dash"></i>
         </button>
+        <button class="btn btn-sm btn-info" data-bs-toggle="modal"
+                data-bs-target="#aufnahmeModal" data-idx="{{ i }}" title="Aufnahme zum Halbjahr">
+          <i class="bi bi-person-plus"></i>
+        </button>
+        {% if s.aufnahme_ab_hj %}
+        <form method="post" action="{{ url_for('grades.student_aufnahme_entfernen', idx=i) }}" class="d-inline"
+              onsubmit="return confirm('Aufnahme-Markierung wirklich entfernen?')">
+          {{ csrf_field() }}
+          <button class="btn btn-sm btn-outline-info" title="Aufnahme entfernen">
+            <i class="bi bi-x-circle"></i>
+          </button>
+        </form>
+        {% endif %}
         {% else %}
         <form method="post" action="{{ url_for('grades.student_reaktivieren', idx=i) }}" class="d-inline">
           {{ csrf_field() }}
@@ -61,7 +81,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="6" class="text-center text-muted">Noch keine Schüler eingetragen.</td></tr>
+    <tr><td colspan="7" class="text-center text-muted">Noch keine Schüler eingetragen.</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -202,12 +222,54 @@
   </div>
 </div>
 
+<!-- Aufnahme Modal -->
+<div class="modal fade" id="aufnahmeModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Aufnahme zum Halbjahr</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('grades.student_aufnahme') }}" novalidate>
+        {{ csrf_field() }}
+        <div class="modal-body">
+          <input type="hidden" name="student_index" id="aufnahmeIdx">
+          <div class="mb-3">
+            <label class="form-label">Aufnahme ab Halbjahr</label>
+            <select name="aufnahme_ab_hj" class="form-select">
+              <option value="HJ2" selected>ab Halbjahr 2</option>
+              {% if modus == 'kurs' %}
+              <option value="HJ3">ab Halbjahr 3 (Kurs)</option>
+              <option value="HJ4">ab Halbjahr 4 (Kurs)</option>
+              {% endif %}
+            </select>
+          </div>
+          <div class="alert alert-info small mb-0">
+            <i class="bi bi-info-circle me-1"></i>
+            Der Schüler erscheint ab dem gewählten Halbjahr in den Übersichten.
+            Noten aus vorherigen Halbjahren können in den Jahresübersichten eingetragen werden.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-info">Aufnahme bestätigen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 {% block extra_scripts %}
 <script>
 document.getElementById('austrittModal').addEventListener('show.bs.modal', function(e) {
   const btn = e.relatedTarget;
   document.getElementById('austrittIdx').value = btn.getAttribute('data-idx');
+});
+
+document.getElementById('aufnahmeModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  document.getElementById('aufnahmeIdx').value = btn.getAttribute('data-idx');
 });
 
 // ── Paste-Import ──────────────────────────────────────────────────────────────

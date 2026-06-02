@@ -12,7 +12,7 @@ from app.excel import schema as S
 from app.excel.legacy_reader import probe_legacy_file, import_legacy_file
 from app.excel.notendatei_reader import read_notendatei, is_notendatei
 from app.grades.forms import (
-    UploadForm, StammdatenForm, AustrittForm, NewLNForm, MoodleImportForm,
+    UploadForm, StammdatenForm, AustrittForm, AufnahmeForm, NewLNForm, MoodleImportForm,
     NotendateiImportForm, ExportForm, KlassenEinstellungenForm, GLN_SLOT_CHOICES,
 )
 from app.grades import moodle as moodle_parser
@@ -781,6 +781,11 @@ def _import_students_from_wb(wb) -> tuple[list[dict], str | None]:
     )
 
 
+def _sort_stammdaten(data: dict) -> None:
+    """Sort students alphabetically by Nachname then Vorname (case-insensitive)."""
+    data["stammdaten"].sort(key=lambda s: (s.get("nachname", "").lower(), s.get("vorname", "").lower()))
+
+
 def _sync_active_students_into_lns(data: dict) -> int:
     """Ensure all active students exist in matching LN rosters.
 
@@ -802,7 +807,7 @@ def _sync_active_students_into_lns(data: dict) -> int:
         existing = {s.get("name", "").strip() for s in roster}
 
         for s in active_students:
-            if ln_type == "GLN" and modus == "kurs" and hj:
+            if ln_type == "GLN" and hj:
                 if not berechnung.student_active_in_hj(s, hj):
                     continue
 
@@ -862,6 +867,7 @@ def stammdaten_import_excel():
             existing_names.add(key)
             added += 1
 
+    _sort_stammdaten(data)
     ln_rows_added = _sync_active_students_into_lns(data)
     _save_gradebook(data)
     msg = f"{added} Schüler importiert ({len(students) - added} bereits vorhanden)."
@@ -906,6 +912,7 @@ def stammdaten_import_paste():
         else:
             skipped += 1
 
+    _sort_stammdaten(data)
     _sync_active_students_into_lns(data)
     _save_gradebook(data)
     return {"ok": True, "added": added, "skipped": skipped}
@@ -917,6 +924,7 @@ def stammdaten():
     data = _require_gradebook()
     add_form = StammdatenForm()
     austritt_form = AustrittForm()
+    aufnahme_form = AufnahmeForm()
 
     if add_form.validate_on_submit() and "add_student" in request.form:
         data["stammdaten"].append({
@@ -925,6 +933,7 @@ def stammdaten():
             "status":   S.SD_STATUS_AKTIV,
             "austritt": "",
         })
+        _sort_stammdaten(data)
         _sync_active_students_into_lns(data)
         _save_gradebook(data)
         flash("Schüler hinzugefügt.", "success")
@@ -935,6 +944,8 @@ def stammdaten():
         students=data["stammdaten"],
         add_form=add_form,
         austritt_form=austritt_form,
+        aufnahme_form=aufnahme_form,
+        modus=data.get("modus", "klasse"),
     )
 
 
@@ -949,6 +960,33 @@ def student_austritt():
         data["stammdaten"][idx]["abgang_nach_hj"] = abgang_hj
         _save_gradebook(data)
         flash("Schüler als ausgeschieden markiert.", "success")
+    return redirect(url_for("grades.stammdaten"))
+
+
+@grades_bp.route("/stammdaten/aufnahme", methods=["POST"])
+@login_required
+def student_aufnahme():
+    data = _require_gradebook()
+    idx = request.form.get("student_index", type=int)
+    aufnahme_hj = request.form.get("aufnahme_ab_hj", "HJ2")
+    if aufnahme_hj not in berechnung.HJ_ORDER[1:]:  # HJ2, HJ3, HJ4 only
+        aufnahme_hj = "HJ2"
+    if idx is not None and 0 <= idx < len(data["stammdaten"]):
+        data["stammdaten"][idx]["aufnahme_ab_hj"] = aufnahme_hj
+        _save_gradebook(data)
+        flash("Schüler als zum Halbjahr aufgenommen markiert.", "success")
+    return redirect(url_for("grades.stammdaten"))
+
+
+@grades_bp.route("/stammdaten/aufnahme-entfernen/<int:idx>", methods=["POST"])
+@login_required
+def student_aufnahme_entfernen(idx):
+    data = _require_gradebook()
+    if 0 <= idx < len(data["stammdaten"]):
+        data["stammdaten"][idx].pop("aufnahme_ab_hj", None)
+        data["stammdaten"][idx].pop("aufnahme_vorherige_noten", None)
+        _save_gradebook(data)
+        flash("Aufnahme-Markierung entfernt.", "success")
     return redirect(url_for("grades.stammdaten"))
 
 
@@ -974,6 +1012,37 @@ def student_loeschen(idx):
         _save_gradebook(data)
         flash("Schüler gelöscht.", "success")
     return redirect(url_for("grades.stammdaten"))
+
+
+@grades_bp.route("/api/aufnahme-vorherige-note-speichern", methods=["POST"])
+@login_required
+def aufnahme_vorherige_note_speichern():
+    """Save (or clear) a previous-school HJ note for a mid-year enrolled student."""
+    data = _require_gradebook()
+    payload = request.get_json(force=True, silent=True)
+    if not payload:
+        return {"ok": False, "error": "Invalid payload"}, 400
+    student_name = payload.get("name")
+    hj = payload.get("hj")
+    note = payload.get("note")
+    if not student_name or not hj:
+        return {"ok": False, "error": "name and hj required"}, 400
+    if hj not in berechnung.HJ_ORDER:
+        return {"ok": False, "error": "Invalid HJ"}, 400
+    for s in data["stammdaten"]:
+        name = f"{s['nachname']}, {s['vorname']}"
+        if name == student_name:
+            prev = s.setdefault("aufnahme_vorherige_noten", {})
+            if note is None:
+                prev.pop(hj, None)
+            else:
+                try:
+                    prev[hj] = max(0, min(15, int(note)))
+                except (ValueError, TypeError):
+                    return {"ok": False, "error": "Invalid note value"}, 400
+            _save_gradebook(data)
+            return {"ok": True}
+    return {"ok": False, "error": "Student not found"}, 404
 
 
 # ── Leistungsnachweise ────────────────────────────────────────────────────────
@@ -1033,8 +1102,8 @@ def ln_neu():
         schueler = []
         for s in data["stammdaten"]:
             if s.get("status") == S.SD_STATUS_AKTIV:
-                # In Kurs mode with GLN, only add student if active in that HJ
-                if ln_typ == "GLN" and modus == "kurs" and hj:
+                # For GLNs, only add student if active in that HJ (respects both aufnahme and abgang)
+                if ln_typ == "GLN" and hj:
                     if not berechnung.student_active_in_hj(s, hj):
                         continue
                 schueler.append({
@@ -1721,7 +1790,9 @@ def uebersicht(hj):
     # For HJ2: propose HJ1 Verhaltensnote as default
     verhalten_hj1 = verhalten_noten if hj_key == "HJ2" else {}
 
-    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    students = [s for s in data.get("stammdaten", [])
+                if s.get("status") == S.SD_STATUS_AKTIV
+                and berechnung.student_active_in_hj(s, hj_key)]
     rows = []
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
@@ -1961,6 +2032,9 @@ def schuljahr_uebersicht():
     rows = []
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
+        aufnahme_ab_hj = s.get("aufnahme_ab_hj")
+        vorherige_noten = s.get("aufnahme_vorherige_noten") or {}
+        is_aufnahme_hj2 = aufnahme_ab_hj == "HJ2"
 
         gln_hj1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj1_list]
         sl1, sl1_actual = _sl_display(name, "SL1")
@@ -1972,11 +2046,16 @@ def schuljahr_uebersicht():
         sl4, sl4_actual = _sl_display(name, "SL4")
         hj2 = hj_noten.get(name, {}).get("HJ2")
 
-        sj_vorschlag = berechnung.round_note15(berechnung.compute_schuljahr_note(name, hj_noten))
+        sj_vorschlag = berechnung.round_note15(
+            berechnung.compute_schuljahr_note_klasse(
+                name, hj_noten, aufnahme_ab_hj, vorherige_noten))
         sj_actual = sj_noten_actual.get(name)
 
         rows.append({
             "name": name,
+            "aufnahme_ab_hj": aufnahme_ab_hj,
+            "is_aufnahme_hj2": is_aufnahme_hj2,
+            "vorherige_hj1": vorherige_noten.get("HJ1"),
             "gln_hj1_cols": gln_hj1_cols,
             "sl1": sl1, "sl1_actual": sl1_actual,
             "sl2": sl2, "sl2_actual": sl2_actual,
@@ -2545,25 +2624,40 @@ def kurs_gesamt_uebersicht():
 
     def _build_row(s):
         name = f"{s['nachname']}, {s['vorname']}"
+        aufnahme_ab_hj = s.get("aufnahme_ab_hj")
+        vorherige_noten = s.get("aufnahme_vorherige_noten") or {}
         hj_data = {}
         for hj in berechnung.HJ_ORDER:
-            slots = hj_slots_map[hj]
-            gln_notes = {}
-            for slot in slots:
-                for ln in lns:
-                    if ln.get("gln_slot") == slot:
-                        for sc in ln.get("schueler", []):
-                            if sc["name"] == name and not sc.get("ignoriert"):
-                                gln_notes[slot] = sc.get("note_15")
-            gln_vals = [v for v in gln_notes.values() if v is not None]
-            gln_mean = round(sum(gln_vals) / len(gln_vals), 1) if gln_vals else None
-            kn = mdl_noten_kurs.get(name, {})
-            mdl1 = kn.get(f"{hj}_mdl1")
-            mdl2 = kn.get(f"{hj}_mdl2")
-            vorschlag = berechnung.round_note15(
-                berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
+            is_before_aufnahme = (
+                aufnahme_ab_hj is not None
+                and aufnahme_ab_hj in berechnung.HJ_ORDER
+                and berechnung.HJ_ORDER.index(hj) < berechnung.HJ_ORDER.index(aufnahme_ab_hj)
             )
-            tatsaechlich = hj_noten.get(name, {}).get(hj)
+            slots = hj_slots_map[hj]
+            if is_before_aufnahme:
+                gln_notes = {}
+                gln_mean = None
+                mdl1 = None
+                mdl2 = None
+                vorschlag = None
+                tatsaechlich = None
+            else:
+                gln_notes = {}
+                for slot in slots:
+                    for ln in lns:
+                        if ln.get("gln_slot") == slot:
+                            for sc in ln.get("schueler", []):
+                                if sc["name"] == name and not sc.get("ignoriert"):
+                                    gln_notes[slot] = sc.get("note_15")
+                gln_vals = [v for v in gln_notes.values() if v is not None]
+                gln_mean = round(sum(gln_vals) / len(gln_vals), 1) if gln_vals else None
+                kn = mdl_noten_kurs.get(name, {})
+                mdl1 = kn.get(f"{hj}_mdl1")
+                mdl2 = kn.get(f"{hj}_mdl2")
+                vorschlag = berechnung.round_note15(
+                    berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
+                )
+                tatsaechlich = hj_noten.get(name, {}).get(hj)
             hj_data[hj] = {
                 "gln_notes": gln_notes,
                 "gln_mean": gln_mean,
@@ -2571,6 +2665,8 @@ def kurs_gesamt_uebersicht():
                 "mdl2": mdl2,
                 "vorschlag": vorschlag,
                 "tatsaechlich": tatsaechlich,
+                "is_before_aufnahme": is_before_aufnahme,
+                "vorherige_note": vorherige_noten.get(hj) if is_before_aufnahme else None,
             }
         # ABT note (first ABT LN that has this student)
         abt_note = None
@@ -2581,14 +2677,20 @@ def kurs_gesamt_uebersicht():
                     break
             if abt_note is not None:
                 break
-        # Gesamtschnitt: mean of actual HJ notes
-        actual_vals = [hj_data[hj]["tatsaechlich"] for hj in berechnung.HJ_ORDER
-                       if hj_data[hj]["tatsaechlich"] is not None]
+        # Gesamtschnitt: mean of actual HJ notes + vorherige notes for pre-aufnahme HJs
+        actual_vals = []
+        for hj in berechnung.HJ_ORDER:
+            hd = hj_data[hj]
+            if hd["is_before_aufnahme"] and hd["vorherige_note"] is not None:
+                actual_vals.append(hd["vorherige_note"])
+            elif not hd["is_before_aufnahme"] and hd["tatsaechlich"] is not None:
+                actual_vals.append(hd["tatsaechlich"])
         gesamtschnitt = round(sum(actual_vals) / len(actual_vals), 2) if actual_vals else None
         return {
             "name": name,
             "status": s.get("status", S.SD_STATUS_AKTIV),
             "abgang_nach_hj": s.get("abgang_nach_hj"),
+            "aufnahme_ab_hj": aufnahme_ab_hj,
             "hj": hj_data,
             "abt_note": abt_note,
             "gesamtschnitt": gesamtschnitt,

@@ -34,6 +34,16 @@ class AustrittForm(FlaskForm):
     submit = SubmitField("Ausscheiden bestätigen")
 
 
+class AufnahmeForm(FlaskForm):
+    """Mark student as enrolled mid-year."""
+    student_index = HiddenField(validators=[DataRequired()])
+    aufnahme_ab_hj = SelectField("Aufnahme ab Halbjahr", choices=[
+        ("HJ2", "ab Halbjahr 2"),
+        ("HJ3", "ab Halbjahr 3 (Kurs)"),
+        ("HJ4", "ab Halbjahr 4 (Kurs)")], default="HJ2")
+    submit = SubmitField("Aufnahme bestätigen")
+
+
 LN_TYP_CHOICES = [
     ("GLN", "GLN – Großer Leistungsnachweis"),
     ("KLN", "KLN – Kleiner Leistungsnachweis"),

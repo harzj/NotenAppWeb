@@ -12,6 +12,10 @@
   .note-proj  { color: #0d6efd; font-style: italic; }
   td.ausgeschieden { opacity: .6; }
   .sticky-col { position: sticky; left: 0; background: #fff; z-index: 1; }
+  .aufnahme-prev-cell { background-color: #e9ecef !important; color: #6c757d; }
+  .vorherige-note-input { width: 52px; text-align: center; -moz-appearance: textfield; }
+  .vorherige-note-input::-webkit-outer-spin-button,
+  .vorherige-note-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 </style>
 {% endblock %}
 {% block content %}
@@ -66,34 +70,60 @@
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr>
-        <td class="sticky-col">{{ row.name }}</td>
+      <tr data-name="{{ row.name }}">
+        <td class="sticky-col">
+          {{ row.name }}
+          {% if row.aufnahme_ab_hj %}
+            <span class="badge bg-info text-dark ms-1" title="Aufnahme ab {{ row.aufnahme_ab_hj }}">ab {{ row.aufnahme_ab_hj }}</span>
+          {% endif %}
+        </td>
         {% for hj in hj_order %}
         {% set hd = row.hj[hj] %}
         {% set slots = hj_slots_map[hj] %}
-        {% for slot in slots %}
-          {{ note_td(hd.gln_notes.get(slot)) }}
-        {% endfor %}
-        {{ note_td(hd.gln_mean) }}
-        <!-- MDL 1 -->
-        {% if hd.mdl1 is not none %}
-          <td class="text-center">{{ hd.mdl1 }}</td>
+        {% if hd.is_before_aufnahme %}
+          {# Pre-aufnahme HJ: show placeholder cells + editable vorherige note #}
+          {% for slot in slots %}
+            <td class="text-center text-muted aufnahme-prev-cell">–</td>
+          {% endfor %}
+          <td class="text-center text-muted aufnahme-prev-cell">–</td>
+          <td class="text-center text-muted aufnahme-prev-cell">–</td>
+          <td class="text-center text-muted aufnahme-prev-cell">–</td>
+          <td class="text-center hj-group aufnahme-prev-cell">
+            <div class="d-flex flex-column align-items-center gap-1">
+              <span class="badge bg-info text-dark small">and. Schule</span>
+              <input type="number" class="form-control form-control-sm vorherige-note-input"
+                     min="0" max="15" step="1"
+                     placeholder="Note"
+                     title="Vorherige Note {{ hj }} (andere Schule)"
+                     data-hj="{{ hj }}"
+                     value="{{ hd.vorherige_note if hd.vorherige_note is not none else '' }}">
+            </div>
+          </td>
         {% else %}
-          <td class="text-center text-muted">–</td>
-        {% endif %}
-        <!-- MDL 2 -->
-        {% if hd.mdl2 is not none %}
-          <td class="text-center">{{ hd.mdl2 }}</td>
-        {% else %}
-          <td class="text-center text-muted">–</td>
-        {% endif %}
-        <!-- HJ Note (actual or proposed) -->
-        {% if hd.tatsaechlich is not none %}
-          {{ note_td(hd.tatsaechlich, 'hj-group') }}
-        {% elif hd.vorschlag is not none %}
-          <td class="text-center note-proj hj-group" title="Vorschlag (noch nicht festgelegt)">{{ hd.vorschlag }}?</td>
-        {% else %}
-          <td class="text-center text-muted hj-group">–</td>
+          {% for slot in slots %}
+            {{ note_td(hd.gln_notes.get(slot)) }}
+          {% endfor %}
+          {{ note_td(hd.gln_mean) }}
+          <!-- MDL 1 -->
+          {% if hd.mdl1 is not none %}
+            <td class="text-center">{{ hd.mdl1 }}</td>
+          {% else %}
+            <td class="text-center text-muted">–</td>
+          {% endif %}
+          <!-- MDL 2 -->
+          {% if hd.mdl2 is not none %}
+            <td class="text-center">{{ hd.mdl2 }}</td>
+          {% else %}
+            <td class="text-center text-muted">–</td>
+          {% endif %}
+          <!-- HJ Note (actual or proposed) -->
+          {% if hd.tatsaechlich is not none %}
+            {{ note_td(hd.tatsaechlich, 'hj-group') }}
+          {% elif hd.vorschlag is not none %}
+            <td class="text-center note-proj hj-group" title="Vorschlag (noch nicht festgelegt)">{{ hd.vorschlag }}?</td>
+          {% else %}
+            <td class="text-center text-muted hj-group">–</td>
+          {% endif %}
         {% endif %}
         {% endfor %}
         <!-- ABT -->
@@ -127,4 +157,25 @@
 {{ render_table(rows_ausgeschieden, show_abgang=true) }}
 {% endif %}
 
+{% endblock %}
+{% block extra_scripts %}
+<script>
+// Save vorherige HJ notes for aufnahme students on change
+document.querySelectorAll('.vorherige-note-input').forEach(inp => {
+  inp.addEventListener('change', async () => {
+    const row = inp.closest('tr');
+    const name = row.dataset.name;
+    const hj = inp.dataset.hj;
+    const val = inp.value !== '' ? parseInt(inp.value, 10) : null;
+    const resp = await fetch('/api/aufnahme-vorherige-note-speichern', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                  'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+      body: JSON.stringify({ name, hj, note: val })
+    });
+    const data = await resp.json();
+    if (!data.ok) alert('Fehler beim Speichern: ' + (data.error || '?'));
+  });
+});
+</script>
 {% endblock %}

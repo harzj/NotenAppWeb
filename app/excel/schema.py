@@ -40,6 +40,10 @@ SD_COL_VORNAME  = 2
 SD_COL_STATUS   = 3      # "Aktiv" | "Ausgeschieden"
 SD_COL_AUSTRITT = 4      # Date of leaving, may be empty
 SD_COL_ABGANG_HJ = 5     # Abgang nach Halbjahr (Kurs mode), e.g. "HJ2"
+SD_COL_AUFNAHME_HJ = 6          # Aufnahme ab Halbjahr (mid-year enrollment), e.g. "HJ2"
+SD_COL_AUFNAHME_PREV_HJ1 = 7    # Vorherige Note HJ1 (0-15) from previous school
+SD_COL_AUFNAHME_PREV_HJ2 = 8    # Vorherige Note HJ2 (0-15) from previous school
+SD_COL_AUFNAHME_PREV_HJ3 = 9    # Vorherige Note HJ3 (0-15) from previous school
 
 SD_STATUS_AKTIV = "Aktiv"
 SD_STATUS_AUSGESCHIEDEN = "Ausgeschieden"
