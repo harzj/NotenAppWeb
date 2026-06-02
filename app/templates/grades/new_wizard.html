@@ -1,0 +1,464 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}Neue {{ 'Klasse' if modus == 'klasse' else 'Kurs' }} erstellen – Notenprogramm{% endblock %}
+
+{% block extra_head %}
+<style>
+  .wizard-card { margin-bottom: 1.5rem; }
+  .step-badge {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: bold; font-size: 0.85rem; flex-shrink: 0;
+  }
+  .import-section {
+    background-color: #f8f9fa; border-radius: 0.375rem; padding: 1rem;
+  }
+  .abgang-item { border-bottom: 1px solid #dee2e6; padding: 0.35rem 0; }
+  .abgang-item:last-child { border-bottom: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <h4 class="mb-0">
+    <i class="bi bi-{{ 'people' if modus == 'klasse' else 'mortarboard' }} me-2 text-success"></i>
+    Neue {{ 'Klasse' if modus == 'klasse' else 'Kurs (Oberstufe)' }} erstellen
+  </h4>
+  <a href="{{ url_for('grades.index') }}" class="btn btn-sm btn-outline-secondary ms-auto">
+    <i class="bi bi-x-lg me-1"></i>Abbrechen
+  </a>
+</div>
+
+<form id="wizardForm" method="POST" action="{{ url_for('grades.new_wizard') }}" novalidate>
+  {{ csrf_field() }}
+  <input type="hidden" name="modus" value="{{ modus }}">
+  <input type="hidden" name="sd_imported" id="sd_imported_flag" value="0">
+  <input type="hidden" name="ln_imported" id="ln_imported_flag" value="0">
+
+  {# ────────────────────────────────────────────────────────────────── #}
+  {# Card 1: Schüler Import                                             #}
+  {# ────────────────────────────────────────────────────────────────── #}
+  <div class="card wizard-card shadow-sm">
+    <div class="card-header d-flex align-items-center gap-2">
+      <span class="step-badge bg-primary text-white">1</span>
+      <span class="fw-semibold">Schüler aus Datei importieren</span>
+      <span class="badge bg-secondary ms-1">optional</span>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Wähle eine beliebige Notendatei aus. Es werden ausschließlich die Schülerdaten
+        übernommen – keine Noten, keine Aufgaben. Ausgeschiedene Schüler (Abgänger)
+        können optional einzeln ausgewählt werden.
+      </p>
+
+      <div class="import-section">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold" for="sdFile">Excel-Datei</label>
+            <input type="file" id="sdFile" accept=".xlsx,.xls" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold" for="sdPassword">Passwort</label>
+            <input type="password" id="sdPassword" class="form-control form-control-sm"
+                   placeholder="(falls vorhanden)" autocomplete="off">
+          </div>
+          <div class="col-md-2">
+            <button type="button" id="sdAnalyzeBtn" class="btn btn-primary btn-sm w-100">
+              <i class="bi bi-search me-1"></i>Analysieren
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="sdSpinner" class="d-none text-center py-2 mt-2">
+        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+        <span class="ms-2 small">Datei wird gelesen…</span>
+      </div>
+
+      <div id="sdError" class="alert alert-danger d-none py-2 mt-2 mb-0"></div>
+
+      <div id="sdResults" class="d-none mt-3">
+        <div id="sdSummary"></div>
+        <div id="abgaengerCheckboxes"></div>
+        <button type="button" id="sdClearBtn" class="btn btn-sm btn-outline-secondary mt-2">
+          <i class="bi bi-x-circle me-1"></i>Import löschen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# ────────────────────────────────────────────────────────────────── #}
+  {# Card 2: LN Import                                                   #}
+  {# ────────────────────────────────────────────────────────────────── #}
+  <div class="card wizard-card shadow-sm">
+    <div class="card-header d-flex align-items-center gap-2">
+      <span class="step-badge bg-info text-white">2</span>
+      <span class="fw-semibold">Leistungsnachweise aus Datei importieren</span>
+      <span class="badge bg-secondary ms-1">optional</span>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Importiert die Aufgabenstruktur (Aufgaben &amp; Maximalpunkte),
+        <strong>aber keine Schülerpunkte</strong>. KLN werden nicht importiert.
+        {% if modus == 'kurs' %}Abiturprüfungen (ABT) werden übernommen.{% endif %}
+        Die Klassenangaben (Karte 3) werden automatisch vorausgefüllt.
+      </p>
+
+      <div class="import-section">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold" for="lnFile">Excel-Datei</label>
+            <input type="file" id="lnFile" accept=".xlsx,.xls" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold" for="lnPassword">Passwort</label>
+            <input type="password" id="lnPassword" class="form-control form-control-sm"
+                   placeholder="(falls vorhanden)" autocomplete="off">
+          </div>
+          <div class="col-md-2">
+            <button type="button" id="lnAnalyzeBtn" class="btn btn-info btn-sm w-100 text-white">
+              <i class="bi bi-search me-1"></i>Analysieren
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="lnSpinner" class="d-none text-center py-2 mt-2">
+        <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+        <span class="ms-2 small">Datei wird gelesen…</span>
+      </div>
+
+      <div id="lnError" class="alert alert-danger d-none py-2 mt-2 mb-0"></div>
+
+      <div id="lnResults" class="d-none mt-3">
+        <div id="lnMismatchAlert" class="alert alert-warning d-none py-2 mb-2">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>
+          <span id="lnMismatchText"></span>
+        </div>
+        <div id="lnSummary"></div>
+        <button type="button" id="lnClearBtn" class="btn btn-sm btn-outline-secondary mt-2">
+          <i class="bi bi-x-circle me-1"></i>Import löschen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# ────────────────────────────────────────────────────────────────── #}
+  {# Card 3: Class Settings (required)                                   #}
+  {# ────────────────────────────────────────────────────────────────── #}
+  <div class="card wizard-card shadow-sm border-success">
+    <div class="card-header bg-success text-white d-flex align-items-center gap-2">
+      <span class="step-badge bg-white text-success">3</span>
+      <span class="fw-semibold">Klasse &amp; Schuljahr</span>
+      <span class="badge bg-light text-dark ms-1">erforderlich</span>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+
+        <div class="col-md-4">
+          <label class="form-label fw-semibold" for="klasse">
+            {% if modus == 'kurs' %}Kursbezeichnung{% else %}Klassenbezeichnung{% endif %}
+          </label>
+          <input type="text" name="klasse" id="klasse" class="form-control"
+                 placeholder="{{ 'z.B. Q12 Inf' if modus == 'kurs' else 'z.B. 7p' }}">
+        </div>
+
+        <div class="col-md-4">
+          <label class="form-label fw-semibold" for="fach">Fach</label>
+          <input type="text" name="fach" id="fach" class="form-control"
+                 placeholder="z.B. Informatik">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label fw-semibold" for="schuljahr">Start-Schuljahr</label>
+          <input type="text" name="schuljahr" id="schuljahr" class="form-control"
+                 value="{{ schuljahr }}" maxlength="4" placeholder="z.B. 25 oder 2025">
+          <div class="form-text" id="wizard-schuljahr-hinweis">
+            {% if modus == 'kurs' %}Wird automatisch zu 25/27 erweitert.{% else %}Wird automatisch zu 25/26 erweitert.{% endif %}
+          </div>
+        </div>
+
+        {% if modus == 'kurs' %}
+        <div class="col-md-3">
+          <label class="form-label fw-semibold" for="kurs_typ">Kurstyp</label>
+          <select name="kurs_typ" id="kurs_typ" class="form-select">
+            <option value="GK">GK – Grundkurs</option>
+            <option value="LK">LK – Leistungskurs</option>
+          </select>
+        </div>
+
+        <div class="col-md-3" id="wizard-kurs-stunden-row">
+          <label class="form-label fw-semibold" for="kurs_stunden">Wochenstunden</label>
+          <select name="kurs_stunden" id="kurs_stunden" class="form-select">
+            <option value="2">2 Stunden</option>
+            <option value="3">3 Stunden</option>
+            <option value="4" selected>4 Stunden</option>
+          </select>
+          <div class="form-text">Bei LK werden automatisch 5 Wochenstunden gesetzt.</div>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mb-4">
+    <button type="submit" class="btn btn-success btn-lg">
+      <i class="bi bi-check-lg me-1"></i>Datei erstellen
+    </button>
+    <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary btn-lg">Abbrechen</a>
+  </div>
+
+</form>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  'use strict';
+
+  const CSRF  = document.querySelector('meta[name="csrf-token"]').content;
+  const MODUS = {{ modus | tojson }};
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function show(id) { document.getElementById(id).classList.remove('d-none'); }
+  function hide(id) { document.getElementById(id).classList.add('d-none'); }
+  function setText(id, txt) { document.getElementById(id).textContent = txt; }
+  function setHtml(id, html) { document.getElementById(id).innerHTML = html; }
+  function applyWizardKursTyp() {
+    const ktEl = document.getElementById('kurs_typ');
+    const row = document.getElementById('wizard-kurs-stunden-row');
+    if (!ktEl || !row) return;
+    row.style.display = ktEl.value === 'LK' ? 'none' : 'block';
+  }
+
+  async function probeFile(url, fileEl, passwordEl, spinnerId, errorId, onSuccess) {
+    const file = fileEl.files[0];
+    if (!file) {
+      setText(errorId, 'Bitte zuerst eine Datei auswählen.');
+      show(errorId);
+      return;
+    }
+    hide(errorId);
+    show(spinnerId);
+
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('password', passwordEl.value);
+    fd.append('csrf_token', CSRF);
+
+    try {
+      const resp = await fetch(url, { method: 'POST', body: fd });
+      hide(spinnerId);
+      if (!resp.ok) {
+        setText(errorId, `Server-Fehler: ${resp.status}`);
+        show(errorId);
+        return;
+      }
+      const data = await resp.json();
+      if (!data.ok) {
+        setText(errorId, data.error || 'Unbekannter Fehler.');
+        show(errorId);
+        return;
+      }
+      onSuccess(data);
+    } catch (err) {
+      hide(spinnerId);
+      setText(errorId, 'Verbindungsfehler. Bitte erneut versuchen.');
+      show(errorId);
+    }
+  }
+
+  // ── Schüler Probe ─────────────────────────────────────────────────────────
+  document.getElementById('sdAnalyzeBtn').addEventListener('click', () => {
+    probeFile(
+      {{ url_for('grades.wizard_probe_schueler') | tojson }},
+      document.getElementById('sdFile'),
+      document.getElementById('sdPassword'),
+      'sdSpinner', 'sdError',
+      (data) => {
+        // Summary badge
+        let summaryHtml = '<div class="alert alert-success py-2 mb-2">' +
+          '<i class="bi bi-check-circle me-1"></i>' +
+          '<strong>' + data.aktive.length + '</strong> aktive Schüler gefunden';
+        if (data.abgaenger.length > 0) {
+          summaryHtml += ', <strong>' + data.abgaenger.length + '</strong> Abgänger (unten auswählbar)';
+        } else {
+          summaryHtml += ', keine Abgänger';
+        }
+        summaryHtml += '.</div>';
+        setHtml('sdSummary', summaryHtml);
+
+        // Abgänger checkboxes (injected into the main form)
+        const cbContainer = document.getElementById('abgaengerCheckboxes');
+        if (data.abgaenger.length > 0) {
+          let cbHtml =
+            '<div class="mb-1">' +
+              '<small class="fw-semibold">Abgänger</small> ' +
+              '<small class="text-muted">– standardmäßig nicht importiert; einzeln auswählen:</small>' +
+            '</div>' +
+            '<div class="border rounded p-2" style="max-height:220px;overflow-y:auto;">';
+          for (const s of data.abgaenger) {
+            const val    = s.nachname + ', ' + s.vorname;
+            const safeId = 'abg_' + val.replace(/[^a-zA-Z0-9]/g, '_');
+            const extra  = s.abgang_nach_hj
+              ? ' <span class="text-muted">– Abgang nach ' + s.abgang_nach_hj + '</span>'
+              : (s.austritt ? ' <span class="text-muted">– ' + s.austritt + '</span>' : '');
+            cbHtml +=
+              '<div class="abgang-item form-check">' +
+                '<input class="form-check-input" type="checkbox" ' +
+                       'name="abgaenger_include" ' +
+                       'value="' + val.replace(/"/g, '&quot;') + '" ' +
+                       'id="' + safeId + '">' +
+                '<label class="form-check-label small" for="' + safeId + '">' +
+                  s.nachname + ', ' + s.vorname + extra +
+                '</label>' +
+              '</div>';
+          }
+          cbHtml += '</div>';
+          cbContainer.innerHTML = cbHtml;
+        } else {
+          cbContainer.innerHTML = '';
+        }
+
+        document.getElementById('sd_imported_flag').value = '1';
+        show('sdResults');
+      }
+    );
+  });
+
+  document.getElementById('sdClearBtn').addEventListener('click', () => {
+    document.getElementById('sdFile').value        = '';
+    document.getElementById('sdPassword').value    = '';
+    document.getElementById('sd_imported_flag').value = '0';
+    setHtml('abgaengerCheckboxes', '');
+    hide('sdResults');
+    hide('sdError');
+  });
+
+  // ── LN Probe ──────────────────────────────────────────────────────────────
+  document.getElementById('lnAnalyzeBtn').addEventListener('click', () => {
+    const lnFile = document.getElementById('lnFile');
+    const lnPass = document.getElementById('lnPassword');
+
+    const file = lnFile.files[0];
+    if (!file) {
+      setText('lnError', 'Bitte zuerst eine Datei auswählen.');
+      show('lnError');
+      return;
+    }
+    hide('lnError');
+    hide('lnResults');
+    show('lnSpinner');
+
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('password', lnPass.value);
+    fd.append('csrf_token', CSRF);
+    fd.append('modus_target', MODUS);
+
+    fetch({{ url_for('grades.wizard_probe_ln') | tojson }}, { method: 'POST', body: fd })
+      .then(resp => {
+        hide('lnSpinner');
+        if (!resp.ok) {
+          setText('lnError', 'Server-Fehler: ' + resp.status);
+          show('lnError');
+          return null;
+        }
+        return resp.json();
+      })
+      .then(data => {
+        if (!data) return;
+        if (!data.ok) {
+          setText('lnError', data.error || 'Unbekannter Fehler.');
+          show('lnError');
+          document.getElementById('ln_imported_flag').value = '0';
+          return;
+        }
+
+        // Modus-Mismatch warning
+        if (data.mismatch) {
+          const srcLabel = data.modus_src === 'kurs' ? 'Kurs (Oberstufe)' : 'Klasse';
+          const tgtLabel = MODUS === 'kurs' ? 'Kurs (Oberstufe)' : 'Klasse';
+          setText('lnMismatchText',
+            'Die Quelldatei ist eine ' + srcLabel + '-Datei, du erstellst aber eine ' +
+            tgtLabel + '-Datei. Die LN können importiert werden, aber der Modus stimmt ' +
+            'möglicherweise nicht überein.'
+          );
+          show('lnMismatchAlert');
+        } else {
+          hide('lnMismatchAlert');
+        }
+
+        // LN table
+        if (data.lns.length === 0) {
+          setHtml('lnSummary',
+            '<p class="text-muted small mb-0">Keine importierbaren Leistungsnachweise gefunden (KLN werden nicht übernommen).</p>'
+          );
+        } else {
+          let html =
+            '<div class="small mb-2 text-success fw-semibold">' +
+              '<i class="bi bi-check-circle me-1"></i>' +
+              data.lns.length + ' Leistungsnachweis' + (data.lns.length !== 1 ? 'e' : '') + ' gefunden' +
+            '</div>' +
+            '<div style="max-height:200px;overflow-y:auto;">' +
+            '<table class="table table-sm table-bordered mb-0">' +
+              '<thead class="table-light">' +
+                '<tr><th>Name</th><th>Typ</th><th>HJ</th><th>Aufgaben</th><th>Max. P.</th></tr>' +
+              '</thead><tbody>';
+          for (const ln of data.lns) {
+            html +=
+              '<tr>' +
+                '<td>' + ln.name + '</td>' +
+                '<td><span class="badge bg-secondary">' + ln.ln_typ + '</span></td>' +
+                '<td>' + ln.hj + '</td>' +
+                '<td class="text-center">' + ln.n_aufgaben + '</td>' +
+                '<td class="text-center">' + ln.max_punkte + '</td>' +
+              '</tr>';
+          }
+          html += '</tbody></table></div>';
+          setHtml('lnSummary', html);
+        }
+
+        // Pre-fill card 3 from vorschlag
+        if (data.vorschlag) {
+          const v = data.vorschlag;
+          if (v.klasse)       document.getElementById('klasse').value     = v.klasse;
+          if (v.fach)         document.getElementById('fach').value       = v.fach;
+          if (v.schuljahr)    document.getElementById('schuljahr').value  = v.schuljahr;
+          const ktEl = document.getElementById('kurs_typ');
+          if (ktEl && v.kurs_typ) {
+            ktEl.value = v.kurs_typ;
+            applyWizardKursTyp();
+          }
+          const ksEl = document.getElementById('kurs_stunden');
+          if (ksEl && v.kurs_stunden) ksEl.value = String(v.kurs_stunden);
+        }
+
+        document.getElementById('ln_imported_flag').value = '1';
+        show('lnResults');
+      })
+      .catch(() => {
+        hide('lnSpinner');
+        setText('lnError', 'Verbindungsfehler. Bitte erneut versuchen.');
+        show('lnError');
+      });
+  });
+
+  document.getElementById('lnClearBtn').addEventListener('click', () => {
+    document.getElementById('lnFile').value        = '';
+    document.getElementById('lnPassword').value    = '';
+    document.getElementById('ln_imported_flag').value = '0';
+    hide('lnResults');
+    hide('lnError');
+  });
+
+  const kursTypEl = document.getElementById('kurs_typ');
+  if (kursTypEl) {
+    kursTypEl.addEventListener('change', applyWizardKursTyp);
+    applyWizardKursTyp();
+  }
+
+}());
+</script>
+{% endblock %}

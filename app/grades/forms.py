@@ -1,7 +1,12 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
 from wtforms import StringField, PasswordField, SubmitField, SelectField, FloatField, HiddenField, RadioField
-from wtforms.validators import DataRequired, Optional, Length, Regexp, NumberRange
+from wtforms.validators import DataRequired, Optional, Length, NumberRange, ValidationError
+
+
+def _is_valid_schuljahr_start(raw: str) -> bool:
+    raw = (raw or "").strip()
+    return raw.isdigit() and len(raw) in (2, 4)
 
 
 class UploadForm(FlaskForm):
@@ -90,19 +95,10 @@ class KlassenEinstellungenForm(FlaskForm):
     klasse = StringField("Klassenbezeichner (z.B. 7p)", validators=[Optional(), Length(max=20)])
     fach = StringField("Fach (z.B. Informatik)", validators=[Optional(), Length(max=80)])
     schuljahr = StringField(
-        "Schuljahr Start (z.B. 2425)",
+        "Start-Schuljahr (z.B. 25 oder 2025)",
         validators=[
             Optional(),
-            Length(min=4, max=4, message="Schuljahr muss genau 4 Ziffern haben, z.B. 2425"),
-            Regexp(r"^\d{4}$", message="Schuljahr muss genau 4 Ziffern haben, z.B. 2425"),
-        ],
-    )
-    schuljahr_bis = StringField(
-        "Schuljahr Ende (z.B. 2526, nur für Kurs-Modus)",
-        validators=[
-            Optional(),
-            Length(min=4, max=4, message="Schuljahr-Ende muss genau 4 Ziffern haben, z.B. 2526"),
-            Regexp(r"^\d{4}$", message="Schuljahr-Ende muss genau 4 Ziffern haben, z.B. 2526"),
+            Length(min=2, max=4, message="Bitte 2 oder 4 Ziffern angeben, z.B. 25 oder 2025"),
         ],
     )
     kurs_typ = SelectField("Kurstyp", choices=[("LK", "Leistungskurs (LK)"), ("GK", "Grundkurs (GK)")], default="GK")
@@ -146,6 +142,10 @@ class KlassenEinstellungenForm(FlaskForm):
         default=30.0,
     )
     submit = SubmitField("Einstellungen speichern")
+
+    def validate_schuljahr(self, field):
+        if field.data and not _is_valid_schuljahr_start(field.data):
+            raise ValidationError("Bitte 2 oder 4 Ziffern angeben, z.B. 25 oder 2025.")
 
 
 LAYOUT_CHOICES = [("1", "1 pro Seite (A4 Hochformat)"), ("2", "2 pro Seite (A4 Querformat)"), ("4", "4 pro Seite (A4 Hochformat)")]

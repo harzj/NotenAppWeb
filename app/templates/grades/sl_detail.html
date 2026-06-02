@@ -85,22 +85,25 @@
     {% if kln_list %}
     <tr class="table-secondary" id="gewichtRow">
       <td class="text-muted small fst-italic">Gewichtung</td>
-      {% for ln in kln_list %}
+      {# 1 KLN: show its individual weight; 2+ KLN: empty cells (KLN mean used instead) #}
+      {% if kln_list | length == 1 %}
       <td class="text-center">
         <input type="number" class="form-control form-control-sm kln-weight-input text-center"
                min="0" step="0.1"
-               data-sheet="{{ ln.sheet_name }}"
-               value="{{ kln_weights[ln.sheet_name] | default(1) }}">
+               data-sheet="{{ kln_list[0].sheet_name }}"
+               value="{{ kln_weights[kln_list[0].sheet_name] | default(1) }}">
       </td>
-      {% endfor %}
-      {# KLN-Mittel weight vs MDL – only when >= 2 KLNs #}
+      {% else %}
+      {% for ln in kln_list %}<td></td>{% endfor %}
+      {% endif %}
+      {# KLN-Mittel weight – only when >= 2 KLNs #}
       {% if kln_list | length >= 2 %}
       <td class="text-center">
         <input type="number" class="form-control form-control-sm text-center" id="wKlnMittel"
                min="0" step="0.1" title="Gewicht KLN-Mittel in SL-Note"
                value="{{ gewichtung.sl_kln_pct | round(1) }}">
       </td>
-      {% else %}<td></td>{% endif %}
+      {% endif %}
       <td class="text-center">
         <input type="number" class="form-control form-control-sm text-center" id="wMdl"
                min="0" step="0.1" title="Gewicht Mündliche Note in SL-Note"

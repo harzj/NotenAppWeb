@@ -5,6 +5,18 @@ from app.config import config_by_name
 from app.extensions import db, login_manager, sess, csrf, limiter
 
 
+def _display_schuljahr(schuljahr: str | None, schuljahr_bis: str | None = None) -> str:
+    schuljahr = (schuljahr or "").strip()
+    schuljahr_bis = (schuljahr_bis or "").strip()
+
+    if len(schuljahr) == 4 and schuljahr.isdigit():
+        if len(schuljahr_bis) == 4 and schuljahr_bis.isdigit():
+            return f"{schuljahr[:2]}/{schuljahr_bis[2:]}"
+        return f"{schuljahr[:2]}/{schuljahr[2:]}"
+
+    return schuljahr
+
+
 def create_app(config_name: str | None = None) -> Flask:
     if config_name is None:
         config_name = os.environ.get("FLASK_ENV", "default")
@@ -39,6 +51,8 @@ def create_app(config_name: str | None = None) -> Flask:
 
     # Custom Jinja filters
     app.jinja_env.filters["enumerate"] = enumerate
+    app.jinja_env.filters["schuljahr_display"] = _display_schuljahr
+    app.jinja_env.globals["schuljahr_display"] = _display_schuljahr
 
     # Context processors
     @app.context_processor
@@ -64,6 +78,10 @@ def create_app(config_name: str | None = None) -> Flask:
             "current_modus": current_modus,
             "current_kurs_info": current_kurs_info,
             "abt_ln_idx": abt_ln_idx,
+            "current_schuljahr_display": _display_schuljahr(
+                gb.get("schuljahr", "") if gb else "",
+                gb.get("schuljahr_bis", "") if gb else "",
+            ),
         }
 
     # Create DB tables

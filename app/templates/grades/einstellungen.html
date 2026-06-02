@@ -53,19 +53,9 @@
         <div class="mb-0">
           {{ form.schuljahr.label(class="form-label") }}
           {{ form.schuljahr(class="form-control" + (" is-invalid" if form.schuljahr.errors else ""),
-                            placeholder="z.B. 2425", maxlength=4) }}
-          <div class="form-text">4 Ziffern, z.B. <strong>2425</strong> für 2024/25.</div>
+                            placeholder="z.B. 25 oder 2025", maxlength=4) }}
+          <div class="form-text" id="schuljahr-hinweis">Klasse: <strong>25</strong> oder <strong>2025</strong> wird zu <strong>25/26</strong>.</div>
           {% for e in form.schuljahr.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
-        </div>
-        <!-- Schuljahr Ende (nur Kurs-Modus) -->
-        <div class="mb-0 mt-3" id="row-schuljahr-bis">
-          {{ form.schuljahr_bis.label(class="form-label") }}
-          {{ form.schuljahr_bis(class="form-control" + (" is-invalid" if form.schuljahr_bis.errors else ""),
-                               placeholder="z.B. 2526", maxlength=4) }}
-          <div class="form-text">
-            Für Kurs-Zeitraum, z.B. <strong>2526</strong> für Abschluss 25/26. Export-Dateiname: <code>Noten_LK_2426.xlsx</code>
-          </div>
-          {% for e in form.schuljahr_bis.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
         </div>
       </div>
     </div>
@@ -138,9 +128,14 @@ function applyModus() {
   const isKurs = modus === 'kurs';
   document.getElementById('row-klasse').style.display            = isKurs ? 'none'  : 'block';
   document.getElementById('row-kurs-typ').style.display          = isKurs ? 'block' : 'none';
-  document.getElementById('row-schuljahr-bis').style.display     = isKurs ? 'block' : 'none';
   document.getElementById('section-klasse-berechnung').style.display = isKurs ? 'none'  : 'block';
   document.getElementById('section-kurs-berechnung').style.display   = isKurs ? 'block' : 'none';
+  const hinweis = document.getElementById('schuljahr-hinweis');
+  if (hinweis) {
+    hinweis.innerHTML = isKurs
+      ? 'Kurs: <strong>25</strong> oder <strong>2025</strong> wird zu <strong>25/27</strong>.'
+      : 'Klasse: <strong>25</strong> oder <strong>2025</strong> wird zu <strong>25/26</strong>.';
+  }
   applyKursTyp();
 }
 function applyKursTyp() {

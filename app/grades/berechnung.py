@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 DEFAULT_GEWICHTUNG: dict = {
-    "sl_mdl_pct": 70.0,   # % weight of mündliche note in SL note
-    "sl_kln_pct": 30.0,   # % weight of KLN mean in SL note
-    "hj_gln_w":   1.0,    # relative weight of GLN mean in HJ note
-    "hj_sl1_w":   1.0,    # relative weight of SL1/3 in HJ note
-    "hj_sl2_w":   1.0,    # relative weight of SL2/4 in HJ note
+    "sl_mdl_pct":   80.0,  # % weight of mündliche note in SL note
+    "sl_kln_pct":   20.0,  # % weight of KLN mean in SL note
+    "sl_mittel_w":   1.0,  # weight of SL-Mittel vs each GLN in HJ note
+    # kept for backward compatibility – no longer used in formula:
+    "hj_gln_w":      1.0,
+    "hj_sl1_w":      1.0,
+    "hj_sl2_w":      1.0,
 }
 
 
@@ -168,6 +170,15 @@ def compute_sl_note(
 
 # ── HJ note ───────────────────────────────────────────────────────────────────
 
+def compute_sl_mittel(
+    sl1_note: float | None,
+    sl2_note: float | None,
+) -> float | None:
+    """Arithmetic mean of sl1 and sl2 notes (ignores None values)."""
+    vals = [v for v in (sl1_note, sl2_note) if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
 def compute_hj_vorschlag(
     student_name: str,
     hj: str,
@@ -175,18 +186,17 @@ def compute_hj_vorschlag(
     mdl_noten: dict,
     gewichtung: dict,
     kln_weights: dict | None = None,
-    gln_weights: dict | None = None,
 ) -> float | None:
     """Compute suggested HJ note (float, 0-15 scale) – unrounded.
 
-    Each GLN counts individually with its own weight (default 1.0).
-    SL notes count with hj_sl1_w / hj_sl2_w from gewichtung.
+    Erlassvorgabe: SL1+SL2 → sl_mittel (one component, weight sl_mittel_w).
+    Each GLN is one component with weight 1.0.
+    Formula: (gln1 + gln2 + ... + sl_mittel * sl_mittel_w) / (N_gln + sl_mittel_w)
     """
     sl1_key, sl2_key = ("SL1", "SL2") if hj == "HJ1" else ("SL3", "SL4")
 
+    # Each GLN is one component with weight 1.0
     components: list[tuple[float, float]] = []
-
-    # Individual GLN components (each with its own weight)
     for ln in lns:
         if ln.get("ln_typ") != "GLN" or ln.get("hj") != hj:
             continue
@@ -194,16 +204,15 @@ def compute_hj_vorschlag(
             continue
         effective = _effective_note(student_name, ln, lns)
         if effective is not None:
-            w = float((gln_weights or {}).get(ln["sheet_name"], 1.0))
-            components.append((effective, w))
+            components.append((effective, 1.0))
 
+    # SL-Mittel = mean(SL1, SL2) as one combined component
     sl1_note = compute_sl_note(student_name, sl1_key, lns, mdl_noten, gewichtung, kln_weights)
     sl2_note = compute_sl_note(student_name, sl2_key, lns, mdl_noten, gewichtung, kln_weights)
-
-    if sl1_note is not None:
-        components.append((sl1_note, float(gewichtung.get("hj_sl1_w", 1.0))))
-    if sl2_note is not None:
-        components.append((sl2_note, float(gewichtung.get("hj_sl2_w", 1.0))))
+    sl_mittel = compute_sl_mittel(sl1_note, sl2_note)
+    sl_mittel_w = float(gewichtung.get("sl_mittel_w", 1.0))
+    if sl_mittel is not None:
+        components.append((sl_mittel, sl_mittel_w))
 
     if not components:
         return None

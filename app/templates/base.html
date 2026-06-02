@@ -82,16 +82,10 @@
         {% if current_klasse %}
         <li class="nav-item text-center py-1 mb-1">
           {% if current_modus == 'kurs' %}
-            {% set sj = session.gradebook.schuljahr if session.gradebook else '' %}
-            {% set sj_bis = session.gradebook.schuljahr_bis if session.gradebook else '' %}
-            {% if sj and sj_bis and sj|length == 4 and sj_bis|length == 4 %}
-              {% set sj_display = sj[:2] + '–' + sj_bis[2:] %}
-            {% else %}
-              {% set sj_display = sj %}
-            {% endif %}
+            {% set sj_display = current_schuljahr_display %}
             <span class="badge bg-success fs-6 px-3">Kurs {{ current_kurs_info.typ if current_kurs_info else '' }} {{ current_klasse }}{% if sj_display %} <span class="fw-normal opacity-75 small">{{ sj_display }}</span>{% endif %}</span>
           {% else %}
-            <span class="badge bg-primary fs-6 px-3">Klasse {{ current_klasse }}</span>
+            <span class="badge bg-primary fs-6 px-3">Klasse {{ current_klasse }}{% if current_schuljahr_display %} <span class="fw-normal opacity-75 small">{{ current_schuljahr_display }}</span>{% endif %}</span>
           {% endif %}
         </li>
         <hr class="my-1">

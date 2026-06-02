@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from flask import (
     Blueprint, render_template, redirect, url_for,
-    flash, request, session, send_file, abort,
+    flash, request, session, send_file, abort, jsonify,
 )
 from flask_login import login_required, current_user
 from app.excel.reader import load_gradebook, ExcelReadError, schuljahr_from_date
@@ -148,12 +148,21 @@ def legacy_wizard():
                 gname for gname in probe.get("gln_sheets", [])
                 if request.form.get(f"gln_{gname}")
             ]
+            try:
+                schuljahr, schuljahr_bis = _normalize_schuljahr_from_start(
+                    request.form.get("schuljahr", ""),
+                    "kurs",
+                )
+            except ValueError as e:
+                flash(str(e), "danger")
+                return render_template("grades/legacy_wizard.html", probe=probe,
+                                       sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
             selections = {
                 "is_oberstufe":       True,
                 "klasse":             request.form.get("klasse", "").strip(),
                 "fach":               request.form.get("fach", "").strip(),
-                "schuljahr":          request.form.get("schuljahr", "").strip(),
-                "schuljahr_bis":      request.form.get("schuljahr_bis", "").strip(),
+                "schuljahr":          schuljahr,
+                "schuljahr_bis":      schuljahr_bis,
                 "gln_sheets_selected": gln_sheets_selected,
                 "gln_auto_slots":     probe.get("gln_auto_slots", {}),
             }
@@ -201,10 +210,20 @@ def legacy_wizard():
                     "sl":    None,
                 })
 
+        try:
+            schuljahr, _ = _normalize_schuljahr_from_start(
+                request.form.get("schuljahr", ""),
+                "klasse",
+            )
+        except ValueError as e:
+            flash(str(e), "danger")
+            return render_template("grades/legacy_wizard.html", probe=probe,
+                                   sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
+
         selections = {
             "klasse":         request.form.get("klasse", "").strip(),
             "fach":           request.form.get("fach", "").strip(),
-            "schuljahr":      request.form.get("schuljahr", "").strip(),
+            "schuljahr":      schuljahr,
             "kln_imports":    kln_imports,
             "gln_imports":    gln_imports,
             "bis_sl":         request.form.get("bis_sl", "SL4"),
@@ -391,6 +410,267 @@ def new_file():
     return redirect(url_for("grades.index"))
 
 
+# ── Neue Datei per Wizard erstellen ─────────────────────────────────────────
+
+_WIZARD_SD_FILE   = "_wizard_sd_bytes"
+_WIZARD_SD_PW     = "_wizard_sd_pw"
+_WIZARD_SD_DATA   = "_wizard_sd_data"
+_WIZARD_LN_FILE   = "_wizard_ln_bytes"
+_WIZARD_LN_PW     = "_wizard_ln_pw"
+_WIZARD_LN_DATA   = "_wizard_ln_data"
+_WIZARD_LN_MODUS  = "_wizard_ln_modus"
+_WIZARD_KEYS = (
+    _WIZARD_SD_FILE, _WIZARD_SD_PW, _WIZARD_SD_DATA,
+    _WIZARD_LN_FILE, _WIZARD_LN_PW, _WIZARD_LN_DATA, _WIZARD_LN_MODUS,
+)
+
+
+def _wizard_filter_lns(lns: list[dict]) -> list[dict]:
+    """Strip KLN and student grade data from LNs for wizard import."""
+    filtered = []
+    for ln in lns:
+        if ln.get("ln_typ") == "KLN":
+            continue
+        ln_clean = {k: v for k, v in ln.items() if k != "schueler"}
+        ln_clean["schueler"] = []
+        filtered.append(ln_clean)
+    return filtered
+
+
+def _schuljahr_start_input(value: str | None) -> str:
+    value = (value or "").strip()
+    if len(value) == 4 and value.isdigit():
+        return value[:2]
+    return value
+
+
+def _expand_schuljahr_span(start_two_digits: int, span_years: int) -> str:
+    return f"{start_two_digits:02d}{(start_two_digits + span_years) % 100:02d}"
+
+
+def _normalize_schuljahr_from_start(raw: str | None, modus: str) -> tuple[str, str]:
+    raw = (raw or "").strip()
+    if not raw:
+        basis = schuljahr_from_date()
+        start = int(basis[:2]) if len(basis) == 4 and basis.isdigit() else 0
+    elif raw.isdigit() and len(raw) == 2:
+        start = int(raw)
+    elif raw.isdigit() and len(raw) == 4:
+        start = int(raw[-2:])
+    else:
+        raise ValueError("Bitte das Start-Schuljahr als 2 oder 4 Ziffern angeben, z.B. 25 oder 2025.")
+
+    schuljahr = _expand_schuljahr_span(start, 1)
+    schuljahr_bis = _expand_schuljahr_span(start + 1, 1) if modus == "kurs" else ""
+    return schuljahr, schuljahr_bis
+
+
+@grades_bp.route("/new-wizard", methods=["GET", "POST"])
+@login_required
+def new_wizard():
+    if request.method == "GET":
+        modus = request.args.get("modus", "klasse")
+        if modus not in ("klasse", "kurs"):
+            modus = "klasse"
+        for k in _WIZARD_KEYS:
+            session.pop(k, None)
+        session.modified = True
+        return render_template(
+            "grades/new_wizard.html",
+            modus=modus,
+            schuljahr=_schuljahr_start_input(schuljahr_from_date()),
+        )
+
+    # POST: final submit
+    modus = request.form.get("modus", "klasse")
+    if modus not in ("klasse", "kurs"):
+        modus = "klasse"
+
+    try:
+        schuljahr, schuljahr_bis = _normalize_schuljahr_from_start(
+            request.form.get("schuljahr", ""),
+            modus,
+        )
+    except ValueError as e:
+        flash(str(e), "danger")
+        return render_template(
+            "grades/new_wizard.html",
+            modus=modus,
+            schuljahr=request.form.get("schuljahr", "").strip() or _schuljahr_start_input(schuljahr_from_date()),
+        )
+
+    empty = {
+        "modus":              modus,
+        "klasse":             request.form.get("klasse", "").strip(),
+        "fach":               request.form.get("fach", "").strip(),
+        "schuljahr":          schuljahr,
+        "stammdaten":         [],
+        "leistungsnachweise": [],
+        "uebersicht_hj1":     None,
+        "uebersicht_hj2":     None,
+        "uebersicht_jahr":    None,
+    }
+    if modus == "kurs":
+        kurs_typ = request.form.get("kurs_typ", "GK")
+        empty["schuljahr_bis"] = schuljahr_bis
+        empty["kurs_typ"] = kurs_typ if kurs_typ in ("GK", "LK") else "GK"
+        try:
+            empty["kurs_stunden"] = int(request.form.get("kurs_stunden", "4"))
+        except (ValueError, TypeError):
+            empty["kurs_stunden"] = 4
+        if empty["kurs_typ"] == "LK":
+            empty["kurs_stunden"] = 5
+        empty["kurs_gewichtung"] = {"hj_gln_pct": 70.0, "hj_mdl_pct": 30.0}
+        empty["mdl_noten_kurs"] = {}
+        empty["hj_noten"] = {}
+
+    # ── Schüler import ────────────────────────────────────────────────────
+    if request.form.get("sd_imported") == "1":
+        sd_data = session.get(_WIZARD_SD_DATA)
+        if sd_data is not None:
+            abgaenger_include = set(request.form.getlist("abgaenger_include"))
+            stammdaten = []
+            for s in sd_data:
+                if s.get("status") == S.SD_STATUS_AKTIV:
+                    stammdaten.append(s)
+                elif s.get("status") == S.SD_STATUS_AUSGESCHIEDEN:
+                    name_key = f"{s['nachname']}, {s['vorname']}"
+                    if name_key in abgaenger_include:
+                        stammdaten.append(s)
+            empty["stammdaten"] = stammdaten
+
+    # ── LN import ─────────────────────────────────────────────────────────
+    if request.form.get("ln_imported") == "1":
+        ln_data    = session.get(_WIZARD_LN_DATA)
+        ln_modus   = session.get(_WIZARD_LN_MODUS, "klasse")
+        if ln_data is not None:
+            if ln_modus != modus:
+                for k in _WIZARD_KEYS:
+                    session.pop(k, None)
+                session.modified = True
+                src_label = "Kurs (Oberstufe)" if ln_modus == "kurs" else "Klasse"
+                flash(
+                    f"Die ausgewählte LN-Datei ist eine {src_label}-Datei und passt "
+                    f"nicht zum gewählten Modus. Bitte erneut auswählen.",
+                    "danger",
+                )
+                return redirect(url_for("grades.new_wizard", modus=modus))
+            empty["leistungsnachweise"] = ln_data
+
+    for k in _WIZARD_KEYS:
+        session.pop(k, None)
+    session.modified = True
+
+    _save_gradebook(empty)
+
+    n_sd = len(empty["stammdaten"])
+    n_ln = len(empty["leistungsnachweise"])
+    label = "Neuer Kurs erstellt." if modus == "kurs" else "Neue Klasse erstellt."
+    extras = []
+    if n_sd:
+        extras.append(f"{n_sd} Schüler importiert.")
+    if n_ln:
+        extras.append(f"{n_ln} Leistungsnachweise importiert.")
+    flash(label + (" " + " ".join(extras) if extras else ""), "success")
+    return redirect(url_for("grades.index"))
+
+
+@grades_bp.route("/new-wizard/probe-schueler", methods=["POST"])
+@login_required
+def wizard_probe_schueler():
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify(ok=False, error="Keine Datei ausgewählt.")
+    file_bytes = f.read()
+    password   = request.form.get("password") or None
+    try:
+        data = load_gradebook(file_bytes, password)
+    except ExcelReadError as e:
+        return jsonify(ok=False, error=str(e))
+    except Exception as e:
+        return jsonify(ok=False, error=f"Datei konnte nicht gelesen werden: {e}")
+
+    stammdaten = data.get("stammdaten", [])
+    aktive = [
+        {"nachname": s["nachname"], "vorname": s["vorname"]}
+        for s in stammdaten
+        if s.get("status") == S.SD_STATUS_AKTIV
+    ]
+    abgaenger = [
+        {
+            "nachname":       s["nachname"],
+            "vorname":        s["vorname"],
+            "austritt":       s.get("austritt", ""),
+            "abgang_nach_hj": s.get("abgang_nach_hj") or "",
+        }
+        for s in stammdaten
+        if s.get("status") == S.SD_STATUS_AUSGESCHIEDEN
+    ]
+
+    session[_WIZARD_SD_FILE] = file_bytes
+    session[_WIZARD_SD_PW]   = password
+    session[_WIZARD_SD_DATA] = stammdaten
+    session.modified = True
+
+    return jsonify(ok=True, aktive=aktive, abgaenger=abgaenger)
+
+
+@grades_bp.route("/new-wizard/probe-ln", methods=["POST"])
+@login_required
+def wizard_probe_ln():
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify(ok=False, error="Keine Datei ausgewählt.")
+    file_bytes   = f.read()
+    password     = request.form.get("password") or None
+    modus_target = request.form.get("modus_target", "klasse")
+    if modus_target not in ("klasse", "kurs"):
+        modus_target = "klasse"
+    try:
+        data = load_gradebook(file_bytes, password)
+    except ExcelReadError as e:
+        return jsonify(ok=False, error=str(e))
+    except Exception as e:
+        return jsonify(ok=False, error=f"Datei konnte nicht gelesen werden: {e}")
+
+    modus_src    = data.get("modus", "klasse")
+    mismatch     = modus_src != modus_target
+    filtered_lns = _wizard_filter_lns(data.get("leistungsnachweise", []))
+
+    ln_summary = []
+    for ln in filtered_lns:
+        max_punkte = sum((a.get("max_punkte") or 0) for a in ln.get("aufgaben", []))
+        ln_summary.append({
+            "name":       ln.get("name", ""),
+            "ln_typ":     ln.get("ln_typ", ""),
+            "hj":         ln.get("hj") or "–",
+            "n_aufgaben": len(ln.get("aufgaben", [])),
+            "max_punkte": round(max_punkte, 1),
+        })
+
+    vorschlag = {
+        "klasse":        data.get("klasse", ""),
+        "fach":          data.get("fach", ""),
+        "schuljahr":     _schuljahr_start_input(data.get("schuljahr", "")),
+        "kurs_typ":      data.get("kurs_typ", "GK"),
+        "kurs_stunden":  data.get("kurs_stunden", 4),
+    }
+
+    session[_WIZARD_LN_FILE]  = file_bytes
+    session[_WIZARD_LN_PW]    = password
+    session[_WIZARD_LN_DATA]  = filtered_lns
+    session[_WIZARD_LN_MODUS] = modus_src
+    session.modified = True
+
+    return jsonify(
+        ok=True,
+        lns=ln_summary,
+        modus_src=modus_src,
+        mismatch=mismatch,
+        vorschlag=vorschlag,
+    )
+
+
 @grades_bp.route("/klasse", methods=["POST"])
 @login_required
 def set_klasse():
@@ -501,6 +781,55 @@ def _import_students_from_wb(wb) -> tuple[list[dict], str | None]:
     )
 
 
+def _sync_active_students_into_lns(data: dict) -> int:
+    """Ensure all active students exist in matching LN rosters.
+
+    Returns the number of new LN student rows that were created.
+    """
+    added_rows = 0
+    modus = data.get("modus", "klasse")
+    active_students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+
+    for ln in data.get("leistungsnachweise", []):
+        # Nachtermin rosters are intentionally managed separately.
+        if ln.get("nachtermin_von"):
+            continue
+
+        ln_type = ln.get("ln_typ")
+        hj = ln.get("hj")
+        n_tasks = len(ln.get("aufgaben", []))
+        roster = ln.setdefault("schueler", [])
+        existing = {s.get("name", "").strip() for s in roster}
+
+        for s in active_students:
+            if ln_type == "GLN" and modus == "kurs" and hj:
+                if not berechnung.student_active_in_hj(s, hj):
+                    continue
+
+            full_name = f"{s['nachname']}, {s['vorname']}".strip(", ")
+            if full_name in existing:
+                continue
+
+            entry = {
+                "name": full_name,
+                "punkte": [None] * n_tasks,
+                "note_15": None,
+                "note_6": None,
+            }
+            if ln_type == S.LN_TYP_ABT:
+                entry["kuerzel"] = ""
+                entry["abt_grenzfall_bestaetigt"] = False
+                entry["ignoriert"] = False
+            else:
+                entry["ignoriert"] = False
+
+            roster.append(entry)
+            existing.add(full_name)
+            added_rows += 1
+
+    return added_rows
+
+
 @grades_bp.route("/stammdaten/import-excel", methods=["POST"])
 @login_required
 def stammdaten_import_excel():
@@ -533,8 +862,12 @@ def stammdaten_import_excel():
             existing_names.add(key)
             added += 1
 
+    ln_rows_added = _sync_active_students_into_lns(data)
     _save_gradebook(data)
-    flash(f"{added} Schüler importiert ({len(students) - added} bereits vorhanden).", "success")
+    msg = f"{added} Schüler importiert ({len(students) - added} bereits vorhanden)."
+    if ln_rows_added:
+        msg += f" {ln_rows_added} LN-Zeilen ergänzt."
+    flash(msg, "success")
     return redirect(url_for("grades.stammdaten"))
 
 
@@ -573,6 +906,7 @@ def stammdaten_import_paste():
         else:
             skipped += 1
 
+    _sync_active_students_into_lns(data)
     _save_gradebook(data)
     return {"ok": True, "added": added, "skipped": skipped}
 
@@ -591,6 +925,7 @@ def stammdaten():
             "status":   S.SD_STATUS_AKTIV,
             "austritt": "",
         })
+        _sync_active_students_into_lns(data)
         _save_gradebook(data)
         flash("Schüler hinzugefügt.", "success")
         return redirect(url_for("grades.stammdaten"))
@@ -624,6 +959,7 @@ def student_reaktivieren(idx):
     if 0 <= idx < len(data["stammdaten"]):
         data["stammdaten"][idx]["status"] = S.SD_STATUS_AKTIV
         data["stammdaten"][idx]["austritt"] = ""
+        _sync_active_students_into_lns(data)
         _save_gradebook(data)
         flash("Schüler reaktiviert.", "success")
     return redirect(url_for("grades.stammdaten"))
@@ -1379,7 +1715,11 @@ def uebersicht(hj):
 
     kln_weights_sl1 = berechnung.get_kln_weights(data, sl1_key)
     kln_weights_sl2 = berechnung.get_kln_weights(data, sl2_key)
-    gln_weights = berechnung.get_gln_weights(data, hj_key)
+
+    verhalten_noten = data.get("verhalten_noten") or {}
+    mitarbeit_noten = data.get("mitarbeit_noten") or {}
+    # For HJ2: propose HJ1 Verhaltensnote as default
+    verhalten_hj1 = verhalten_noten if hj_key == "HJ2" else {}
 
     students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
     rows = []
@@ -1396,17 +1736,29 @@ def uebersicht(hj):
         mdl1 = mdl_noten.get(name, {}).get(sl1_key)
         mdl2 = mdl_noten.get(name, {}).get(sl2_key)
 
-        sl1_note_15 = berechnung.round_note15(
-            berechnung.compute_sl_note(name, sl1_key, lns, mdl_noten, gw, kln_weights_sl1))
-        sl2_note_15 = berechnung.round_note15(
-            berechnung.compute_sl_note(name, sl2_key, lns, mdl_noten, gw, kln_weights_sl2))
+        sl1_note_raw = berechnung.compute_sl_note(name, sl1_key, lns, mdl_noten, gw, kln_weights_sl1)
+        sl2_note_raw = berechnung.compute_sl_note(name, sl2_key, lns, mdl_noten, gw, kln_weights_sl2)
+        sl1_note_15 = berechnung.round_note15(sl1_note_raw)
+        sl2_note_15 = berechnung.round_note15(sl2_note_raw)
+        sl_mittel_raw = berechnung.compute_sl_mittel(sl1_note_raw, sl2_note_raw)
+        sl_mittel_15 = berechnung.round_note15(sl_mittel_raw)
 
         hj_vorschlag = berechnung.round_note15(
             berechnung.compute_hj_vorschlag(
                 name, hj_key, lns, mdl_noten, gw,
-                {**kln_weights_sl1, **kln_weights_sl2},
-                gln_weights=gln_weights))
+                {**kln_weights_sl1, **kln_weights_sl2}))
         hj_actual = hj_noten.get(name, {}).get(hj_key)
+
+        # Verhaltens- and Mitarbeitsnoten (1-6 scale)
+        verhalten = verhalten_noten.get(name, {}).get(hj_key)
+        mitarbeit = mitarbeit_noten.get(name, {}).get(hj_key)
+        verhaltens_proposal = verhalten_hj1.get(name, {}).get("HJ1") if hj_key == "HJ2" else None
+        # Mitarbeit proposal: mean of stored mdl notes → convert to 6-point scale
+        mitarbeit_proposal = None
+        mdl_vals = [v for v in (mdl1, mdl2) if v is not None]
+        if mdl_vals:
+            mdl_mean_15 = round(sum(mdl_vals) / len(mdl_vals))
+            mitarbeit_proposal = S.NOTE_15_TO_6.get(max(0, min(15, mdl_mean_15)), 6)
 
         rows.append({
             "name": name,
@@ -1419,8 +1771,13 @@ def uebersicht(hj):
             "mdl2": mdl2,
             "sl1_note_15": sl1_note_15,
             "sl2_note_15": sl2_note_15,
+            "sl_mittel_15": sl_mittel_15,
             "hj_vorschlag": hj_vorschlag,
             "hj_actual": hj_actual,
+            "verhalten": verhalten,
+            "mitarbeit": mitarbeit,
+            "verhaltens_proposal": verhaltens_proposal,
+            "mitarbeit_proposal": mitarbeit_proposal,
         })
 
     return render_template(
@@ -1436,7 +1793,6 @@ def uebersicht(hj):
         gewichtung=gw,
         kln_weights_sl1=kln_weights_sl1,
         kln_weights_sl2=kln_weights_sl2,
-        gln_weights=gln_weights,
         note15_to6=S.NOTE_15_TO_6,
         rot_schwelle=_rot_schwelle(data.get("klasse")),
     )
@@ -1458,6 +1814,9 @@ def hj_speichern():
     mdl_noten = data.setdefault("mdl_noten", {})
     hj_noten = data.setdefault("hj_noten", {})
 
+    verhalten_noten = data.setdefault("verhalten_noten", {})
+    mitarbeit_noten = data.setdefault("mitarbeit_noten", {})
+
     for item in payload.get("schueler", []):
         name = item.get("name")
         if not name:
@@ -1471,7 +1830,29 @@ def hj_speichern():
         hj_noten.setdefault(name, {})[hj_key] = (
             int(item["hj_actual"]) if item.get("hj_actual") is not None else None
         )
+        verhalten_noten.setdefault(name, {})[hj_key] = (
+            int(item["verhalten"]) if item.get("verhalten") is not None else None
+        )
+        mitarbeit_noten.setdefault(name, {})[hj_key] = (
+            int(item["mitarbeit"]) if item.get("mitarbeit") is not None else None
+        )
 
+    _save_gradebook(data)
+    return {"ok": True}
+
+
+@grades_bp.route("/api/gewichtung/speichern", methods=["POST"])
+@login_required
+def gewichtung_speichern():
+    """Save global HJ weighting (sl_mittel_w)."""
+    data = _require_gradebook()
+    payload = request.get_json(force=True, silent=True)
+    if not payload:
+        return {"ok": False, "error": "Invalid payload"}, 400
+    sl_gw = data.setdefault("sl_gewichtung", {})
+    for key in ("sl_mittel_w",):
+        if payload.get(key) is not None:
+            sl_gw[key] = float(payload[key])
     _save_gradebook(data)
     return {"ok": True}
 
@@ -1731,7 +2112,7 @@ def export_excel():
             return render_template("grades/export.html", form=form)
         klasse = data.get("klasse", "Klasse") or "Klasse"
         schuljahr = data.get("schuljahr", "") or schuljahr_from_date()
-        # For Kurs mode with a time span, combine e.g. "2425"+"2526" → "2426"
+        # For Kurs mode with a time span, combine e.g. "2526"+"2627" → "2527"
         schuljahr_bis = data.get("schuljahr_bis", "")
         if data.get("modus") == "kurs" and schuljahr_bis and len(schuljahr) == 4 and len(schuljahr_bis) == 4:
             schuljahr = schuljahr[:2] + schuljahr_bis[2:]
@@ -1762,8 +2143,7 @@ def einstellungen():
         modus=modus,
         klasse=data.get("klasse", ""),
         fach=data.get("fach", ""),
-        schuljahr=data.get("schuljahr", schuljahr_from_date()),
-        schuljahr_bis=data.get("schuljahr_bis", ""),
+        schuljahr=_schuljahr_start_input(data.get("schuljahr", schuljahr_from_date())),
         kurs_typ=kurs_typ,
         kurs_stunden=stunden_display,
         sl_mdl_pct=gw["sl_mdl_pct"],
@@ -1778,10 +2158,9 @@ def einstellungen():
         data["modus"] = form.modus.data
         data["klasse"] = form.klasse.data.strip()
         data["fach"] = form.fach.data.strip()
-        sj = form.schuljahr.data.strip()
-        data["schuljahr"] = sj if sj else schuljahr_from_date()
-        sj_bis = form.schuljahr_bis.data.strip() if form.schuljahr_bis.data else ""
-        data["schuljahr_bis"] = sj_bis if sj_bis else ""
+        sj, sj_bis = _normalize_schuljahr_from_start(form.schuljahr.data, form.modus.data)
+        data["schuljahr"] = sj
+        data["schuljahr_bis"] = sj_bis
 
         new_kurs_typ = form.kurs_typ.data
         new_stunden = int(form.kurs_stunden.data)

@@ -37,16 +37,10 @@
           <input type="text" name="fach" class="form-control" placeholder="z.B. Informatik">
         </div>
         <div class="col-md-2">
-          <label class="form-label">Schuljahr Start</label>
-          <input type="text" name="schuljahr" class="form-control" placeholder="z.B. 2425" maxlength="4">
+          <label class="form-label">Start-Schuljahr</label>
+          <input type="text" name="schuljahr" class="form-control" placeholder="z.B. 25 oder 2025" maxlength="4">
+          <div class="form-text">{% if probe.is_oberstufe %}Wird automatisch zu 25/27 erweitert.{% else %}Wird automatisch zu 25/26 erweitert.{% endif %}</div>
         </div>
-        {% if probe.is_oberstufe %}
-        <div class="col-md-2">
-          <label class="form-label">Schuljahr Ende</label>
-          <input type="text" name="schuljahr_bis" class="form-control" placeholder="z.B. 2526" maxlength="4">
-          <div class="form-text">Für Kurszeitraum (Abi-Jahrgang)</div>
-        </div>
-        {% endif %}
       </div>
     </div>
   </div>

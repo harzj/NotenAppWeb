@@ -25,7 +25,11 @@
   .th-sub-sl2  { background-color: #6c3483 !important; color: #fff; font-weight: normal; font-size: .82rem; }
   .th-sub-sl2m { background-color: #9b6ab5 !important; color: #fff; font-weight: normal; font-size: .82rem; }
   .th-sub-hj   { background-color: #a04000 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .th-slm      { background-color: #1a5276 !important; color: #fff; }
+  .th-verh     { background-color: #515a5a !important; color: #fff; }
+  .th-mit      { background-color: #515a5a !important; color: #fff; }
   tr.gw-row td { background-color: #f8f9fa; }
+  .verhalten-input, .mitarbeit-input { width: 48px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -42,9 +46,9 @@
   <h4 class="mb-0"><i class="bi bi-table me-2"></i>{{ hj_label }}</h4>
   <div class="d-flex gap-2 align-items-center">
     <span class="text-muted small">
-      SL: {{ gewichtung.sl_mdl_pct | int }}% mdl + {{ gewichtung.sl_kln_pct | int }}% KLN |
-      HJ: SL\u00d71, GLN\u00d7individuell
-      <a href="{{ url_for('grades.einstellungen') }}" class="ms-1"><i class="bi bi-gear-fill"></i></a>
+      SL-Note: {{ gewichtung.sl_mdl_pct | int }}% mdl + {{ gewichtung.sl_kln_pct | int }}% KLN
+      (einstellbar auf SL-Seiten)
+      <a href="{{ url_for('grades.einstellungen') }}" class="ms-1"><i class="bi bi-gear-fill" title="Einstellungen"></i></a>
     </span>
     <a href="{{ url_for('grades.hj_druck', hj=hj) }}" target="_blank" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-printer me-1"></i>Drucken
@@ -59,67 +63,51 @@
 <table class="table table-bordered table-sm align-middle" id="hjTable">
   <thead>
     <tr>
-      <th rowspan="2" class="align-middle">Sch\u00fcler</th>
+      <th rowspan="2" class="align-middle">Schüler</th>
       {% if n_gln > 0 %}
       <th colspan="{{ n_gln }}" class="text-center th-gln">GLN</th>
       {% endif %}
       <th colspan="{{ span_sl1 }}" class="text-center th-sl1">{{ sl1_key }}</th>
       <th colspan="{{ span_sl2 }}" class="text-center th-sl2">{{ sl2_key }}</th>
       <th colspan="2" class="text-center th-hj">{{ hj_label }}</th>
+      <th rowspan="2" class="text-center th-slm align-middle">SL-Mittel</th>
+      <th rowspan="2" class="text-center th-verh align-middle">Verhalten<br><small class="fw-normal">(1–6)</small></th>
+      <th rowspan="2" class="text-center th-mit align-middle">Mitarbeit<br><small class="fw-normal">(1–6)</small></th>
     </tr>
     <tr>
       {% for ln in gln_list %}<th class="text-center th-sub-gln">{{ ln.name }}</th>{% endfor %}
       {% for ln in sl1_list %}<th class="text-center th-sub-sl1">{{ ln.name }}</th>{% endfor %}
       {% if show_kln1_mean %}<th class="text-center th-sub-sl1m">KLN Mittel</th>{% endif %}
-      <th class="text-center th-sub-sl1">M\u00fcndl.<br>Note</th>
+      <th class="text-center th-sub-sl1">Mündl.<br>Note</th>
       <th class="text-center th-sub-sl1">{{ sl1_key }}<br>Note</th>
       {% for ln in sl2_list %}<th class="text-center th-sub-sl2">{{ ln.name }}</th>{% endfor %}
       {% if show_kln2_mean %}<th class="text-center th-sub-sl2m">KLN Mittel</th>{% endif %}
-      <th class="text-center th-sub-sl2">M\u00fcndl.<br>Note</th>
+      <th class="text-center th-sub-sl2">Mündl.<br>Note</th>
       <th class="text-center th-sub-sl2">{{ sl2_key }}<br>Note</th>
       <th class="text-center th-sub-hj">Vorschlag</th>
-      <th class="text-center th-sub-hj">Tats\u00e4chlich</th>
+      <th class="text-center th-sub-hj">Tatsächlich</th>
     </tr>
-    {# Gewichtungszeile #}
+    {# Gewichtungszeile: nur SL-Mittel hat ein Gewicht-Input #}
     <tr class="gw-row">
       <td class="text-muted small fst-italic">Gewichtung</td>
-      {% for ln in gln_list %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm gw-input gln-weight"
-               min="0" step="0.1" data-sheet="{{ ln.sheet_name }}"
-               value="{{ gln_weights[ln.sheet_name] | default(1) }}">
-      </td>
-      {% endfor %}
-      {% for ln in sl1_list %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm gw-input kln1-weight"
-               min="0" step="0.1" data-sheet="{{ ln.sheet_name }}"
-               value="{{ kln_weights_sl1[ln.sheet_name] | default(1) }}">
-      </td>
-      {% endfor %}
+      {% for ln in gln_list %}<td></td>{% endfor %}
+      {% for ln in sl1_list %}<td></td>{% endfor %}
       {% if show_kln1_mean %}<td></td>{% endif %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm gw-input" id="wMdl1"
-               min="0" step="0.1" title="Gewicht M\u00fcndliche f\u00fcr {{ sl1_key }}"
-               value="{{ gewichtung.sl_mdl_pct | round(1) }}">
-      </td>
-      <td></td>
-      {% for ln in sl2_list %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm gw-input kln2-weight"
-               min="0" step="0.1" data-sheet="{{ ln.sheet_name }}"
-               value="{{ kln_weights_sl2[ln.sheet_name] | default(1) }}">
-      </td>
-      {% endfor %}
+      <td></td>{# mdl1 #}
+      <td></td>{# sl1 note #}
+      {% for ln in sl2_list %}<td></td>{% endfor %}
       {% if show_kln2_mean %}<td></td>{% endif %}
+      <td></td>{# mdl2 #}
+      <td></td>{# sl2 note #}
       <td class="text-center">
-        <input type="number" class="form-control form-control-sm gw-input" id="wMdl2"
-               min="0" step="0.1" title="Gewicht M\u00fcndliche f\u00fcr {{ sl2_key }}"
-               value="{{ gewichtung.sl_mdl_pct | round(1) }}">
+        <input type="number" class="form-control form-control-sm gw-input" id="wSlMittel"
+               min="0" step="0.1" title="Gewicht SL-Mittel in HJ-Note (Standard: 1, gleich wie jeder GLN)"
+               value="{{ gewichtung.sl_mittel_w | default(1) | round(1) }}">
       </td>
-      <td></td>
-      <td></td>
-      <td></td>
+      <td></td>{# hj vorschlag #}
+      <td></td>{# hj tatsächlich #}
+      <td></td>{# verhalten #}
+      <td></td>{# mitarbeit #}
     </tr>
   </thead>
   <tbody>
@@ -133,7 +121,8 @@
         data-sl1-ignoriert="{{ row.sl1_cols | map(attribute='ignoriert') | list | tojson }}"
         data-sl2-notes="{{ row.sl2_cols | map(attribute='note_15') | list | tojson }}"
         data-sl2-sheets="{{ sl2_list | map(attribute='sheet_name') | list | tojson }}"
-        data-sl2-ignoriert="{{ row.sl2_cols | map(attribute='ignoriert') | list | tojson }}">
+        data-sl2-ignoriert="{{ row.sl2_cols | map(attribute='ignoriert') | list | tojson }}"
+        data-verhaltens-proposal="{{ row.verhaltens_proposal if row.verhaltens_proposal is not none else '' }}">
       <td>{{ row.name }}</td>
       {% for c in row.gln_cols %}
       <td class="text-center">
@@ -180,12 +169,31 @@
       <td class="text-center sl2-note-display{% if row.sl2_note_15 is not none and row.sl2_note_15 < rot_schwelle %} text-danger{% endif %}">
         {% if row.sl2_note_15 is not none %}<strong>{{ row.sl2_note_15 }}</strong>{% endif %}
       </td>
+      <td class="text-center note-cell sl-mittel-display{% if row.sl_mittel_15 is not none and row.sl_mittel_15 < rot_schwelle %} text-danger{% endif %}">
+        {% if row.sl_mittel_15 is not none %}{{ row.sl_mittel_15 }}{% endif %}
+      </td>
       <td class="text-center hj-vorschlag-display{% if row.hj_vorschlag is not none and row.hj_vorschlag < rot_schwelle %} text-danger{% endif %}">
         {% if row.hj_vorschlag is not none %}<em>{{ row.hj_vorschlag }}</em>{% endif %}
       </td>
       <td class="text-center">
         <input type="number" class="form-control form-control-sm hj-input hj-actual-input"
                min="0" max="15" step="1" value="{{ row.hj_actual if row.hj_actual is not none else '' }}">
+      </td>
+      <td class="text-center">
+        <div class="d-flex align-items-center justify-content-center gap-1">
+          <input type="number" class="form-control form-control-sm hj-input verhalten-input"
+                 min="1" max="6" step="1"
+                 value="{{ row.verhalten if row.verhalten is not none else '' }}">
+          <span class="small text-muted verhalten-proposal-span">{%- if row.verhalten is none and row.verhaltens_proposal is not none -%}({{ row.verhaltens_proposal }}){%- endif -%}</span>
+        </div>
+      </td>
+      <td class="text-center">
+        <div class="d-flex align-items-center justify-content-center gap-1">
+          <input type="number" class="form-control form-control-sm hj-input mitarbeit-input"
+                 min="1" max="6" step="1"
+                 value="{{ row.mitarbeit if row.mitarbeit is not none else '' }}">
+          <span class="small text-muted mitarbeit-proposal-span">{%- if row.mitarbeit is none and row.mitarbeit_proposal is not none -%}({{ row.mitarbeit_proposal }}){%- endif -%}</span>
+        </div>
       </td>
     </tr>
     {% endfor %}
@@ -200,55 +208,53 @@ const SL1_KEY      = {{ sl1_key | tojson }};
 const SL2_KEY      = {{ sl2_key | tojson }};
 const GW           = {{ gewichtung | tojson }};
 const ROT_SCHWELLE = {{ rot_schwelle }};
+const NOTE_15_TO_6 = {{ note15_to6 | tojson }};
 
 function roundNote15(x) {
   if (x === null || x === undefined || isNaN(x)) return null;
   return Math.max(0, Math.min(15, Math.round(x)));
 }
-function getKlnWeights(cls) {
-  const w = {};
-  document.querySelectorAll('.' + cls).forEach(inp => {
-    const v = inp.value !== '' ? parseFloat(inp.value) : 1.0;
-    w[inp.dataset.sheet] = isNaN(v) ? 1.0 : v;
-  });
-  return w;
-}
-function getGlnWeights() {
-  const w = {};
-  document.querySelectorAll('.gln-weight').forEach(inp => {
-    const v = inp.value !== '' ? parseFloat(inp.value) : 1.0;
-    w[inp.dataset.sheet] = isNaN(v) ? 1.0 : v;
-  });
-  return w;
-}
-function computeKlnMean(notes, ignoriert, sheets, kw) {
-  let sumN = 0, sumW = 0;
+function computeKlnMean(notes, ignoriert) {
+  // Arithmetic mean (all equal weight)
+  let sum = 0, count = 0;
   for (let i = 0; i < notes.length; i++) {
     if (ignoriert[i] || notes[i] === null) continue;
-    const w = (kw[sheets[i]] !== undefined) ? kw[sheets[i]] : 1.0;
-    sumN += notes[i] * w; sumW += w;
+    sum += notes[i]; count++;
   }
-  return sumW > 0 ? sumN / sumW : null;
+  return count > 0 ? sum / count : null;
 }
-function computeSlNote(mdl, km, mdlW, klnW) {
+function computeSlNote(mdl, km) {
   if (mdl === null && km === null) return null;
   if (mdl === null) return km;
   if (km  === null) return mdl;
+  const mdlW = GW.sl_mdl_pct;
+  const klnW = GW.sl_kln_pct;
   const t = mdlW + klnW;
   return t > 0 ? (mdl * mdlW + km * klnW) / t : null;
 }
-function computeHjVorschlag(glnNotes, glnSheets, glnIgn, glnWeights, sl1, sl2) {
+function computeSlMittel(sl1, sl2) {
+  const vals = [sl1, sl2].filter(v => v !== null);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+function computeHjVorschlag(glnNotes, glnIgn, slMittel) {
+  const slW = parseFloat(document.getElementById('wSlMittel')?.value);
+  const wSl = (!isNaN(slW) && slW >= 0) ? slW : (GW.sl_mittel_w ?? 1.0);
   const p = [];
   for (let i = 0; i < glnNotes.length; i++) {
     if (glnIgn[i] || glnNotes[i] === null) continue;
-    const w = (glnWeights[glnSheets[i]] !== undefined) ? glnWeights[glnSheets[i]] : 1.0;
-    p.push([glnNotes[i], w]);
+    p.push([glnNotes[i], 1.0]);
   }
-  if (sl1 !== null) p.push([sl1, GW.hj_sl1_w]);
-  if (sl2 !== null) p.push([sl2, GW.hj_sl2_w]);
+  if (slMittel !== null) p.push([slMittel, wSl]);
   if (!p.length) return null;
   const tw = p.reduce((s, [, w]) => s + w, 0);
   return tw > 0 ? p.reduce((s, [n, w]) => s + n * w, 0) / tw : null;
+}
+function computeMitarbeitProposal(m1, m2) {
+  const vals = [m1, m2].filter(v => v !== null);
+  if (!vals.length) return null;
+  const mean15 = Math.max(0, Math.min(15, Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)));
+  return NOTE_15_TO_6[mean15] ?? 6;
 }
 function slHtml(n15) {
   if (n15 === null) return '';
@@ -261,36 +267,64 @@ function hjHtml(n15) {
   return `<em class="${red}">${n15}</em>`;
 }
 function updateRow(row) {
-  const kw1   = getKlnWeights('kln1-weight');
-  const kw2   = getKlnWeights('kln2-weight');
-  const gw_   = getGlnWeights();
-  const mdlW  = parseFloat(document.getElementById('wMdl1')?.value) || GW.sl_mdl_pct;
-  const mdl2W = parseFloat(document.getElementById('wMdl2')?.value) || GW.sl_mdl_pct;
-  const notes1    = JSON.parse(row.dataset.sl1Notes);
-  const sheets1   = JSON.parse(row.dataset.sl1Sheets);
-  const ign1      = JSON.parse(row.dataset.sl1Ignoriert);
-  const notes2    = JSON.parse(row.dataset.sl2Notes);
-  const sheets2   = JSON.parse(row.dataset.sl2Sheets);
-  const ign2      = JSON.parse(row.dataset.sl2Ignoriert);
-  const glnNotes  = JSON.parse(row.dataset.glnNotes    || '[]');
-  const glnSheets = JSON.parse(row.dataset.glnSheets   || '[]');
-  const glnIgn    = JSON.parse(row.dataset.glnIgnoriert || '[]');
-  const km1 = computeKlnMean(notes1, ign1, sheets1, kw1);
-  const km2 = computeKlnMean(notes2, ign2, sheets2, kw2);
+  const notes1 = JSON.parse(row.dataset.sl1Notes);
+  const ign1   = JSON.parse(row.dataset.sl1Ignoriert);
+  const notes2 = JSON.parse(row.dataset.sl2Notes);
+  const ign2   = JSON.parse(row.dataset.sl2Ignoriert);
+  const glnNotes = JSON.parse(row.dataset.glnNotes   || '[]');
+  const glnIgn   = JSON.parse(row.dataset.glnIgnoriert || '[]');
+
+  const km1 = computeKlnMean(notes1, ign1);
+  const km2 = computeKlnMean(notes2, ign2);
   const km1Cell = row.querySelector('.kln1-mean-cell');
   if (km1Cell) km1Cell.textContent = km1 !== null ? km1.toFixed(1) : '';
   const km2Cell = row.querySelector('.kln2-mean-cell');
   if (km2Cell) km2Cell.textContent = km2 !== null ? km2.toFixed(1) : '';
+
   const m1v = row.querySelector('.mdl1-input')?.value;
   const m2v = row.querySelector('.mdl2-input')?.value;
   const m1  = m1v !== '' && m1v != null ? parseFloat(m1v) : null;
   const m2  = m2v !== '' && m2v != null ? parseFloat(m2v) : null;
-  const sl1  = roundNote15(computeSlNote(m1, km1, mdlW, 100 - mdlW));
-  const sl2  = roundNote15(computeSlNote(m2, km2, mdl2W, 100 - mdl2W));
+
+  const sl1 = roundNote15(computeSlNote(m1, km1));
+  const sl2 = roundNote15(computeSlNote(m2, km2));
   row.querySelector('.sl1-note-display').innerHTML = slHtml(sl1);
   row.querySelector('.sl2-note-display').innerHTML = slHtml(sl2);
-  const hjV  = roundNote15(computeHjVorschlag(glnNotes, glnSheets, glnIgn, gw_, sl1, sl2));
+
+  const slMittel = computeSlMittel(sl1, sl2);
+  const slMittelDisp = row.querySelector('.sl-mittel-display');
+  if (slMittelDisp) {
+    const sm = roundNote15(slMittel);
+    if (sm !== null) {
+      slMittelDisp.className = 'text-center note-cell sl-mittel-display' + (sm < ROT_SCHWELLE ? ' text-danger' : '');
+      slMittelDisp.textContent = sm;
+    } else {
+      slMittelDisp.textContent = '';
+    }
+  }
+
+  const hjV = roundNote15(computeHjVorschlag(glnNotes, glnIgn, slMittel));
   row.querySelector('.hj-vorschlag-display').innerHTML = hjHtml(hjV);
+
+  // Mitarbeit proposal: mean(m1, m2) → 6-point scale
+  const mitInput = row.querySelector('.mitarbeit-input');
+  const mitSpan  = row.querySelector('.mitarbeit-proposal-span');
+  if (mitSpan) {
+    if (!mitInput || mitInput.value === '') {
+      const p = computeMitarbeitProposal(m1, m2);
+      mitSpan.textContent = p !== null ? `(${p})` : '';
+    } else {
+      mitSpan.textContent = '';
+    }
+  }
+
+  // Verhalten proposal: shown when input empty (uses data attribute from server)
+  const verhInput = row.querySelector('.verhalten-input');
+  const verhSpan  = row.querySelector('.verhalten-proposal-span');
+  if (verhSpan) {
+    const proposal = verhInput?.dataset?.verhaltensProposal || '';
+    verhSpan.textContent = (!verhInput || verhInput.value === '') && proposal ? `(${proposal})` : '';
+  }
 }
 function updateAllRows() {
   document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => updateRow(row));
@@ -298,54 +332,37 @@ function updateAllRows() {
 document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
   row.querySelector('.mdl1-input')?.addEventListener('input', () => updateRow(row));
   row.querySelector('.mdl2-input')?.addEventListener('input', () => updateRow(row));
+  row.querySelector('.mitarbeit-input')?.addEventListener('input', () => updateRow(row));
+  row.querySelector('.verhalten-input')?.addEventListener('input', () => updateRow(row));
 });
-document.querySelectorAll('.kln1-weight, .kln2-weight, .gln-weight, #wMdl1, #wMdl2').forEach(inp => {
-  inp.addEventListener('input', updateAllRows);
-});
+document.getElementById('wSlMittel')?.addEventListener('input', updateAllRows);
 document.getElementById('btnSave')?.addEventListener('click', async () => {
   const schueler = [];
   document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
-    const toInt = v => (v !== '' && v != null) ? parseInt(v, 10) : null;
+    const toInt = v => (v !== '' && v != null && !isNaN(parseInt(v, 10))) ? parseInt(v, 10) : null;
     schueler.push({
       name:      row.dataset.name,
       mdl1:      toInt(row.querySelector('.mdl1-input')?.value),
       mdl2:      toInt(row.querySelector('.mdl2-input')?.value),
       hj_actual: toInt(row.querySelector('.hj-actual-input')?.value),
+      verhalten: toInt(row.querySelector('.verhalten-input')?.value),
+      mitarbeit: toInt(row.querySelector('.mitarbeit-input')?.value),
     });
   });
-  const kln1W = {}, kln2W = {}, glnW = {};
-  document.querySelectorAll('.kln1-weight').forEach(inp => {
-    if (inp.value !== '') kln1W[inp.dataset.sheet] = parseFloat(inp.value);
-  });
-  document.querySelectorAll('.kln2-weight').forEach(inp => {
-    if (inp.value !== '') kln2W[inp.dataset.sheet] = parseFloat(inp.value);
-  });
-  document.querySelectorAll('.gln-weight').forEach(inp => {
-    if (inp.value !== '') glnW[inp.dataset.sheet] = parseFloat(inp.value);
-  });
-  const mdlW1 = parseFloat(document.getElementById('wMdl1')?.value);
-  const mdlW2 = parseFloat(document.getElementById('wMdl2')?.value);
-  const csrf  = document.querySelector('meta[name=csrf-token]')?.content || '';
-  const [r1, r2, r3, r4] = await Promise.all([
+  const slMittelW = parseFloat(document.getElementById('wSlMittel')?.value);
+  const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
+  const [r1, r2] = await Promise.all([
     fetch('/api/hj-speichern', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
       body: JSON.stringify({ hj: HJ_KEY, schueler })
     }),
-    fetch('/api/kln-gewichte/speichern', {
+    fetch('/api/gewichtung/speichern', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-      body: JSON.stringify({ sl_key: SL1_KEY, kln_weights: kln1W, sl_mdl_pct: mdlW1, sl_kln_pct: 100 - mdlW1 })
-    }),
-    fetch('/api/kln-gewichte/speichern', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-      body: JSON.stringify({ sl_key: SL2_KEY, kln_weights: kln2W, sl_mdl_pct: mdlW2, sl_kln_pct: 100 - mdlW2 })
-    }),
-    fetch('/api/gln-gewichte/speichern', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-      body: JSON.stringify({ hj: HJ_KEY, gln_weights: glnW })
+      body: JSON.stringify({ sl_mittel_w: !isNaN(slMittelW) ? slMittelW : 1.0 })
     }),
   ]);
-  const [d1, d2, d3, d4] = await Promise.all([r1.json(), r2.json(), r3.json(), r4.json()]);
-  const ok = d1.ok && d2.ok && d3.ok && d4.ok;
+  const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
+  const ok = d1.ok && d2.ok;
   showToast(ok ? 'Gespeichert.' : 'Fehler beim Speichern.', ok ? 'success' : 'danger');
 });
 function showToast(msg, type) {
