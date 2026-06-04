@@ -124,7 +124,14 @@
       </td>{# sl-mittel weight #}
       <td></td>{# hj vorschlag #}
       <td></td>{# hj tatsächlich #}
-      <td></td>{# verhalten #}
+      <td class="text-center">
+        {% if hj == 'hj2' %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnVerhaltenCopyAll"
+                title="Verhaltensnoten aus HJ1 für alle Schüler übernehmen">
+          <i class="bi bi-arrow-down-square me-1"></i>HJ1 -> HJ2
+        </button>
+        {% endif %}
+      </td>{# verhalten #}
       <td class="text-center">
         <button type="button" class="btn btn-sm btn-outline-secondary" id="btnMitarbeitAuto"
                 title="Mitarbeit für alle Schüler aus Mündl.-Noten automatisch vorschlagen">
@@ -330,10 +337,12 @@ function updateRow(row) {
   const sl2Actual = row.dataset.sl2Actual !== '' ? parseInt(row.dataset.sl2Actual, 10) : null;
 
   // Effective note for calculations: actual if confirmed, else computed
-  const sl1Computed = roundNote15(computeSlNote(m1, km1));
-  const sl2Computed = roundNote15(computeSlNote(m2, km2));
-  const sl1Eff = sl1Actual !== null ? sl1Actual : sl1Computed;
-  const sl2Eff = sl2Actual !== null ? sl2Actual : sl2Computed;
+  const sl1Raw = computeSlNote(m1, km1);
+  const sl2Raw = computeSlNote(m2, km2);
+  const sl1Eff = sl1Actual !== null ? sl1Actual : roundNote15(sl1Raw);
+  const sl2Eff = sl2Actual !== null ? sl2Actual : roundNote15(sl2Raw);
+  const sl1ForMittel = sl1Actual !== null ? sl1Actual : sl1Raw;
+  const sl2ForMittel = sl2Actual !== null ? sl2Actual : sl2Raw;
 
   // Display: only show when manually confirmed; otherwise empty
   if (sl1Actual === null) {
@@ -379,7 +388,7 @@ function updateRow(row) {
   const verhInput = row.querySelector('.verhalten-input');
   const verhSpan  = row.querySelector('.verhalten-proposal-span');
   if (verhSpan) {
-    const proposal = verhInput?.dataset?.verhaltensProposal || '';
+    const proposal = row.dataset.verhaltensProposal || '';
     verhSpan.textContent = (!verhInput || verhInput.value === '') && proposal ? `(${proposal})` : '';
   }
 }
@@ -417,6 +426,16 @@ document.getElementById('btnMitarbeitAuto')?.addEventListener('click', () => {
     }
   });
 });
+document.getElementById('btnVerhaltenCopyAll')?.addEventListener('click', () => {
+  document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
+    const inp = row.querySelector('.verhalten-input');
+    const proposal = row.dataset.verhaltensProposal || '';
+    if (inp && proposal !== '') {
+      inp.value = proposal;
+      inp.dispatchEvent(new Event('input'));
+    }
+  });
+});
 document.getElementById('btnSave')?.addEventListener('click', async () => {
   const schueler = [];
   document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
@@ -432,16 +451,14 @@ document.getElementById('btnSave')?.addEventListener('click', async () => {
   });
   const slMittelW = parseFloat(document.getElementById('wSlMittel')?.value);
   const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
-  const [r1, r2] = await Promise.all([
-    fetch('/api/hj-speichern', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-      body: JSON.stringify({ hj: HJ_KEY, schueler })
-    }),
-    fetch('/api/gewichtung/speichern', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-      body: JSON.stringify({ sl_mittel_w: !isNaN(slMittelW) ? slMittelW : 1.0 })
-    }),
-  ]);
+  const r1 = await fetch('/api/hj-speichern', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify({ hj: HJ_KEY, schueler })
+  });
+  const r2 = await fetch('/api/gewichtung/speichern', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+    body: JSON.stringify({ sl_mittel_w: !isNaN(slMittelW) ? slMittelW : 1.0 })
+  });
   const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
   const ok = d1.ok && d2.ok;
   showToast(ok ? 'Gespeichert.' : 'Fehler beim Speichern.', ok ? 'success' : 'danger');
