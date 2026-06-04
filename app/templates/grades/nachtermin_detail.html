@@ -189,7 +189,7 @@
         <canvas id="chartNoten"></canvas>
       </div>
       <div class="col-md-6" id="afbSummary">
-        <h6>Anforderungsbereiche (Punkte)</h6>
+        <h6>Anforderungsbereiche (Ø Punkte)</h6>
         <canvas id="chartAfb"></canvas>
       </div>
     </div>
@@ -583,10 +583,27 @@ document.getElementById('statistikPanel').addEventListener('show.bs.collapse', a
     _chartAfb = new Chart(document.getElementById('chartAfb'), {
       type: 'bar',
       data: { labels: afbLabels, datasets: [
-        { label: 'Erreicht', data: afbLabels.map(k => _statData.afb_punkte[k] || 0), backgroundColor: 'rgba(40,167,69,0.7)' },
+        { label: 'Ø Erreicht', data: afbLabels.map(k => _statData.afb_punkte[k] || 0), backgroundColor: 'rgba(40,167,69,0.7)' },
         { label: 'Maximum', data: afbLabels.map(k => _statData.afb_max[k] || 0), backgroundColor: 'rgba(200,200,200,0.5)' }
       ]},
-      options: { plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+      options: {
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label(ctx) {
+                const val = ctx.parsed.y;
+                const afb = afbLabels[ctx.dataIndex];
+                const max = _statData.afb_max[afb] || 0;
+                if (ctx.dataset.label === 'Maximum') return `Maximum: ${val}P`;
+                const pct = max > 0 ? Math.round(val / max * 100) : 0;
+                return [`Ø Erreicht: ${val}P`, `${pct}% von ${max}P`];
+              }
+            }
+          }
+        },
+        scales: { y: { beginAtZero: true } }
+      }
     });
   }
 });

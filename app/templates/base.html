@@ -257,6 +257,311 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+<!-- ── Shared Smart Paste Modal ──────────────────────────────────────────── -->
+<div class="modal fade" id="smartPastePrevModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-clipboard-data me-2"></i>Aus Excel einfügen – Vorschau
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="smartPastePrevBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" class="btn btn-primary" id="smartPastePrevConfirm">
+          <i class="bi bi-check-lg me-1"></i>Einfügen bestätigen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Shared Smart Paste JS ─────────────────────────────────────────────── -->
+<script>
+(function(G) {
+  'use strict';
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function _normName(s) { return s.trim().toLowerCase().replace(/\s+/g, ' '); }
+  function _isNumericCell(s) {
+    const v = s.trim().replace(',', '.');
+    return v === '' || v === '-' || v === '–' || !isNaN(parseFloat(v));
+  }
+  function _parseNum(s) {
+    const v = s.trim().replace(',', '.');
+    if (v === '' || v === '-' || v === '–') return null;
+    const n = parseFloat(v); return isNaN(n) ? null : n;
+  }
+
+  /** Detect how many leading columns are name columns (1 or 2).
+   *  At least one non-numeric text value must appear in the first column.
+   *  If the second column also has non-numeric text in ≥1 row, assume 2 name cols. */
+  function _detectNameCols(rows) {
+    if (!rows.length) return 0;
+    const nc = rows[0].length;
+    if (nc < 2) return 0;
+    const firstHasText = rows.some(r => { const v = (r[0]||'').trim(); return v && !_isNumericCell(v); });
+    if (!firstHasText) return 0;
+    if (nc < 3) return 1;
+    const secondHasText = rows.some(r => { const v = (r[1]||'').trim(); return v && !_isNumericCell(v); });
+    return secondHasText ? 2 : 1;
+  }
+
+  function _nameVariants(row, nameCols) {
+    if (nameCols === 1) {
+      const raw = row[0].trim();
+      if (raw.includes(',')) {
+        const p = raw.split(',', 2).map(s => s.trim());
+        return [_normName(raw), _normName(p[1] + ', ' + p[0])];
+      }
+      return [_normName(raw)];
+    }
+    const p1 = row[0].trim(), p2 = row[1].trim();
+    return [_normName(p1+', '+p2), _normName(p2+', '+p1),
+            _normName(p1+' '+p2),  _normName(p2+' '+p1)];
+  }
+
+  function _spToast(msg, type) {
+    if (typeof showToast === 'function') { showToast(msg, type); return; }
+    const d = document.createElement('div');
+    d.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
+    d.setAttribute('role', 'alert');
+    d.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+    document.body.appendChild(d);
+    new bootstrap.Toast(d, { delay: 3500 }).show();
+    d.addEventListener('hidden.bs.toast', () => d.remove());
+  }
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let _pending = null;  // { studentRows, dataCols, colEnabled[], applyColFn, applyFn }
+
+  // ── Modal rendering ────────────────────────────────────────────────────────
+  function _renderModal() {
+    const { studentRows, dataCols, colEnabled, applyFn } = _pending;
+    const body      = document.getElementById('smartPastePrevBody');
+    const confirmBtn = document.getElementById('smartPastePrevConfirm');
+    if (!body) return;
+
+    const matched   = studentRows.filter(r => r.appName);
+    const unmatched = studentRows.filter(r => !r.appName);
+    const enabledIdx = dataCols.map((_, i) => i).filter(i => colEnabled[i]);
+
+    // Count stats across enabled columns
+    let newCnt = 0, repCnt = 0, unchCnt = 0, applyCnt = 0;
+    matched.forEach(r => {
+      enabledIdx.forEach((ci, offset) => {
+        const inp = r.inputEls[offset];
+        const nv  = r.newValues[ci];
+        const cv  = inp ? (inp.value !== '' ? parseFloat(inp.value) : null) : null;
+        if (!inp || nv === null) return;
+        applyCnt++;
+        if (cv === null)    newCnt++;
+        else if (cv === nv) unchCnt++;
+        else                repCnt++;
+      });
+    });
+
+    let html = '';
+
+    // ── Column toggle checkboxes ──────────────────────────────────────────────
+    if (dataCols.length > 1) {
+      html += `<div class="mb-3 p-2 border rounded bg-light">
+        <div class="fw-semibold small mb-2"><i class="bi bi-toggles me-1"></i>Spalten auswählen:</div>
+        <div class="d-flex gap-3 flex-wrap" id="sp-col-toggles">`;
+      dataCols.forEach((lbl, i) => {
+        html += `<div class="form-check mb-0">
+          <input class="form-check-input sp-col-cb" type="checkbox" id="sp_col_${i}"
+                 data-colidx="${i}" ${colEnabled[i] ? 'checked' : ''}>
+          <label class="form-check-label small" for="sp_col_${i}">${lbl}</label>
+        </div>`;
+      });
+      html += `</div></div>`;
+    }
+
+    // ── Summary badges ────────────────────────────────────────────────────────
+    html += `<div class="mb-3 d-flex gap-1 flex-wrap" id="sp-summary-badges">`;
+    if (newCnt)          html += `<span class="badge bg-success">${newCnt} neu</span>`;
+    if (repCnt)          html += `<span class="badge bg-warning text-dark">${repCnt} ersetzt</span>`;
+    if (unchCnt)         html += `<span class="badge bg-info text-dark">${unchCnt} unverändert</span>`;
+    if (unmatched.length)html += `<span class="badge bg-danger">${unmatched.length} nicht gefunden</span>`;
+    const notInClip = studentRows.length > 0 ? _pending.totalAppStudents - matched.length : 0;
+    if (notInClip > 0)   html += `<span class="badge bg-secondary">${notInClip} nicht im Clipboard</span>`;
+    html += `</div>`;
+
+    // ── Matched student table ─────────────────────────────────────────────────
+    if (matched.length) {
+      html += `<h6 class="mb-1">Zugeordnete Schüler</h6>
+      <div class="table-responsive"><table class="table table-sm table-bordered mb-3" id="sp-preview-table">
+        <thead><tr>
+          <th>Schüler (App)</th>`;
+      enabledIdx.forEach((ci, offset) => {
+        html += `<th class="text-center sp-col-th" data-offset="${offset}">${dataCols[ci]}<br>
+          <small class="text-muted fw-normal">Aktuell → Neu</small></th>`;
+      });
+      html += `</tr></thead><tbody>`;
+      matched.forEach((r, ri) => {
+        html += `<tr>`;
+        html += `<td>${r.appName}</td>`;
+        enabledIdx.forEach((ci, offset) => {
+          const inp = r.inputEls[offset];
+          const nv  = r.newValues[ci];
+          const cv  = inp ? (inp.value !== '' ? parseFloat(inp.value) : null) : null;
+          let cell;
+          if (!inp)          cell = `<span class="text-muted small">–</span>`;
+          else if (nv === null) cell = `<span class="text-muted">–</span>`;
+          else if (cv === null) cell = `<span class="text-success fw-bold">${nv}</span>`;
+          else if (cv === nv)   cell = `<span class="text-info">${nv}</span>`;
+          else                  cell = `<span class="text-muted text-decoration-line-through me-1">${cv}</span><span class="text-warning fw-bold">${nv}</span>`;
+          html += `<td class="text-center">${cell}</td>`;
+        });
+        html += `</tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+
+    // ── Unmatched ────────────────────────────────────────────────────────────
+    if (unmatched.length) {
+      html += `<h6 class="text-danger mb-1">Nicht gefunden (${unmatched.length})</h6>
+      <ul class="list-group list-group-flush mb-3">`;
+      unmatched.forEach(r => html += `<li class="list-group-item list-group-item-danger small">${r.pastedDisplay}</li>`);
+      html += `</ul>`;
+    }
+
+    body.innerHTML = html;
+    if (confirmBtn) confirmBtn.disabled = applyCnt === 0;
+
+    // Bind column toggle checkboxes
+    body.querySelectorAll('.sp-col-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        _pending.colEnabled[parseInt(cb.dataset.colidx)] = cb.checked;
+        _pending.applyColFn();  // re-render
+      });
+    });
+  }
+
+  // ── Confirm handler ────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('smartPastePrevConfirm')?.addEventListener('click', () => {
+      if (!_pending) return;
+      const { studentRows, dataCols, colEnabled, applyFn } = _pending;
+      const enabledIdx = dataCols.map((_, i) => i).filter(i => colEnabled[i]);
+      let applied = 0;
+      studentRows.forEach(r => {
+        if (!r.appName) return;
+        enabledIdx.forEach((ci, offset) => {
+          const inp = r.inputEls[offset];
+          const nv  = r.newValues[ci];
+          if (!inp || nv === null) return;
+          applyFn(inp, nv); applied++;
+        });
+      });
+      _pending = null;
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('smartPastePrevModal')).hide();
+      _spToast(`${applied} Felder aktualisiert – bitte speichern!`, 'success');
+    });
+  });
+
+  // ── Public API ─────────────────────────────────────────────────────────────
+  /**
+   * Attach Smart Paste to a table.
+   *
+   * @param {Object} opts
+   * @param {string}   opts.tableId          - ID of the <table> element
+   * @param {string}   opts.inputSelector    - CSS selector for editable inputs (paste target)
+   * @param {Function} opts.getRowName(tr)   - returns student name string or null
+   * @param {Function} opts.getTargetInput(tr, focusedInput, colOffset)
+   *                                         - returns the <input> at colOffset from focused, or null
+   * @param {Function} [opts.getColLabel(focusedInput, colOffset)]
+   *                                         - returns column label string (default: "Spalte N")
+   * @param {string}   [opts.eventName='input'] - DOM event to fire after applying value
+   */
+  G.smartPasteAttach = function({ tableId, inputSelector, getRowName, getTargetInput, getColLabel, eventName = 'input' }) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+
+    table.addEventListener('paste', e => {
+      const target = e.target;
+      if (!target.matches(inputSelector)) return;
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      if (!text) return;
+
+      const pastedRows = text.trimEnd().split(/\r?\n/).map(r => r.split('\t'));
+      const nameCols   = _detectNameCols(pastedRows);
+      if (nameCols === 0) return;  // no name column found → positional paste handled by page
+
+      const numDataCols = pastedRows[0].length - nameCols;
+      if (numDataCols < 1) return;
+
+      // Build app-side lookup
+      const allTr      = Array.from(table.querySelectorAll('tbody tr')).filter(tr => getRowName(tr) !== null);
+      const appNames   = allTr.map(tr => getRowName(tr));
+      const normApp    = appNames.map(_normName);
+      const normToOrig = Object.fromEntries(normApp.map((n, i) => [n, appNames[i]]));
+      const nameToTr   = Object.fromEntries(allTr.map((tr, i) => [appNames[i], tr]));
+
+      // Data column labels
+      const dataCols = Array.from({ length: numDataCols }, (_, i) =>
+        getColLabel ? getColLabel(target, i) : `Spalte ${i + 1}`
+      );
+
+      // Build per-student match objects
+      const studentRows = pastedRows.map(row => {
+        const pastedDisplay = nameCols === 1 ? row[0].trim() : row[0].trim() + ' / ' + row[1].trim();
+        const variants      = _nameVariants(row, nameCols);
+        const matchedNorm   = normApp.find(n => variants.includes(n)) ?? null;
+        const appName       = matchedNorm ? normToOrig[matchedNorm] : null;
+
+        // Parse all data columns
+        const newValues = Array.from({ length: numDataCols }, (_, i) =>
+          _parseNum(row[nameCols + i] ?? '')
+        );
+
+        // Resolve input elements per enabled offset (initially all enabled → offset = col index)
+        const tr = appName ? nameToTr[appName] : null;
+        const inputEls = Array.from({ length: numDataCols }, (_, i) =>
+          tr ? (getTargetInput(tr, target, i) ?? null) : null
+        );
+
+        return { pastedDisplay, appName, newValues, inputEls };
+      });
+
+      const colEnabled = new Array(numDataCols).fill(true);
+
+      const applyFn = (inp, val) => {
+        const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
+        const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
+        inp.value = Math.max(min, Math.min(max, val));
+        inp.dispatchEvent(new Event(eventName));
+      };
+
+      // Re-compute inputEls whenever colEnabled changes (lückenlos mapping)
+      const applyColFn = () => {
+        const enabledIdx = dataCols.map((_, i) => i).filter(i => colEnabled[i]);
+        studentRows.forEach(r => {
+          const tr = r.appName ? nameToTr[r.appName] : null;
+          r.inputEls = enabledIdx.map((ci, offset) =>
+            tr ? (getTargetInput(tr, target, offset) ?? null) : null
+          );
+        });
+        _renderModal();
+      };
+
+      _pending = {
+        studentRows, dataCols, colEnabled, applyColFn, applyFn,
+        totalAppStudents: appNames.length,
+      };
+      applyColFn();  // initial render
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('smartPastePrevModal')).show();
+    });
+  };
+})(window);
+</script>
+
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

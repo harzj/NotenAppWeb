@@ -73,6 +73,14 @@
           </button>
         </form>
         {% endif %}
+        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+                data-bs-target="#umbenennenModal"
+                data-idx="{{ i }}"
+                data-nachname="{{ s.nachname }}"
+                data-vorname="{{ s.vorname }}"
+                title="Name ändern">
+          <i class="bi bi-pencil"></i>
+        </button>
         <form method="post" action="{{ url_for('grades.student_loeschen', idx=i) }}" class="d-inline"
               onsubmit="return confirm('Schüler wirklich löschen?')">
           {{ csrf_field() }}
@@ -191,6 +199,43 @@
   </div>
 </div>
 
+<!-- Umbenennen Modal -->
+<div class="modal fade" id="umbenennenModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Name ändern</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" id="umbenennenForm" novalidate>
+        {{ csrf_field() }}
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Nachname</label>
+            <input type="text" name="nachname" id="umbenennenNachname"
+                   class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Vorname</label>
+            <input type="text" name="vorname" id="umbenennenVorname"
+                   class="form-control" required>
+          </div>
+          <div class="alert alert-warning small mb-0">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            Der Name wird in allen Leistungsnachweisen und Noten automatisch mitgeändert.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-lg me-1"></i>Änderung speichern
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- Austritt Modal -->
 <div class="modal fade" id="austrittModal" tabindex="-1">
   <div class="modal-dialog">
@@ -270,6 +315,15 @@ document.getElementById('austrittModal').addEventListener('show.bs.modal', funct
 document.getElementById('aufnahmeModal').addEventListener('show.bs.modal', function(e) {
   const btn = e.relatedTarget;
   document.getElementById('aufnahmeIdx').value = btn.getAttribute('data-idx');
+});
+
+document.getElementById('umbenennenModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  const idx = btn.getAttribute('data-idx');
+  document.getElementById('umbenennenNachname').value = btn.getAttribute('data-nachname');
+  document.getElementById('umbenennenVorname').value  = btn.getAttribute('data-vorname');
+  document.getElementById('umbenennenForm').action =
+    `/stammdaten/umbenennen/${idx}`;
 });
 
 // ── Paste-Import ──────────────────────────────────────────────────────────────

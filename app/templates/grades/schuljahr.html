@@ -30,6 +30,24 @@
     <button class="btn btn-success btn-sm" id="btnSave">
       <i class="bi bi-save me-1"></i>Speichern
     </button>
+    <div class="dropdown ms-1">
+      <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button"
+              id="kornExportBtn" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="bi bi-box-arrow-up me-1"></i>Korn Export
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="kornExportBtn">
+        <li>
+          <button class="dropdown-item" id="btnKornClipboard">
+            <i class="bi bi-clipboard me-2"></i>In die Zwischenablage kopieren
+          </button>
+        </li>
+        <li>
+          <a class="dropdown-item" href="{{ url_for('grades.klasse_korn_export', mode='schuljahr') }}">
+            <i class="bi bi-file-earmark-excel me-2"></i>Als Excel exportieren
+          </a>
+        </li>
+      </ul>
+    </div>
   </div>
 </div>
 <p class="text-muted small">
@@ -79,7 +97,15 @@
         {% endif %}
       {% else %}–{% endif %}
     {% endmacro %}
-    <tr data-name="{{ row.name }}" data-aufnahme="{{ row.aufnahme_ab_hj or '' }}">
+    <tr data-name="{{ row.name }}"
+        data-sj-note="{{ row.sj_actual if row.sj_actual is not none else '' }}"
+        data-verh="{{ row.verhalten_hj2 if row.verhalten_hj2 is not none else (row.verhalten_hj1 if row.verhalten_hj1 is not none else '') }}"
+        data-mit="{{ row.mitarbeit_hj2 if row.mitarbeit_hj2 is not none else (row.mitarbeit_hj1 if row.mitarbeit_hj1 is not none else '') }}"
+        data-gln-notes="{{ row.gln_notes_export | tojson }}"
+        data-sl1="{{ row.sl1_act if row.sl1_act is not none else '' }}"
+        data-sl2="{{ row.sl2_act if row.sl2_act is not none else '' }}"
+        data-sl3="{{ row.sl3_act if row.sl3_act is not none else '' }}"
+        data-sl4="{{ row.sl4_act if row.sl4_act is not none else '' }}" data-aufnahme="{{ row.aufnahme_ab_hj or '' }}">
       <td>
         {{ row.name }}
         {% if row.is_aufnahme_hj2 %}
@@ -156,7 +182,38 @@
 {% endblock %}
 {% block extra_scripts %}
 <script>
-document.getElementById('btnSave')?.addEventListener('click', async () => {
+// ── Korn Clipboard Export ─────────────────────────────────────────────────────
+// NOTE: reads data-* attrs added to tbody rows for Korn export.
+// Each tr[data-name] needs: data-sj-note, data-verh, data-mit, data-gln-notes (JSON), data-sl1..sl4
+document.getElementById('btnKornClipboard')?.addEventListener('click', () => {
+  const lines = [];
+  document.querySelectorAll('#schuljahrTable tbody tr[data-name]').forEach(tr => {
+    // Schuljahr actual note: from the sj-actual-input or data attr
+    const note = tr.querySelector('.sj-actual-input')?.value.trim()
+                 || (tr.dataset.sjNote || '');
+    const verh = tr.dataset.verh || '';
+    const mit  = tr.dataset.mit  || '';
+    const glnNotes = JSON.parse(tr.dataset.glnNotes || '[]');
+    const gln1 = glnNotes[0] != null ? String(glnNotes[0]) : '';
+    const gln2 = glnNotes[1] != null ? String(glnNotes[1]) : '';
+    const gln3 = glnNotes[2] != null ? String(glnNotes[2]) : '';
+    const sl1 = tr.dataset.sl1 || '';
+    const sl2 = tr.dataset.sl2 || '';
+    const sl3 = tr.dataset.sl3 || '';
+    const sl4 = tr.dataset.sl4 || '';
+    lines.push([note, verh, mit, gln1, gln2, gln3, sl1, sl2, sl3, sl4].join('\t'));
+  });
+  const text = lines.join('\r\n') + '\r\n';
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Korn-Daten in Zwischenablage kopiert!', 'success');
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+    showToast('Korn-Daten in Zwischenablage kopiert!', 'success');
+  });
+});
   const schueler = [];
   document.querySelectorAll('#sjTable tbody tr[data-name]').forEach(row => {
     const inp = row.querySelector('.sj-actual-input');

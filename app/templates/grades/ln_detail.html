@@ -289,7 +289,7 @@
         <canvas id="chartNoten"></canvas>
       </div>
       <div class="col-md-6" id="afbSummary">
-        <h6>Anforderungsbereiche (Punkte)</h6>
+        <h6>Anforderungsbereiche (Ø Punkte)</h6>
         <canvas id="chartAfb"></canvas>
       </div>
     </div>
@@ -943,14 +943,30 @@ document.getElementById('statistikPanel').addEventListener('show.bs.collapse', a
       data: {
         labels: afbLabels,
         datasets: [
-          { label: 'Erreicht', data: afbLabels.map(k => _statData.afb_punkte[k] || 0),
+          { label: 'Ø Erreicht', data: afbLabels.map(k => _statData.afb_punkte[k] || 0),
             backgroundColor: 'rgba(40,167,69,0.7)' },
           { label: 'Maximum', data: afbLabels.map(k => _statData.afb_max[k] || 0),
             backgroundColor: 'rgba(200,200,200,0.5)' }
         ]
       },
-      options: { plugins: { legend: { position: 'bottom' } },
-                 scales: { y: { beginAtZero: true } } }
+      options: {
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label(ctx) {
+                const val = ctx.parsed.y;
+                const afb = afbLabels[ctx.dataIndex];
+                const max = _statData.afb_max[afb] || 0;
+                if (ctx.dataset.label === 'Maximum') return `Maximum: ${val}P`;
+                const pct = max > 0 ? Math.round(val / max * 100) : 0;
+                return [`Ø Erreicht: ${val}P`, `${pct}% von ${max}P`];
+              }
+            }
+          }
+        },
+        scales: { y: { beginAtZero: true } }
+      }
     });
   }
 });
@@ -960,27 +976,51 @@ document.getElementById('stat6p').addEventListener('change', () => {
 });
 
 // ── Excel-Paste-Support ───────────────────────────────────────────────────────
-// Wenn Zellen aus Excel (oder einer anderen Tabelle) kopiert werden, liegen sie
-// als TSV im Clipboard vor: Spalten durch Tab, Zeilen durch Newline getrennt.
-// Einfügen beginnt an der fokussierten Zelle und füllt nach rechts / unten.
+// Smart Paste über shared smartPasteAttach (base.html).
+// Fallback: nur Zahlenspalten → zeilenweise ab der fokussierten Zelle.
+
+smartPasteAttach({
+  tableId: 'gradeTable',
+  inputSelector: '.student-points',
+  getRowName: tr => (tr.dataset.inNt === 'true') ? null : (tr.getAttribute('data-sname') || null),
+  getTargetInput: (tr, focused, colOffset) => {
+    const startTidx = parseInt(focused.dataset.tidx, 10);
+    if (isNaN(startTidx)) return null;
+    return tr.querySelector(`.student-points[data-tidx="${startTidx + colOffset}"]`) || null;
+  },
+  getColLabel: (focused, colOffset) => {
+    const startTidx = parseInt(focused.dataset.tidx, 10);
+    if (isNaN(startTidx)) return `Spalte ${colOffset + 1}`;
+    const tidx = startTidx + colOffset;
+    const th = document.querySelectorAll('#gradeTable thead tr:first-child th')[tidx + 2];
+    return th ? th.textContent.trim().split('\n')[0].trim() : `Aufgabe ${tidx + 1}`;
+  },
+  eventName: 'input',
+});
+
+// Positional paste listener (plain numbers, no name column)
 document.getElementById('gradeTable').addEventListener('paste', function(e) {
   const target = e.target;
   if (!target.classList.contains('student-points')) return;
 
-  e.preventDefault();
-
   const text = (e.clipboardData || window.clipboardData).getData('text');
   if (!text) return;
 
-  // Parse TSV: Zeilen durch \n, Spalten durch \t
   const pastedRows = text.trimEnd().split(/\r?\n/).map(row => row.split('\t'));
+  // If first column has any text value → smart paste handled above; skip here
+  const firstColHasText = pastedRows.some(r => {
+    const v = (r[0] || '').trim().replace(',', '.');
+    return r[0]?.trim() && (v === '' || isNaN(parseFloat(v)));
+  });
+  if (firstColHasText) return;  // smart paste will handle
+
+  e.preventDefault();
 
   const allStudentRows = Array.from(
     document.querySelectorAll('#gradeTable tbody tr[data-sname]')
   );
   const startStudentIdx = allStudentRows.indexOf(target.closest('tr'));
   const startTaskIdx    = parseInt(target.dataset.tidx, 10);
-
   if (startStudentIdx === -1 || isNaN(startTaskIdx)) return;
 
   let filledCount = 0;
@@ -988,24 +1028,19 @@ document.getElementById('gradeTable').addEventListener('paste', function(e) {
     const studentIdx = startStudentIdx + rowOffset;
     if (studentIdx >= allStudentRows.length) return;
     const row = allStudentRows[studentIdx];
-
     cols.forEach((raw, colOffset) => {
       const taskIdx = startTaskIdx + colOffset;
       const inp = row.querySelector(`.student-points[data-tidx="${taskIdx}"]`);
       if (!inp) return;
-
       const trimmed = raw.trim();
-      if (trimmed === '' || trimmed === '-') {
+      if (trimmed === '' || trimmed === '-' || trimmed === '–') {
         inp.value = '';
         inp.dispatchEvent(new Event('input'));
         filledCount++;
         return;
       }
-      // Deutsches Dezimalkomma → Punkt normalisieren
-      const normalized = trimmed.replace(',', '.');
-      const num = parseFloat(normalized);
+      const num = parseFloat(trimmed.replace(',', '.'));
       if (isNaN(num)) return;
-
       const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
       inp.value = Math.max(0, Math.min(max, num));
       inp.dispatchEvent(new Event('input'));
@@ -1015,10 +1050,8 @@ document.getElementById('gradeTable').addEventListener('paste', function(e) {
 
   if (filledCount > 0) {
     const rowWord = pastedRows.length === 1 ? 'Zeile' : 'Zeilen';
-    showToast(
-      `${pastedRows.length} ${rowWord} aus Zwischenablage eingefügt – bitte speichern!`,
-      'info'
-    );
+    showToast(`${pastedRows.length} ${rowWord} aus Zwischenablage eingefügt – bitte speichern!`, 'info');
+    _dirty = true;
   }
 });
 

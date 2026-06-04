@@ -2,13 +2,31 @@
 {% from "macros.html" import csrf_field %}
 {% block title %}Kurs-Übersicht {{ hj }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h4 class="mb-0"><i class="bi bi-table me-2"></i>Kurs-Übersicht – {{ hj }}</h4>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap align-items-center">
     {% for h in all_hj %}
     <a href="{{ url_for('grades.kurs_uebersicht', hj=h) }}"
        class="btn btn-sm {{ 'btn-primary' if h == hj else 'btn-outline-secondary' }}">{{ h }}</a>
     {% endfor %}
+    <div class="dropdown ms-1">
+      <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button"
+              id="kornExportBtn" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="bi bi-box-arrow-up me-1"></i>Korn Export
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="kornExportBtn">
+        <li>
+          <button class="dropdown-item" id="btnKornClipboard">
+            <i class="bi bi-clipboard me-2"></i>In die Zwischenablage kopieren
+          </button>
+        </li>
+        <li>
+          <a class="dropdown-item" href="{{ url_for('grades.kurs_korn_export', hj=hj) }}">
+            <i class="bi bi-file-earmark-excel me-2"></i>Als Excel exportieren
+          </a>
+        </li>
+      </ul>
+    </div>
   </div>
 </div>
 
@@ -25,7 +43,9 @@
         <th class="text-center">Mündl. 1</th>
         <th class="text-center">Mündl. 2</th>
         <th class="text-center">Vorschlag</th>
-        <th class="text-center">Tatsächlich</th>
+        <th class="text-center table-primary">Tatsächlich</th>
+        <th class="text-center" title="Fehlstunden entschuldigt">FS entschuld.</th>
+        <th class="text-center" title="Fehlstunden unentschuldigt">FS unentschuld.</th>
       </tr>
     </thead>
     <tbody>
@@ -33,7 +53,8 @@
       <tr>
         <td>{{ row.name }}</td>
         {% for slot in hj_slots %}
-        <td class="text-center">
+        <td class="text-center" data-slot="{{ slot }}"
+            data-gln-note="{{ row.gln_notes.get(slot) if row.gln_notes.get(slot) is not none else '' }}">
           {% set note = row.gln_notes.get(slot) %}
           {% if note is not none %}{{ note }}{% else %}<span class="text-muted">–</span>{% endif %}
         </td>
@@ -62,12 +83,26 @@
         <td class="text-center fw-semibold text-primary">
           {% if row.vorschlag is not none %}{{ row.vorschlag }}{% else %}<span class="text-muted">–</span>{% endif %}
         </td>
-        <td class="text-center">
-          <input type="number" class="form-control form-control-sm text-center"
+        <td class="text-center table-primary fw-bold">
+          <input type="number" class="form-control form-control-sm text-center fw-bold"
                  style="width:5rem; display:inline-block;"
                  min="0" max="15" step="1"
                  data-name="{{ row.name }}" data-key="tatsaechlich"
                  value="{{ row.tatsaechlich if row.tatsaechlich is not none else '' }}">
+        </td>
+        <td class="text-center">
+          <input type="number" class="form-control form-control-sm text-center"
+                 style="width:5rem; display:inline-block;"
+                 min="0" step="1"
+                 data-name="{{ row.name }}" data-key="{{ hj }}_fs_e"
+                 value="{{ row.fs_e }}">
+        </td>
+        <td class="text-center">
+          <input type="number" class="form-control form-control-sm text-center"
+                 style="width:5rem; display:inline-block;"
+                 min="0" step="1"
+                 data-name="{{ row.name }}" data-key="{{ hj }}_fs_u"
+                 value="{{ row.fs_u }}">
         </td>
       </tr>
       {% endfor %}
@@ -125,6 +160,78 @@ document.getElementById('btnSave')?.addEventListener('click', async () => {
     status.textContent = 'Netzwerkfehler';
     status.className = 'ms-3 text-danger small';
   }
+});
+
+// ── Korn Clipboard Export ─────────────────────────────────────────────────────
+document.getElementById('btnKornClipboard')?.addEventListener('click', () => {
+  const table = document.getElementById('kuTable');
+  if (!table) return;
+
+  const lines = [];
+  table.querySelectorAll('tbody tr').forEach(tr => {
+    // tatsächlich input
+    const noteInp = tr.querySelector(`input[data-key="tatsaechlich"]`);
+    const note    = noteInp ? (noteInp.value.trim() || '') : '';
+    // Fehlstunden
+    const fseInp  = tr.querySelector(`input[data-key="${HJ}_fs_e"]`);
+    const fsuInp  = tr.querySelector(`input[data-key="${HJ}_fs_u"]`);
+    const fse     = fseInp ? (fseInp.value.trim() || '0') : '0';
+    const fsu     = fsuInp ? (fsuInp.value.trim() || '0') : '0';
+    // GLN notes from data-gln-note cells (in slot order)
+    const glnCells = Array.from(tr.querySelectorAll('td[data-gln-note]'));
+    const ka1 = glnCells[0] ? glnCells[0].dataset.glnNote : '';
+    const ka2 = glnCells[1] ? glnCells[1].dataset.glnNote : '';
+    lines.push([note, fse, fsu, ka1, ka2].join('\t'));
+  });
+
+  const text = lines.join('\r\n') + '\r\n';
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Korn-Daten in Zwischenablage kopiert!', 'success');
+  }).catch(() => {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity  = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    showToast('Korn-Daten in Zwischenablage kopiert!', 'success');
+  });
+});
+
+// ── Smart Paste ────────────────────────────────────────────────────────────
+// Inputs in each row are ordered: HJn_mdl1, HJn_mdl2, tatsaechlich, HJn_fs_e, HJn_fs_u
+smartPasteAttach({
+  tableId: 'kuTable',
+  inputSelector: 'input[data-name]',
+  getRowName: tr => tr.querySelector('input[data-name]')?.dataset.name || null,
+  getTargetInput: (tr, focused, colOffset) => {
+    const inputs = Array.from(tr.querySelectorAll('input[data-name]'));
+    const startIdx = inputs.findIndex(i => i.dataset.key === focused.dataset.key);
+    if (startIdx === -1) return null;
+    return inputs[startIdx + colOffset] || null;
+  },
+  getColLabel: (focused, colOffset) => {
+    const table = document.getElementById('kuTable');
+    const firstTr = table?.querySelector('tbody tr');
+    if (firstTr) {
+      const inputs = Array.from(firstTr.querySelectorAll('input[data-name]'));
+      const startIdx = inputs.findIndex(i => i.dataset.key === focused.dataset.key);
+      const inp = inputs[startIdx + colOffset];
+      if (inp) {
+        const key = inp.dataset.key || '';
+        if (key.endsWith('_mdl1'))  return 'Mündl. 1';
+        if (key.endsWith('_mdl2'))  return 'Mündl. 2';
+        if (key === 'tatsaechlich') return 'Note';
+        if (key.endsWith('_fs_e'))  return 'FS entschuld.';
+        if (key.endsWith('_fs_u'))  return 'FS unentschuld.';
+        return key;
+      }
+    }
+    return `Spalte ${colOffset + 1}`;
+  },
 });
 </script>
 {% endblock %}

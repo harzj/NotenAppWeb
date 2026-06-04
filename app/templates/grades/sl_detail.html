@@ -341,5 +341,25 @@ function showToast(msg, type) {
   new bootstrap.Toast(div, { delay: 3000 }).show();
   div.addEventListener('hidden.bs.toast', () => div.remove());
 }
+
+// ── Smart Paste ────────────────────────────────────────────────────────────
+const _SL_INPUT_CLS = ['mdl-input', 'sl-actual-input'];
+smartPasteAttach({
+  tableId: 'slTable',
+  inputSelector: 'input[type=number]',
+  getRowName: tr => tr.dataset.name || null,
+  getTargetInput: (tr, focused, colOffset) => {
+    // Find which input class the focused input belongs to, then step colOffset from there
+    const startIdx = _SL_INPUT_CLS.findIndex(c => focused.classList.contains(c));
+    if (startIdx === -1) return null;
+    const targetCls = _SL_INPUT_CLS[startIdx + colOffset];
+    return targetCls ? tr.querySelector(`.${targetCls}`) : null;
+  },
+  getColLabel: (focused, colOffset) => {
+    const startIdx = _SL_INPUT_CLS.findIndex(c => focused.classList.contains(c));
+    const labels = ['Mündl. Note', 'SL-Note tatsächlich'];
+    return labels[startIdx + colOffset] || `Spalte ${colOffset + 1}`;
+  },
+});
 </script>
 {% endblock %}

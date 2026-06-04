@@ -47,7 +47,7 @@
         <th class="sticky-col" rowspan="2">Schüler</th>
         {% for hj in hj_order %}
         {% set slots = hj_slots_map[hj] %}
-        <th class="hj-header hj-group" colspan="{{ slots|length + 4 }}">{{ hj }}</th>
+        <th class="hj-header hj-group" colspan="{{ slots|length + 3 }}">{{ hj }}</th>
         {% endfor %}
         <th class="hj-header" rowspan="2">ABT</th>
         <th class="hj-header" rowspan="2">Ø Gesamt</th>
@@ -61,10 +61,9 @@
         {% for slot in slots %}
         <th class="hj-sub">{{ slot }}</th>
         {% endfor %}
-        <th class="hj-sub">Ø GLN</th>
         <th class="hj-sub">Mdl 1</th>
         <th class="hj-sub">Mdl 2</th>
-        <th class="hj-sub hj-group">Note</th>
+        <th class="hj-sub hj-group" style="background-color:#1f4e79;color:#fff;">Note</th>
         {% endfor %}
       </tr>
     </thead>
@@ -87,7 +86,6 @@
           {% endfor %}
           <td class="text-center text-muted aufnahme-prev-cell">–</td>
           <td class="text-center text-muted aufnahme-prev-cell">–</td>
-          <td class="text-center text-muted aufnahme-prev-cell">–</td>
           <td class="text-center hj-group aufnahme-prev-cell">
             <div class="d-flex flex-column align-items-center gap-1">
               <span class="badge bg-info text-dark small">and. Schule</span>
@@ -103,7 +101,6 @@
           {% for slot in slots %}
             {{ note_td(hd.gln_notes.get(slot)) }}
           {% endfor %}
-          {{ note_td(hd.gln_mean) }}
           <!-- MDL 1 -->
           {% if hd.mdl1 is not none %}
             <td class="text-center">{{ hd.mdl1 }}</td>
@@ -118,7 +115,8 @@
           {% endif %}
           <!-- HJ Note (actual or proposed) -->
           {% if hd.tatsaechlich is not none %}
-            {{ note_td(hd.tatsaechlich, 'hj-group') }}
+            {% set bg = 'note-good' if hd.tatsaechlich >= 10 else ('note-ok' if hd.tatsaechlich >= 5 else 'note-fail') %}
+            <td class="note-cell {{ bg }} hj-group" style="outline: 2px solid #1f4e79; outline-offset:-2px;">{{ hd.tatsaechlich }}</td>
           {% elif hd.vorschlag is not none %}
             <td class="text-center note-proj hj-group" title="Vorschlag (noch nicht festgelegt)">{{ hd.vorschlag }}?</td>
           {% else %}

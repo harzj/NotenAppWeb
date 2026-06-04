@@ -1014,6 +1014,44 @@ def student_loeschen(idx):
     return redirect(url_for("grades.stammdaten"))
 
 
+@grades_bp.route("/stammdaten/umbenennen/<int:idx>", methods=["POST"])
+@login_required
+def student_umbenennen(idx):
+    data = _require_gradebook()
+    if idx < 0 or idx >= len(data["stammdaten"]):
+        abort(404)
+    nachname = request.form.get("nachname", "").strip()
+    vorname  = request.form.get("vorname", "").strip()
+    if not nachname or not vorname:
+        flash("Name und Vorname dürfen nicht leer sein.", "danger")
+        return redirect(url_for("grades.stammdaten"))
+
+    old_name = f"{data['stammdaten'][idx]['nachname']}, {data['stammdaten'][idx]['vorname']}"
+    new_name = f"{nachname}, {vorname}"
+
+    data["stammdaten"][idx]["nachname"] = nachname
+    data["stammdaten"][idx]["vorname"]  = vorname
+
+    # Rename all references to old_name → new_name in the gradebook
+    if old_name != new_name:
+        for ln in data.get("leistungsnachweise", []):
+            for sc in ln.get("schueler", []):
+                if sc.get("name") == old_name:
+                    sc["name"] = new_name
+        for store in ("mdl_noten", "sl_noten_actual", "hj_noten",
+                      "verhalten_noten", "mitarbeit_noten",
+                      "schuljahr_noten_actual", "mdl_noten_kurs",
+                      "vorherige_noten"):
+            d = data.get(store)
+            if isinstance(d, dict) and old_name in d:
+                d[new_name] = d.pop(old_name)
+
+    _sort_stammdaten(data)
+    _save_gradebook(data)
+    flash(f"Name geändert: {old_name} → {new_name}", "success")
+    return redirect(url_for("grades.stammdaten"))
+
+
 @grades_bp.route("/api/aufnahme-vorherige-note-speichern", methods=["POST"])
 @login_required
 def aufnahme_vorherige_note_speichern():
@@ -1762,6 +1800,104 @@ def sl_druck(sl_key):
 
 # ── HJ-Übersicht ──────────────────────────────────────────────────────────────
 
+# ── Korn-Export Klasse (HJ1, HJ2, Schuljahr) ──────────────────────────────────
+
+@grades_bp.route("/korn-export/<mode>")
+@login_required
+def klasse_korn_export(mode):
+    """mode: 'hj1' | 'hj2' | 'schuljahr'"""
+    import openpyxl
+    from flask import make_response
+
+    if mode not in ("hj1", "hj2", "schuljahr"):
+        abort(404)
+    data = _require_gradebook()
+    if data.get("modus") == "kurs":
+        abort(400)
+
+    lns             = data.get("leistungsnachweise", [])
+    hj_noten        = data.get("hj_noten") or {}
+    verhalten_noten = data.get("verhalten_noten") or {}
+    mitarbeit_noten = data.get("mitarbeit_noten") or {}
+    sl_noten_actual = data.get("sl_noten_actual") or {}
+    sj_noten_actual = data.get("schuljahr_noten_actual") or {}
+
+    if mode == "schuljahr":
+        hj_key   = None
+        sl1_key2 = None
+        sl2_key2 = None
+        students = [s for s in data.get("stammdaten", [])
+                    if s.get("status") == S.SD_STATUS_AKTIV]
+        gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN"
+                    and ln.get("hj") in ("HJ1", "HJ2") and not ln.get("nachtermin_von")]
+    else:
+        hj_key   = "HJ1" if mode == "hj1" else "HJ2"
+        sl1_key2, sl2_key2 = ("SL1", "SL2") if hj_key == "HJ1" else ("SL3", "SL4")
+        students = [s for s in data.get("stammdaten", [])
+                    if s.get("status") == S.SD_STATUS_AKTIV
+                    and berechnung.student_active_in_hj(s, hj_key)]
+        gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN"
+                    and ln.get("hj") == hj_key and not ln.get("nachtermin_von")]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = mode.upper()
+
+    gln_headers = [ln.get("name", f"GLN{i+1}") for i, ln in enumerate(gln_list[:3])]
+    while len(gln_headers) < 3:
+        gln_headers.append(f"GLN{len(gln_headers)+1}")
+
+    if mode == "schuljahr":
+        headers = ["Name", "Note", "Verhalten", "Mitarbeit"] + gln_headers + ["SL1", "SL2", "SL3", "SL4"]
+    else:
+        headers = ["Name", "Note", "Verhalten", "Mitarbeit"] + gln_headers + [sl1_key2, sl2_key2]
+    ws.append(headers)
+
+    for s in students:
+        name = f"{s['nachname']}, {s['vorname']}"
+        if mode == "schuljahr":
+            note      = sj_noten_actual.get(name)
+            verhalten = verhalten_noten.get(name, {}).get("HJ2") or verhalten_noten.get(name, {}).get("HJ1")
+            mitarbeit = mitarbeit_noten.get(name, {}).get("HJ2") or mitarbeit_noten.get(name, {}).get("HJ1")
+        else:
+            note      = hj_noten.get(name, {}).get(hj_key)
+            verhalten = verhalten_noten.get(name, {}).get(hj_key)
+            mitarbeit = mitarbeit_noten.get(name, {}).get(hj_key)
+
+        gln_notes = []
+        for ln in gln_list[:3]:
+            gln_note = None
+            for sc in ln.get("schueler", []):
+                if sc["name"] == name and not sc.get("ignoriert"):
+                    gln_note = sc.get("note_15")
+            gln_notes.append(gln_note)
+        while len(gln_notes) < 3:
+            gln_notes.append(None)
+
+        if mode == "schuljahr":
+            sl_notes = [sl_noten_actual.get(name, {}).get(k)
+                        for k in ("SL1", "SL2", "SL3", "SL4")]
+        else:
+            sl_notes = [sl_noten_actual.get(name, {}).get(sl1_key2),
+                        sl_noten_actual.get(name, {}).get(sl2_key2)]
+
+        ws.append([name, note, verhalten, mitarbeit] + gln_notes + sl_notes)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fach     = data.get("fach", "Noten")
+    klasse   = data.get("klasse", "Klasse")
+    filename = f"Korn_{klasse}_{fach}_{mode}.xlsx"
+    response = make_response(buf.read())
+    response.headers["Content-Type"] = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
 @grades_bp.route("/uebersicht/<hj>")
 @login_required
 def uebersicht(hj):
@@ -1785,6 +1921,7 @@ def uebersicht(hj):
     kln_weights_sl1 = berechnung.get_kln_weights(data, sl1_key)
     kln_weights_sl2 = berechnung.get_kln_weights(data, sl2_key)
 
+    sl_noten_actual = data.get("sl_noten_actual") or {}
     verhalten_noten = data.get("verhalten_noten") or {}
     mitarbeit_noten = data.get("mitarbeit_noten") or {}
     # For HJ2: propose HJ1 Verhaltensnote as default
@@ -1809,10 +1946,21 @@ def uebersicht(hj):
 
         sl1_note_raw = berechnung.compute_sl_note(name, sl1_key, lns, mdl_noten, gw, kln_weights_sl1)
         sl2_note_raw = berechnung.compute_sl_note(name, sl2_key, lns, mdl_noten, gw, kln_weights_sl2)
-        sl1_note_15 = berechnung.round_note15(sl1_note_raw)
-        sl2_note_15 = berechnung.round_note15(sl2_note_raw)
-        sl_mittel_raw = berechnung.compute_sl_mittel(sl1_note_raw, sl2_note_raw)
+
+        # Prefer manually confirmed SL note (sl_noten_actual) over computed
+        sl1_actual = sl_noten_actual.get(name, {}).get(sl1_key)
+        sl2_actual = sl_noten_actual.get(name, {}).get(sl2_key)
+        # Display: only show when manually confirmed
+        sl1_note_15 = sl1_actual
+        sl2_note_15 = sl2_actual
+        # Effective note for downstream calcs: actual if set, else computed
+        sl1_eff = sl1_actual if sl1_actual is not None else berechnung.round_note15(sl1_note_raw)
+        sl2_eff = sl2_actual if sl2_actual is not None else berechnung.round_note15(sl2_note_raw)
+
+        # Use effective notes for downstream: SL-Mittel and HJ-Vorschlag
+        sl_mittel_raw = berechnung.compute_sl_mittel(sl1_eff, sl2_eff)
         sl_mittel_15 = berechnung.round_note15(sl_mittel_raw)
+        sl_mittel = round(sl_mittel_raw, 1) if sl_mittel_raw is not None else None
 
         hj_vorschlag = berechnung.round_note15(
             berechnung.compute_hj_vorschlag(
@@ -1840,9 +1988,14 @@ def uebersicht(hj):
             "kln_mean_sl2": round(kln_mean_sl2, 2) if kln_mean_sl2 is not None else None,
             "mdl1": mdl1,
             "mdl2": mdl2,
+            "sl1_actual": sl1_actual,
+            "sl2_actual": sl2_actual,
+            "sl1_eff": sl1_eff,
+            "sl2_eff": sl2_eff,
             "sl1_note_15": sl1_note_15,
             "sl2_note_15": sl2_note_15,
             "sl_mittel_15": sl_mittel_15,
+            "sl_mittel": sl_mittel,
             "hj_vorschlag": hj_vorschlag,
             "hj_actual": hj_actual,
             "verhalten": verhalten,
@@ -1971,6 +2124,27 @@ def hj_druck(hj):
         # Prefer saved actual SL note; fall back to computed
         sl1_act = sl_noten_actual.get(name, {}).get(sl1_key)
         sl2_act = sl_noten_actual.get(name, {}).get(sl2_key)
+        sl1_act = sl_noten_actual.get(name, {}).get("SL1")
+        sl2_act = sl_noten_actual.get(name, {}).get("SL2")
+        sl3_act = sl_noten_actual.get(name, {}).get("SL3")
+        sl4_act = sl_noten_actual.get(name, {}).get("SL4")
+        # Build GLN notes for Korn export (HJ1+HJ2, max 3, from all GLN LNs)
+        _all_gln = [ln for ln in lns if ln.get("ln_typ") == "GLN"
+                    and ln.get("hj") in ("HJ1","HJ2") and not ln.get("nachtermin_von")]
+        _gln_notes_export = []
+        for _ln in _all_gln[:3]:
+            _gn = None
+            for _sc in _ln.get("schueler", []):
+                if _sc["name"] == name and not _sc.get("ignoriert"):
+                    _gn = _sc.get("note_15")
+            _gln_notes_export.append(_gn)
+        while len(_gln_notes_export) < 3:
+            _gln_notes_export.append(None)
+        # Verhalten/Mitarbeit for export
+        _verh_hj2 = verhalten_noten.get(name, {}).get("HJ2")
+        _verh_hj1 = verhalten_noten.get(name, {}).get("HJ1")
+        _mit_hj2  = mitarbeit_noten.get(name, {}).get("HJ2")
+        _mit_hj1  = mitarbeit_noten.get(name, {}).get("HJ1")
 
         rows.append({
             "name": name,
@@ -2066,6 +2240,15 @@ def schuljahr_uebersicht():
             "hj2": hj2,
             "sj_vorschlag": sj_vorschlag,
             "sj_actual": sj_actual,
+            "sl1_act":   sl1_act,
+            "sl2_act":   sl2_act,
+            "sl3_act":   sl3_act,
+            "sl4_act":   sl4_act,
+            "gln_notes_export": _gln_notes_export,
+            "verhalten_hj2": _verh_hj2,
+            "verhalten_hj1": _verh_hj1,
+            "mitarbeit_hj2": _mit_hj2,
+            "mitarbeit_hj1": _mit_hj1,
         })
 
     return render_template(
@@ -2435,6 +2618,7 @@ def statistik_json(ln_idx):
     dist6 = {i: 0 for i in range(1, 7)}
     dist6_ign = {i: 0 for i in range(1, 7)}
     afb_punkte = {"I": 0, "II": 0, "III": 0}
+    afb_count  = {"I": 0, "II": 0, "III": 0}
 
     for s in ln.get("schueler", []):
         note15 = s.get("note_15")
@@ -2456,12 +2640,25 @@ def statistik_json(ln_idx):
                 dist6[n6] = dist6.get(n6, 0) + 1
 
         if not ign:
+            # Sum this student's points per AFB
+            s_afb = {"I": 0.0, "II": 0.0, "III": 0.0}
+            s_afb_has = {"I": False, "II": False, "III": False}
             for t_idx, task in enumerate(ln.get("aufgaben", [])):
                 afb = task.get("afb", "")
-                if afb in afb_punkte:
+                if afb in s_afb:
                     p = s["punkte"][t_idx] if t_idx < len(s.get("punkte", [])) else None
                     if p is not None:
-                        afb_punkte[afb] += p
+                        s_afb[afb] += p
+                        s_afb_has[afb] = True
+            for afb in afb_punkte:
+                if s_afb_has[afb]:
+                    afb_punkte[afb] += s_afb[afb]
+                    afb_count[afb]  += 1
+
+    # Average reached points per AFB across students
+    for afb in afb_punkte:
+        if afb_count[afb] > 0:
+            afb_punkte[afb] = round(afb_punkte[afb] / afb_count[afb], 1)
 
     # Max points per AFB
     afb_max = {"I": 0, "II": 0, "III": 0}
@@ -2520,15 +2717,20 @@ def kurs_uebersicht(hj):
                         if sc["name"] == name and not sc.get("ignoriert"):
                             gln_notes[slot] = sc.get("note_15")
         kn = mdl_noten_kurs.get(name, {})
-        mdl1 = kn.get(f"{hj}_mdl1")
-        mdl2 = kn.get(f"{hj}_mdl2")
+        _to_int = lambda v: int(v) if v is not None else None
+        mdl1 = _to_int(kn.get(f"{hj}_mdl1"))
+        mdl2 = _to_int(kn.get(f"{hj}_mdl2"))
+        fs_e = int(kn.get(f"{hj}_fs_e") or 0)
+        fs_u = int(kn.get(f"{hj}_fs_u") or 0)
         vorschlag = berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
-        tatsaechlich = hj_noten.get(name, {}).get(hj)
+        tatsaechlich = _to_int(hj_noten.get(name, {}).get(hj))
         rows.append({
             "name": name,
             "gln_notes": gln_notes,
             "mdl1": mdl1,
             "mdl2": mdl2,
+            "fs_e": fs_e,
+            "fs_u": fs_u,
             "vorschlag": vorschlag,
             "tatsaechlich": tatsaechlich,
         })
@@ -2565,22 +2767,29 @@ def hj_kurs_speichern():
         if not name:
             continue
         kn = mdl_noten_kurs.setdefault(name, {})
-        # Save mündliche Noten
+        # Save mündliche Noten (always integers 0-15)
         for key in (f"{hj}_mdl1", f"{hj}_mdl2"):
             val = entry.get(key)
             if val is not None:
                 try:
-                    kn[key] = float(val)
+                    kn[key] = int(float(val))
                 except (TypeError, ValueError):
                     kn[key] = None
             else:
                 kn[key] = None
-        # Save tatsächliche HJ-Note
+        # Save Fehlstunden (integer, default 0)
+        for key in (f"{hj}_fs_e", f"{hj}_fs_u"):
+            val = entry.get(key)
+            try:
+                kn[key] = max(0, int(float(val))) if val is not None else 0
+            except (TypeError, ValueError):
+                kn[key] = 0
+        # Save tatsächliche HJ-Note (always integer 0-15)
         tats = entry.get("tatsaechlich")
         hn = hj_noten.setdefault(name, {})
         if tats is not None:
             try:
-                hn[hj] = float(tats)
+                hn[hj] = int(float(tats))
             except (TypeError, ValueError):
                 hn[hj] = None
         else:
@@ -2588,6 +2797,72 @@ def hj_kurs_speichern():
 
     _save_gradebook(data)
     return {"ok": True}
+
+
+# ── Korn-Export (Oberstufenkurse) ─────────────────────────────────────────────
+
+@grades_bp.route("/kurs/korn-export/<hj>")
+@login_required
+def kurs_korn_export(hj):
+    import openpyxl
+    from flask import make_response
+
+    data = _require_gradebook()
+    if data.get("modus") != "kurs":
+        abort(400)
+    if hj not in berechnung.HJ_ORDER:
+        abort(404)
+
+    kurs_typ = data.get("kurs_typ", "GK")
+    kurs_stunden = int(data.get("kurs_stunden", 4))
+    valid_slots = berechnung.valid_gln_slots(kurs_typ, kurs_stunden)
+    hj_slots = [sl for sl in valid_slots if berechnung.gln_slot_to_hj(sl) == hj]
+
+    students = [s for s in data.get("stammdaten", [])
+                if berechnung.student_active_in_hj(s, hj)]
+    lns           = data.get("leistungsnachweise", [])
+    mdl_noten_kurs = data.get("mdl_noten_kurs", {})
+    hj_noten      = data.get("hj_noten", {})
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = hj
+
+    # Header
+    headers = ["Name", "Note", "FS entschuld.", "FS unentschuld."]
+    for i in range(1, len(hj_slots[:2]) + 1):
+        headers.append(f"KA{i}")
+    ws.append(headers)
+
+    for s in students:
+        name = f"{s['nachname']}, {s['vorname']}"
+        kn   = mdl_noten_kurs.get(name, {})
+        note = hj_noten.get(name, {}).get(hj)
+        fs_e = int(kn.get(f"{hj}_fs_e") or 0)
+        fs_u = int(kn.get(f"{hj}_fs_u") or 0)
+        row  = [name, note, fs_e, fs_u]
+        for slot in hj_slots[:2]:
+            gln_note = None
+            for ln in lns:
+                if ln.get("gln_slot") == slot:
+                    for sc in ln.get("schueler", []):
+                        if sc["name"] == name and not sc.get("ignoriert"):
+                            gln_note = sc.get("note_15")
+            row.append(gln_note)
+        ws.append(row)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fach     = data.get("fach", "Noten")
+    filename = f"Korn_{fach}_{hj}.xlsx"
+    response = make_response(buf.read())
+    response.headers["Content-Type"] = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 # ── Kurs-Gesamtübersicht (alle HJ) ───────────────────────────────────────────
