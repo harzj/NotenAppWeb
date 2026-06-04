@@ -2124,27 +2124,6 @@ def hj_druck(hj):
         # Prefer saved actual SL note; fall back to computed
         sl1_act = sl_noten_actual.get(name, {}).get(sl1_key)
         sl2_act = sl_noten_actual.get(name, {}).get(sl2_key)
-        sl1_act = sl_noten_actual.get(name, {}).get("SL1")
-        sl2_act = sl_noten_actual.get(name, {}).get("SL2")
-        sl3_act = sl_noten_actual.get(name, {}).get("SL3")
-        sl4_act = sl_noten_actual.get(name, {}).get("SL4")
-        # Build GLN notes for Korn export (HJ1+HJ2, max 3, from all GLN LNs)
-        _all_gln = [ln for ln in lns if ln.get("ln_typ") == "GLN"
-                    and ln.get("hj") in ("HJ1","HJ2") and not ln.get("nachtermin_von")]
-        _gln_notes_export = []
-        for _ln in _all_gln[:3]:
-            _gn = None
-            for _sc in _ln.get("schueler", []):
-                if _sc["name"] == name and not _sc.get("ignoriert"):
-                    _gn = _sc.get("note_15")
-            _gln_notes_export.append(_gn)
-        while len(_gln_notes_export) < 3:
-            _gln_notes_export.append(None)
-        # Verhalten/Mitarbeit for export
-        _verh_hj2 = verhalten_noten.get(name, {}).get("HJ2")
-        _verh_hj1 = verhalten_noten.get(name, {}).get("HJ1")
-        _mit_hj2  = mitarbeit_noten.get(name, {}).get("HJ2")
-        _mit_hj1  = mitarbeit_noten.get(name, {}).get("HJ1")
 
         rows.append({
             "name": name,
@@ -2186,6 +2165,8 @@ def schuljahr_uebersicht():
     lns = data.get("leistungsnachweise", [])
     mdl_noten = data.get("mdl_noten") or {}
     hj_noten = data.get("hj_noten") or {}
+    verhalten_noten = data.get("verhalten_noten") or {}
+    mitarbeit_noten = data.get("mitarbeit_noten") or {}
     sl_noten_actual = data.get("sl_noten_actual") or {}
     sj_noten_actual = data.get("schuljahr_noten_actual") or {}
     gw = berechnung.get_gewichtung(data)
@@ -2224,6 +2205,22 @@ def schuljahr_uebersicht():
             berechnung.compute_schuljahr_note_klasse(
                 name, hj_noten, aufnahme_ab_hj, vorherige_noten))
         sj_actual = sj_noten_actual.get(name)
+
+        sl1_act = sl_noten_actual.get(name, {}).get("SL1")
+        sl2_act = sl_noten_actual.get(name, {}).get("SL2")
+        sl3_act = sl_noten_actual.get(name, {}).get("SL3")
+        sl4_act = sl_noten_actual.get(name, {}).get("SL4")
+
+        _gln_notes_export = [
+            c.get("note_15")
+            for c in (gln_hj1_cols + gln_hj2_cols)
+            if c.get("note_15") is not None and not c.get("ignoriert")
+        ][:3]
+
+        _verh_hj2 = verhalten_noten.get(name, {}).get("HJ2")
+        _verh_hj1 = verhalten_noten.get(name, {}).get("HJ1")
+        _mit_hj2 = mitarbeit_noten.get(name, {}).get("HJ2")
+        _mit_hj1 = mitarbeit_noten.get(name, {}).get("HJ1")
 
         rows.append({
             "name": name,
