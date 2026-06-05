@@ -130,6 +130,10 @@ NZ_COL_KURS_MDL_HJ4_1 = 19
 NZ_COL_KURS_MDL_HJ4_2 = 20
 NZ_COL_KURS_HJ_ACT_HJ3 = 21
 NZ_COL_KURS_HJ_ACT_HJ4 = 22
+NZ_COL_VERH_HJ1 = 23
+NZ_COL_VERH_HJ2 = 24
+NZ_COL_MIT_HJ1 = 25
+NZ_COL_MIT_HJ2 = 26
 NZ_HEADERS = [
     "Schüler",
     "MDL_SL1", "MDL_SL2", "MDL_SL3", "MDL_SL4",
@@ -141,6 +145,7 @@ NZ_HEADERS = [
     "KURS_MDL_HJ3_1", "KURS_MDL_HJ3_2",
     "KURS_MDL_HJ4_1", "KURS_MDL_HJ4_2",
     "KURS_HJ_Act_HJ3", "KURS_HJ_Act_HJ4",
+    "VERH_HJ1", "VERH_HJ2", "MIT_HJ1", "MIT_HJ2",
 ]
 
 # ── Einstellungen sheet (key→value rows) ──────────────────────────────────────

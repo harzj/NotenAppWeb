@@ -8,11 +8,16 @@
   .th-sub-hj1 { background-color: #2e6da4 !important; color: #fff; font-weight: normal; font-size: .82rem; }
   .th-sub-hj2 { background-color: #1e7e34 !important; color: #fff; font-weight: normal; font-size: .82rem; }
   .th-sub-sj  { background-color: #a04000 !important; color: #fff; font-weight: normal; font-size: .82rem; }
+  .th-sub-note-soft { box-shadow: inset 0 -3px 0 rgba(13, 110, 253, .28); }
+  .th-sub-actual-strong { background-color: #0d6efd !important; color: #fff; font-weight: 700; }
   .badge-note { min-width: 2rem; text-align: center; display: inline-block; }
   .vorschlag  { color: #888; font-style: italic; }
-  .sj-actual-input { width: 52px; text-align: center; -moz-appearance: textfield; }
+  .sj-actual-input { width: 52px; text-align: center; margin: 0 auto; -moz-appearance: textfield; }
   .sj-actual-input::-webkit-outer-spin-button,
   .sj-actual-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  td.cell-note-soft { background-color: #f8fbff; }
+  td.cell-actual-strong { background-color: #e8f1ff; }
+  td.cell-actual-strong .sj-actual-input { border-color: #0d6efd; font-weight: 700; }
   .aufnahme-cell { background-color: #e9ecef !important; color: #6c757d; }
   .vorherige-note-input { width: 52px; text-align: center; -moz-appearance: textfield; }
   .vorherige-note-input::-webkit-outer-spin-button,
@@ -72,13 +77,13 @@
       <th class="text-center th-sub-hj1">SL1</th>
       <th class="text-center th-sub-hj1">SL2</th>
       {% for ln in gln_hj1_list %}<th class="text-center th-sub-hj1">{{ ln.name }}</th>{% endfor %}
-      <th class="text-center th-sub-hj1">HJ1 Note</th>
+      <th class="text-center th-sub-hj1 th-sub-note-soft">HJ1 Note</th>
       <th class="text-center th-sub-hj2">SL3</th>
       <th class="text-center th-sub-hj2">SL4</th>
       {% for ln in gln_hj2_list %}<th class="text-center th-sub-hj2">{{ ln.name }}</th>{% endfor %}
-      <th class="text-center th-sub-hj2">HJ2 Note</th>
+      <th class="text-center th-sub-hj2 th-sub-note-soft">HJ2 Note</th>
       <th class="text-center th-sub-sj">Vorschlag</th>
-      <th class="text-center th-sub-sj">Tatsächlich</th>
+      <th class="text-center th-sub-sj th-sub-actual-strong">Tatsächlich</th>
     </tr>
   </thead>
   <tbody>
@@ -126,7 +131,7 @@
         {% endif %}
       </td>
       {% endfor %}
-      <td class="text-center {{ 'aufnahme-cell' if row.is_aufnahme_hj2 else '' }}">
+      <td class="text-center {{ 'aufnahme-cell' if row.is_aufnahme_hj2 else 'cell-note-soft' }}">
         {% if row.is_aufnahme_hj2 %}
           <div class="d-flex flex-column align-items-center gap-1">
             <span class="badge bg-info text-dark small">Aufnahme</span>
@@ -154,7 +159,7 @@
         {% endif %}
       </td>
       {% endfor %}
-      <td class="text-center">
+      <td class="text-center cell-note-soft">
         {% if row.hj2 is not none %}
           {{ note_cell(row.hj2) }}
         {% else %}
@@ -168,7 +173,7 @@
           <em class="{{ 'text-danger' if row.sj_vorschlag < rot_schwelle else '' }}">{{ row.sj_vorschlag }}</em>
         {% else %}–{% endif %}
       </td>
-      <td class="text-center">
+      <td class="text-center cell-actual-strong">
         <input type="number" class="form-control form-control-sm sj-actual-input"
                min="0" max="15" step="1"
                value="{{ row.sj_actual if row.sj_actual is not none else '' }}">
@@ -182,17 +187,24 @@
 {% endblock %}
 {% block extra_scripts %}
 <script>
+function showToast(msg, type) {
+  const d = document.createElement('div');
+  d.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
+  d.setAttribute('role', 'alert');
+  d.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+  document.body.appendChild(d);
+  new bootstrap.Toast(d, { delay: 3000 }).show();
+  d.addEventListener('hidden.bs.toast', () => d.remove());
+}
+
 // ── Korn Clipboard Export ─────────────────────────────────────────────────────
-// NOTE: reads data-* attrs added to tbody rows for Korn export.
-// Each tr[data-name] needs: data-sj-note, data-verh, data-mit, data-gln-notes (JSON), data-sl1..sl4
 document.getElementById('btnKornClipboard')?.addEventListener('click', () => {
   const lines = [];
-  document.querySelectorAll('#schuljahrTable tbody tr[data-name]').forEach(tr => {
-    // Schuljahr actual note: from the sj-actual-input or data attr
-    const note = tr.querySelector('.sj-actual-input')?.value.trim()
-                 || (tr.dataset.sjNote || '');
+  document.querySelectorAll('#sjTable tbody tr[data-name]').forEach(tr => {
+    const note = tr.querySelector('.sj-actual-input')?.value.trim() || (tr.dataset.sjNote || '');
     const verh = tr.dataset.verh || '';
-    const mit  = tr.dataset.mit  || '';
+    const mit = tr.dataset.mit || '';
     const glnNotes = JSON.parse(tr.dataset.glnNotes || '[]');
     const gln1 = glnNotes[0] != null ? String(glnNotes[0]) : '';
     const gln2 = glnNotes[1] != null ? String(glnNotes[1]) : '';
@@ -208,38 +220,39 @@ document.getElementById('btnKornClipboard')?.addEventListener('click', () => {
     showToast('Korn-Daten in Zwischenablage kopiert!', 'success');
   }).catch(() => {
     const ta = document.createElement('textarea');
-    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select();
-    document.execCommand('copy'); ta.remove();
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
     showToast('Korn-Daten in Zwischenablage kopiert!', 'success');
   });
 });
+
+// Save Schuljahr actual notes
+document.getElementById('btnSave')?.addEventListener('click', async () => {
   const schueler = [];
   document.querySelectorAll('#sjTable tbody tr[data-name]').forEach(row => {
     const inp = row.querySelector('.sj-actual-input');
     const val = inp && inp.value !== '' ? parseInt(inp.value, 10) : null;
     schueler.push({ name: row.dataset.name, sj_actual: val });
   });
+
   const resp = await fetch('/api/schuljahr-speichern', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || ''
+    },
     body: JSON.stringify({ schueler })
   });
   const data = await resp.json();
-  const msg = data.ok ? 'Gespeichert.' : 'Fehler: ' + (data.error || '?');
-  const type = data.ok ? 'success' : 'danger';
-  const d = document.createElement('div');
-  d.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
-  d.setAttribute('role', 'alert');
-  d.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
-    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
-  document.body.appendChild(d);
-  new bootstrap.Toast(d, { delay: 3000 }).show();
-  d.addEventListener('hidden.bs.toast', () => d.remove());
+  showToast(data.ok ? 'Gespeichert.' : 'Fehler: ' + (data.error || '?'), data.ok ? 'success' : 'danger');
 });
 
-// Save vorherige HJ note for aufnahme students on blur
+// Save vorherige HJ note for aufnahme students on change
 document.querySelectorAll('#sjTable .vorherige-note-input').forEach(inp => {
   inp.addEventListener('change', async () => {
     const row = inp.closest('tr');
@@ -248,12 +261,14 @@ document.querySelectorAll('#sjTable .vorherige-note-input').forEach(inp => {
     const val = inp.value !== '' ? parseInt(inp.value, 10) : null;
     const resp = await fetch('/api/aufnahme-vorherige-note-speichern', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json',
-                  'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || ''
+      },
       body: JSON.stringify({ name, hj, note: val })
     });
     const data = await resp.json();
-    if (!data.ok) alert('Fehler beim Speichern: ' + (data.error || '?'));
+    if (!data.ok) showToast('Fehler beim Speichern: ' + (data.error || '?'), 'danger');
   });
 });
 </script>

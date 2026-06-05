@@ -458,6 +458,8 @@ def _read_noten_zusatz(wb: Workbook) -> dict:
         "hj_noten": {},
         "schuljahr_noten_actual": {},
         "mdl_noten_kurs": {},
+        "verhalten_noten": {},
+        "mitarbeit_noten": {},
     }
     if S.SHEET_NOTEN_ZUSATZ not in wb.sheetnames:
         return empty
@@ -468,6 +470,8 @@ def _read_noten_zusatz(wb: Workbook) -> dict:
     hj_act: dict = {}
     sj_act: dict = {}
     mdl_kurs: dict = {}
+    verhalten: dict = {}
+    mitarbeit: dict = {}
 
     for row in ws.iter_rows(min_row=S.NZ_DATA_START, values_only=True):
         name = _str(row, S.NZ_COL_NAME - 1)
@@ -508,6 +512,14 @@ def _read_noten_zusatz(wb: Workbook) -> dict:
             "HJ4_mdl1": _intn(row, S.NZ_COL_KURS_MDL_HJ4_1),
             "HJ4_mdl2": _intn(row, S.NZ_COL_KURS_MDL_HJ4_2),
         }
+        verhalten[name] = {
+            "HJ1": _intn(row, S.NZ_COL_VERH_HJ1),
+            "HJ2": _intn(row, S.NZ_COL_VERH_HJ2),
+        }
+        mitarbeit[name] = {
+            "HJ1": _intn(row, S.NZ_COL_MIT_HJ1),
+            "HJ2": _intn(row, S.NZ_COL_MIT_HJ2),
+        }
 
     return {
         "mdl_noten": mdl,
@@ -515,6 +527,8 @@ def _read_noten_zusatz(wb: Workbook) -> dict:
         "hj_noten": hj_act,
         "schuljahr_noten_actual": sj_act,
         "mdl_noten_kurs": mdl_kurs,
+        "verhalten_noten": verhalten,
+        "mitarbeit_noten": mitarbeit,
     }
 
 

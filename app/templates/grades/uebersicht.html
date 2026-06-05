@@ -53,7 +53,7 @@
     <a href="{{ url_for('grades.hj_druck', hj=hj) }}" target="_blank" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-printer me-1"></i>Drucken
     </a>
-    <button class="btn btn-success btn-sm" id="btnSave">
+    <button type="button" class="btn btn-success btn-sm" id="btnSave">
       <i class="bi bi-save me-1"></i>Speichern
     </button>
     <div class="dropdown ms-1">
@@ -82,18 +82,17 @@
   <thead>
     <tr>
       <th rowspan="2" class="align-middle">Schüler</th>
-      {% if n_gln > 0 %}
-      <th colspan="{{ n_gln }}" class="text-center th-gln">GLN</th>
-      {% endif %}
       <th colspan="{{ span_sl1 }}" class="text-center th-sl1">{{ sl1_key }}</th>
       <th colspan="{{ span_sl2 }}" class="text-center th-sl2">{{ sl2_key }}</th>
       <th rowspan="2" class="text-center th-slm align-middle">SL-Mittel</th>
+      {% if n_gln > 0 %}
+      <th colspan="{{ n_gln }}" class="text-center th-gln">GLN</th>
+      {% endif %}
       <th colspan="2" class="text-center th-hj">{{ hj_label }}</th>
       <th rowspan="2" class="text-center th-verh align-middle">Verhalten<br><small class="fw-normal">(1–6)</small></th>
       <th rowspan="2" class="text-center th-mit align-middle">Mitarbeit<br><small class="fw-normal">(1–6)</small></th>
     </tr>
     <tr>
-      {% for ln in gln_list %}<th class="text-center th-sub-gln">{{ ln.name }}</th>{% endfor %}
       {% for ln in sl1_list %}<th class="text-center th-sub-sl1">{{ ln.name }}</th>{% endfor %}
       {% if show_kln1_mean %}<th class="text-center th-sub-sl1m">KLN Mittel</th>{% endif %}
       <th class="text-center th-sub-sl1">Mündl.<br>Note</th>
@@ -102,13 +101,13 @@
       {% if show_kln2_mean %}<th class="text-center th-sub-sl2m">KLN Mittel</th>{% endif %}
       <th class="text-center th-sub-sl2">Mündl.<br>Note</th>
       <th class="text-center th-sub-sl2">{{ sl2_key }}<br>Note</th>
+      {% for ln in gln_list %}<th class="text-center th-sub-gln">{{ ln.name }}</th>{% endfor %}
       <th class="text-center th-sub-hj">Vorschlag</th>
       <th class="text-center th-sub-hj">Tatsächlich</th>
     </tr>
     {# Gewichtungszeile: nur SL-Mittel hat ein Gewicht-Input #}
     <tr class="gw-row">
       <td class="text-muted small fst-italic">Gewichtung</td>
-      {% for ln in gln_list %}<td></td>{% endfor %}
       {% for ln in sl1_list %}<td></td>{% endfor %}
       {% if show_kln1_mean %}<td></td>{% endif %}
       <td></td>{# mdl1 #}
@@ -122,6 +121,7 @@
                min="0" step="0.1" title="Gewicht SL-Mittel in HJ-Note (Standard: 1, gleich wie jeder GLN)"
                value="{{ gewichtung.sl_mittel_w | default(1) | round(1) }}">
       </td>{# sl-mittel weight #}
+      {% for ln in gln_list %}<td></td>{% endfor %}
       <td></td>{# hj vorschlag #}
       <td></td>{# hj tatsächlich #}
       <td class="text-center">
@@ -158,13 +158,6 @@
         data-sl1-eff="{{ row.sl1_eff if row.sl1_eff is not none else '' }}"
         data-sl2-eff="{{ row.sl2_eff if row.sl2_eff is not none else '' }}">
       <td>{{ row.name }}</td>
-      {% for c in row.gln_cols %}
-      <td class="text-center">
-        {% if c.note_15 is not none %}
-          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>
-        {% endif %}
-      </td>
-      {% endfor %}
       {% for c in row.sl1_cols %}
       <td class="text-center">
         {% if c.note_15 is not none %}
@@ -212,6 +205,13 @@
       <td class="text-center note-cell sl-mittel-display{% if row.sl_mittel is not none and row.sl_mittel < rot_schwelle %} text-danger{% endif %}">
         {% if row.sl_mittel is not none %}{{ "%.1f"|format(row.sl_mittel) }}{% endif %}
       </td>
+      {% for c in row.gln_cols %}
+      <td class="text-center">
+        {% if c.note_15 is not none %}
+          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>
+        {% endif %}
+      </td>
+      {% endfor %}
       <td class="text-center hj-vorschlag-display{% if row.hj_vorschlag is not none and row.hj_vorschlag < rot_schwelle %} text-danger{% endif %}">
         {% if row.hj_vorschlag is not none %}<em>{{ row.hj_vorschlag }}</em>{% endif %}
       </td>
@@ -453,14 +453,14 @@ document.getElementById('btnSave')?.addEventListener('click', async () => {
   const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
   const r1 = await fetch('/api/hj-speichern', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-    body: JSON.stringify({ hj: HJ_KEY, schueler })
+    body: JSON.stringify({
+      hj: HJ_KEY,
+      schueler,
+      sl_mittel_w: !isNaN(slMittelW) ? slMittelW : 1.0,
+    })
   });
-  const r2 = await fetch('/api/gewichtung/speichern', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-    body: JSON.stringify({ sl_mittel_w: !isNaN(slMittelW) ? slMittelW : 1.0 })
-  });
-  const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
-  const ok = d1.ok && d2.ok;
+  const d1 = await r1.json();
+  const ok = r1.ok && !!d1.ok;
   showToast(ok ? 'Gespeichert.' : 'Fehler beim Speichern.', ok ? 'success' : 'danger');
 });
 function showToast(msg, type) {

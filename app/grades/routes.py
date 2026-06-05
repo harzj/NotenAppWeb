@@ -1856,9 +1856,13 @@ def klasse_korn_export(mode):
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
         if mode == "schuljahr":
-            note      = sj_noten_actual.get(name)
-            verhalten = verhalten_noten.get(name, {}).get("HJ2") or verhalten_noten.get(name, {}).get("HJ1")
-            mitarbeit = mitarbeit_noten.get(name, {}).get("HJ2") or mitarbeit_noten.get(name, {}).get("HJ1")
+            note = sj_noten_actual.get(name)
+            verh_hj2 = verhalten_noten.get(name, {}).get("HJ2")
+            verh_hj1 = verhalten_noten.get(name, {}).get("HJ1")
+            mit_hj2 = mitarbeit_noten.get(name, {}).get("HJ2")
+            mit_hj1 = mitarbeit_noten.get(name, {}).get("HJ1")
+            verhalten = verh_hj2 if verh_hj2 is not None else verh_hj1
+            mitarbeit = mit_hj2 if mit_hj2 is not None else mit_hj1
         else:
             note      = hj_noten.get(name, {}).get(hj_key)
             verhalten = verhalten_noten.get(name, {}).get(hj_key)
@@ -2025,7 +2029,7 @@ def uebersicht(hj):
 @grades_bp.route("/api/hj-speichern", methods=["POST"])
 @login_required
 def hj_speichern():
-    """Save mdl notes (both SL slots) and actual HJ note for all students."""
+    """Save HJ data for all students (mdl, actual, behavior, participation, optional weight)."""
     data = _require_gradebook()
     payload = request.get_json(force=True, silent=True)
     if not payload:
@@ -2060,6 +2064,11 @@ def hj_speichern():
         mitarbeit_noten.setdefault(name, {})[hj_key] = (
             int(item["mitarbeit"]) if item.get("mitarbeit") is not None else None
         )
+
+    # Optional: persist SL-Mittel weight in same request to avoid session update races.
+    sl_mittel_w = payload.get("sl_mittel_w")
+    if sl_mittel_w is not None:
+        data.setdefault("sl_gewichtung", {})["sl_mittel_w"] = float(sl_mittel_w)
 
     _save_gradebook(data)
     return {"ok": True}

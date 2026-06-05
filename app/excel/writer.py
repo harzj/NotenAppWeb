@@ -257,6 +257,12 @@ def _write_uebersicht(wb: Workbook, data: dict, sheet_name: str, hj_key: str) ->
     uebersicht = data.get(key_map.get(sheet_name, ""), None)
     ws = wb.create_sheet(sheet_name)
 
+    # Always rebuild class overview sheets from current in-memory data so that
+    # manually edited notes (e.g. Verhalten/Mitarbeit) are reflected in export.
+    if sheet_name in (S.SHEET_UEBERSICHT_HJ1, S.SHEET_UEBERSICHT_HJ2, S.SHEET_UEBERSICHT_JAHR):
+        _build_uebersicht_from_ln(wb, ws, data, sheet_name)
+        return
+
     if not uebersicht:
         # Build from LN data
         _build_uebersicht_from_ln(wb, ws, data, sheet_name)
@@ -272,11 +278,52 @@ def _write_uebersicht(wb: Workbook, data: dict, sheet_name: str, hj_key: str) ->
 
 def _build_uebersicht_from_ln(wb: Workbook, ws, data: dict, sheet_name: str) -> None:
     """Auto-build an overview sheet referencing LN sheets."""
-    lns: list[dict] = data.get("leistungsnachweise", [])
+    all_lns: list[dict] = data.get("leistungsnachweise", [])
+
+    def _ln_in_sheet(ln: dict) -> bool:
+        # Ignore Nachtermin child sheets in overview export.
+        if ln.get("nachtermin_von"):
+            return False
+        hj = (ln.get("hj") or "").strip()
+        if sheet_name == S.SHEET_UEBERSICHT_HJ1:
+            return hj == "HJ1"
+        if sheet_name == S.SHEET_UEBERSICHT_HJ2:
+            return hj == "HJ2"
+        if sheet_name == S.SHEET_UEBERSICHT_HJ3:
+            return hj == "HJ3"
+        if sheet_name == S.SHEET_UEBERSICHT_HJ4:
+            return hj == "HJ4"
+        if sheet_name == S.SHEET_UEBERSICHT_JAHR:
+            # Jahr sheet should include all regular HJ entries.
+            return hj in ("HJ1", "HJ2", "HJ3", "HJ4")
+        return True
+
+    lns: list[dict] = [ln for ln in all_lns if _ln_in_sheet(ln)]
     students: list[dict] = data.get("stammdaten", [])
+    verhalten_noten: dict = data.get("verhalten_noten") or {}
+    mitarbeit_noten: dict = data.get("mitarbeit_noten") or {}
+    with_social_cols = sheet_name in (
+        S.SHEET_UEBERSICHT_HJ1,
+        S.SHEET_UEBERSICHT_HJ2,
+        S.SHEET_UEBERSICHT_JAHR,
+    )
 
     headers = ["Schüler"] + [ln["name"] for ln in lns] + ["Ø (gewichtet)", "Zeugnisnote"]
+    if with_social_cols:
+        headers += ["Verhalten", "Mitarbeit"]
     _write_header_row(ws, 1, headers)
+
+    def _pick_hj_val(notes: dict, name: str, key: str):
+        if key == "HJ1":
+            return notes.get(name, {}).get("HJ1")
+        if key == "HJ2":
+            return notes.get(name, {}).get("HJ2")
+        # Jahr: prefer HJ2, fallback HJ1
+        if key == "Jahr":
+            v2 = notes.get(name, {}).get("HJ2")
+            v1 = notes.get(name, {}).get("HJ1")
+            return v2 if v2 is not None else v1
+        return None
 
     for s_idx, student in enumerate(students):
         if student.get("status") == S.SD_STATUS_AUSGESCHIEDEN:
@@ -306,6 +353,13 @@ def _build_uebersicht_from_ln(wb: Workbook, ws, data: dict, sheet_name: str) -> 
             ws.cell(row, len(lns) + 2, f"=AVERAGE({avg_start}{row}:{avg_end}{row})")
             ws.cell(row, len(lns) + 3, f"=ROUND({avg_col}{row},0)")
 
+        if with_social_cols:
+            hj_key = "HJ1" if sheet_name == S.SHEET_UEBERSICHT_HJ1 else (
+                "HJ2" if sheet_name == S.SHEET_UEBERSICHT_HJ2 else "Jahr"
+            )
+            ws.cell(row, len(lns) + 4, _pick_hj_val(verhalten_noten, full_name, hj_key))
+            ws.cell(row, len(lns) + 5, _pick_hj_val(mitarbeit_noten, full_name, hj_key))
+
     _autofit(ws)
 
 
@@ -330,6 +384,8 @@ def _write_noten_zusatz(wb: Workbook, data: dict, stammdaten: list[dict]) -> Non
     hj_noten         = data.get("hj_noten") or {}
     sj_noten_actual  = data.get("schuljahr_noten_actual") or {}
     mdl_noten_kurs   = data.get("mdl_noten_kurs") or {}
+    verhalten_noten  = data.get("verhalten_noten") or {}
+    mitarbeit_noten  = data.get("mitarbeit_noten") or {}
 
     for i, s in enumerate(stammdaten, start=S.NZ_DATA_START):
         name = f"{s['nachname']}, {s['vorname']}"
@@ -357,6 +413,10 @@ def _write_noten_zusatz(wb: Workbook, data: dict, stammdaten: list[dict]) -> Non
         ws.cell(i, S.NZ_COL_KURS_MDL_HJ4_2, mdl_kurs.get("HJ4_mdl2"))
         ws.cell(i, S.NZ_COL_KURS_HJ_ACT_HJ3, hj_noten.get(name, {}).get("HJ3"))
         ws.cell(i, S.NZ_COL_KURS_HJ_ACT_HJ4, hj_noten.get(name, {}).get("HJ4"))
+        ws.cell(i, S.NZ_COL_VERH_HJ1, verhalten_noten.get(name, {}).get("HJ1"))
+        ws.cell(i, S.NZ_COL_VERH_HJ2, verhalten_noten.get(name, {}).get("HJ2"))
+        ws.cell(i, S.NZ_COL_MIT_HJ1, mitarbeit_noten.get(name, {}).get("HJ1"))
+        ws.cell(i, S.NZ_COL_MIT_HJ2, mitarbeit_noten.get(name, {}).get("HJ2"))
 
 
 def _write_einstellungen(wb: Workbook, data: dict) -> None:
