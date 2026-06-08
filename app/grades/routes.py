@@ -1625,6 +1625,7 @@ def sl_detail(sl_key):
             "kln_mean": round(kln_mean, 2) if kln_mean is not None else None,
             "mdl": mdl,
             "prev_mdl": prev_mdl,
+            "sl_raw": sl_raw,
             "sl_note_15": sl_note_15,
             "sl_actual": sl_actual,
         })
@@ -1848,7 +1849,7 @@ def klasse_korn_export(mode):
         gln_headers.append(f"GLN{len(gln_headers)+1}")
 
     if mode == "schuljahr":
-        headers = ["Name", "Note", "Verhalten", "Mitarbeit"] + gln_headers + ["SL1", "SL2", "SL3", "SL4"]
+        headers = ["Name", "Note", "Verhalten", "Mitarbeit"] + gln_headers
     else:
         headers = ["Name", "Note", "Verhalten", "Mitarbeit"] + gln_headers + [sl1_key2, sl2_key2]
     ws.append(headers)
@@ -1879,13 +1880,11 @@ def klasse_korn_export(mode):
             gln_notes.append(None)
 
         if mode == "schuljahr":
-            sl_notes = [sl_noten_actual.get(name, {}).get(k)
-                        for k in ("SL1", "SL2", "SL3", "SL4")]
+            ws.append([name, note, verhalten, mitarbeit] + gln_notes)
         else:
             sl_notes = [sl_noten_actual.get(name, {}).get(sl1_key2),
                         sl_noten_actual.get(name, {}).get(sl2_key2)]
-
-        ws.append([name, note, verhalten, mitarbeit] + gln_notes + sl_notes)
+            ws.append([name, note, verhalten, mitarbeit] + gln_notes + sl_notes)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -1966,10 +1965,10 @@ def uebersicht(hj):
         sl_mittel_15 = berechnung.round_note15(sl_mittel_raw)
         sl_mittel = round(sl_mittel_raw, 1) if sl_mittel_raw is not None else None
 
-        hj_vorschlag = berechnung.round_note15(
-            berechnung.compute_hj_vorschlag(
-                name, hj_key, lns, mdl_noten, gw,
-                {**kln_weights_sl1, **kln_weights_sl2}))
+        hj_vorschlag_raw = berechnung.compute_hj_vorschlag(
+            name, hj_key, lns, mdl_noten, gw,
+            {**kln_weights_sl1, **kln_weights_sl2})
+        hj_vorschlag = berechnung.round_note15(hj_vorschlag_raw)
         hj_actual = hj_noten.get(name, {}).get(hj_key)
 
         # Verhaltens- and Mitarbeitsnoten (1-6 scale)
@@ -2000,6 +1999,7 @@ def uebersicht(hj):
             "sl2_note_15": sl2_note_15,
             "sl_mittel_15": sl_mittel_15,
             "sl_mittel": sl_mittel,
+            "hj_vorschlag_raw": hj_vorschlag_raw,
             "hj_vorschlag": hj_vorschlag,
             "hj_actual": hj_actual,
             "verhalten": verhalten,
@@ -2210,9 +2210,9 @@ def schuljahr_uebersicht():
         sl4, sl4_actual = _sl_display(name, "SL4")
         hj2 = hj_noten.get(name, {}).get("HJ2")
 
-        sj_vorschlag = berechnung.round_note15(
-            berechnung.compute_schuljahr_note_klasse(
-                name, hj_noten, aufnahme_ab_hj, vorherige_noten))
+        sj_vorschlag_raw = berechnung.compute_schuljahr_note_klasse(
+            name, hj_noten, aufnahme_ab_hj, vorherige_noten)
+        sj_vorschlag = berechnung.round_note15(sj_vorschlag_raw)
         sj_actual = sj_noten_actual.get(name)
 
         sl1_act = sl_noten_actual.get(name, {}).get("SL1")
@@ -2244,6 +2244,7 @@ def schuljahr_uebersicht():
             "sl3": sl3, "sl3_actual": sl3_actual,
             "sl4": sl4, "sl4_actual": sl4_actual,
             "hj2": hj2,
+            "sj_vorschlag_raw": sj_vorschlag_raw,
             "sj_vorschlag": sj_vorschlag,
             "sj_actual": sj_actual,
             "sl1_act":   sl1_act,
@@ -2728,7 +2729,8 @@ def kurs_uebersicht(hj):
         mdl2 = _to_int(kn.get(f"{hj}_mdl2"))
         fs_e = int(kn.get(f"{hj}_fs_e") or 0)
         fs_u = int(kn.get(f"{hj}_fs_u") or 0)
-        vorschlag = berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
+        vorschlag_raw = berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
+        vorschlag = berechnung.round_note15(vorschlag_raw)
         tatsaechlich = _to_int(hj_noten.get(name, {}).get(hj))
         rows.append({
             "name": name,
@@ -2737,6 +2739,7 @@ def kurs_uebersicht(hj):
             "mdl2": mdl2,
             "fs_e": fs_e,
             "fs_u": fs_u,
+            "vorschlag_raw": vorschlag_raw,
             "vorschlag": vorschlag,
             "tatsaechlich": tatsaechlich,
         })
@@ -2920,6 +2923,7 @@ def kurs_gesamt_uebersicht():
                 gln_mean = None
                 mdl1 = None
                 mdl2 = None
+                vorschlag_raw = None
                 vorschlag = None
                 tatsaechlich = None
             else:
@@ -2935,15 +2939,15 @@ def kurs_gesamt_uebersicht():
                 kn = mdl_noten_kurs.get(name, {})
                 mdl1 = kn.get(f"{hj}_mdl1")
                 mdl2 = kn.get(f"{hj}_mdl2")
-                vorschlag = berechnung.round_note15(
-                    berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
-                )
+                vorschlag_raw = berechnung.compute_hj_vorschlag_kurs(name, hj, lns, mdl_noten_kurs, kgw)
+                vorschlag = berechnung.round_note15(vorschlag_raw)
                 tatsaechlich = hj_noten.get(name, {}).get(hj)
             hj_data[hj] = {
                 "gln_notes": gln_notes,
                 "gln_mean": gln_mean,
                 "mdl1": mdl1,
                 "mdl2": mdl2,
+                "vorschlag_raw": vorschlag_raw,
                 "vorschlag": vorschlag,
                 "tatsaechlich": tatsaechlich,
                 "is_before_aufnahme": is_before_aufnahme,

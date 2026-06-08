@@ -30,6 +30,8 @@
   .th-mit      { background-color: #515a5a !important; color: #fff; }
   tr.gw-row td { background-color: #f8f9fa; }
   .verhalten-input, .mitarbeit-input { width: 48px; }
+  .proposal-raw { font-size: .82em; color: #6c757d; font-weight: 400; }
+  .proposal-arrow { font-size: .9em; color: #6c757d; padding: 0 .15rem; }
 </style>
 {% endblock %}
 {% block content %}
@@ -213,7 +215,13 @@
       </td>
       {% endfor %}
       <td class="text-center hj-vorschlag-display{% if row.hj_vorschlag is not none and row.hj_vorschlag < rot_schwelle %} text-danger{% endif %}">
-        {% if row.hj_vorschlag is not none %}<em>{{ row.hj_vorschlag }}</em>{% endif %}
+        {% if row.hj_vorschlag_raw is not none and row.hj_vorschlag is not none %}
+          <span class="proposal-raw">{{ "%.1f"|format(row.hj_vorschlag_raw)|replace('.', ',') }}</span>
+          <span class="proposal-arrow">&rarr;</span>
+          <strong>{{ "%02d"|format(row.hj_vorschlag) }}</strong>
+        {% elif row.hj_vorschlag is not none %}
+          <strong>{{ "%02d"|format(row.hj_vorschlag) }}</strong>
+        {% endif %}
       </td>
       <td class="text-center">
         <input type="number" class="form-control form-control-sm hj-input hj-actual-input"

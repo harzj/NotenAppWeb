@@ -22,6 +22,8 @@
   .vorherige-note-input { width: 52px; text-align: center; -moz-appearance: textfield; }
   .vorherige-note-input::-webkit-outer-spin-button,
   .vorherige-note-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .proposal-raw { font-size: .82em; color: #6c757d; font-weight: 400; }
+  .proposal-arrow { font-size: .9em; color: #6c757d; padding: 0 .15rem; }
 </style>
 {% endblock %}
 {% block content %}
@@ -169,8 +171,14 @@
         {% endif %}
       </td>
       <td class="text-center">
-        {% if row.sj_vorschlag is not none %}
-          <em class="{{ 'text-danger' if row.sj_vorschlag < rot_schwelle else '' }}">{{ row.sj_vorschlag }}</em>
+        {% if row.sj_vorschlag_raw is not none and row.sj_vorschlag is not none %}
+          <em class="{{ 'text-danger' if row.sj_vorschlag < rot_schwelle else '' }}">
+            <span class="proposal-raw">{{ "%.1f"|format(row.sj_vorschlag_raw)|replace('.', ',') }}</span>
+            <span class="proposal-arrow">&rarr;</span>
+            <strong>{{ "%02d"|format(row.sj_vorschlag) }}</strong>
+          </em>
+        {% elif row.sj_vorschlag is not none %}
+          <em class="{{ 'text-danger' if row.sj_vorschlag < rot_schwelle else '' }}"><strong>{{ "%02d"|format(row.sj_vorschlag) }}</strong></em>
         {% else %}–{% endif %}
       </td>
       <td class="text-center cell-actual-strong">
@@ -209,11 +217,7 @@ document.getElementById('btnKornClipboard')?.addEventListener('click', () => {
     const gln1 = glnNotes[0] != null ? String(glnNotes[0]) : '';
     const gln2 = glnNotes[1] != null ? String(glnNotes[1]) : '';
     const gln3 = glnNotes[2] != null ? String(glnNotes[2]) : '';
-    const sl1 = tr.dataset.sl1 || '';
-    const sl2 = tr.dataset.sl2 || '';
-    const sl3 = tr.dataset.sl3 || '';
-    const sl4 = tr.dataset.sl4 || '';
-    lines.push([note, verh, mit, gln1, gln2, gln3, sl1, sl2, sl3, sl4].join('\t'));
+    lines.push([note, verh, mit, gln1, gln2, gln3].join('\t'));
   });
   const text = lines.join('\r\n') + '\r\n';
   navigator.clipboard.writeText(text).then(() => {

@@ -2,6 +2,10 @@
 {% from "macros.html" import csrf_field %}
 {% block title %}Kurs-Übersicht {{ hj }}{% endblock %}
 {% block content %}
+<style>
+  .proposal-raw { font-size: .82em; color: #6c757d; font-weight: 400; }
+  .proposal-arrow { font-size: .9em; color: #6c757d; padding: 0 .15rem; }
+</style>
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h4 class="mb-0"><i class="bi bi-table me-2"></i>Kurs-Übersicht – {{ hj }}</h4>
   <div class="d-flex gap-2 flex-wrap align-items-center">
@@ -81,7 +85,13 @@
                  value="{{ row.mdl2 if row.mdl2 is not none else '' }}">
         </td>
         <td class="text-center fw-semibold text-primary">
-          {% if row.vorschlag is not none %}{{ row.vorschlag }}{% else %}<span class="text-muted">–</span>{% endif %}
+          {% if row.vorschlag_raw is not none and row.vorschlag is not none %}
+            <span class="proposal-raw">{{ "%.1f"|format(row.vorschlag_raw)|replace('.', ',') }}</span>
+            <span class="proposal-arrow">&rarr;</span>
+            <strong>{{ "%02d"|format(row.vorschlag) }}</strong>
+          {% elif row.vorschlag is not none %}
+            <strong>{{ "%02d"|format(row.vorschlag) }}</strong>
+          {% else %}<span class="text-muted">–</span>{% endif %}
         </td>
         <td class="text-center table-primary fw-bold">
           <input type="number" class="form-control form-control-sm text-center fw-bold"

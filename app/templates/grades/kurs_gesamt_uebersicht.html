@@ -16,6 +16,8 @@
   .vorherige-note-input { width: 52px; text-align: center; -moz-appearance: textfield; }
   .vorherige-note-input::-webkit-outer-spin-button,
   .vorherige-note-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .proposal-raw { font-size: .82em; color: #6c757d; font-weight: 400; }
+  .proposal-arrow { font-size: .9em; color: #6c757d; padding: 0 .15rem; }
 </style>
 {% endblock %}
 {% block content %}
@@ -118,7 +120,15 @@
             {% set bg = 'note-good' if hd.tatsaechlich >= 10 else ('note-ok' if hd.tatsaechlich >= 5 else 'note-fail') %}
             <td class="note-cell {{ bg }} hj-group" style="outline: 2px solid #1f4e79; outline-offset:-2px;">{{ hd.tatsaechlich }}</td>
           {% elif hd.vorschlag is not none %}
-            <td class="text-center note-proj hj-group" title="Vorschlag (noch nicht festgelegt)">{{ hd.vorschlag }}?</td>
+            <td class="text-center note-proj hj-group" title="Vorschlag (noch nicht festgelegt)">
+              {% if hd.vorschlag_raw is not none %}
+                <span class="proposal-raw">{{ "%.1f"|format(hd.vorschlag_raw)|replace('.', ',') }}</span>
+                <span class="proposal-arrow">&rarr;</span>
+                <strong>{{ "%02d"|format(hd.vorschlag) }}</strong>?
+              {% else %}
+                <strong>{{ "%02d"|format(hd.vorschlag) }}</strong>?
+              {% endif %}
+            </td>
           {% else %}
             <td class="text-center text-muted hj-group">–</td>
           {% endif %}

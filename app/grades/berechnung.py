@@ -341,9 +341,9 @@ def compute_hj_vorschlag_kurs(
     gln_pct = gewichtung.get("hj_gln_pct", 70.0) / 100.0
     mdl_pct = gewichtung.get("hj_mdl_pct", 30.0) / 100.0
     if gln_mean is not None and mdl_mean is not None:
-        return round(gln_mean * gln_pct + mdl_mean * mdl_pct, 1)
+        return gln_mean * gln_pct + mdl_mean * mdl_pct
     if gln_mean is not None:
-        return round(gln_mean, 1)
+        return gln_mean
     return None
 
 
