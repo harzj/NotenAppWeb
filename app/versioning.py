@@ -1,6 +1,4 @@
-import json
-import sys
-from pathlib import Path
+from app._build_version import VERSION as EMBEDDED_VERSION
 
 
 DEFAULT_VERSION = {
@@ -11,32 +9,14 @@ DEFAULT_VERSION = {
 }
 
 
-def _candidate_paths() -> list[Path]:
-    here = Path(__file__).resolve()
-    paths = [here.parents[1] / "version.json"]
-
-    if getattr(sys, "frozen", False):
-        meipass = getattr(sys, "_MEIPASS", None)
-        if meipass:
-            paths.insert(0, Path(meipass) / "version.json")
-        paths.append(Path(sys.executable).resolve().parent / "version.json")
-
-    return paths
-
-
 def load_version_data() -> dict:
-    for path in _candidate_paths():
-        if path.exists():
-            with open(path, encoding="utf-8") as handle:
-                data = json.load(handle)
-            return {
-                "major": int(data.get("major", DEFAULT_VERSION["major"])),
-                "minor": int(data.get("minor", DEFAULT_VERSION["minor"])),
-                "patch": int(data.get("patch", DEFAULT_VERSION["patch"])),
-                "build": int(data.get("build", DEFAULT_VERSION["build"])),
-            }
-
-    return DEFAULT_VERSION.copy()
+    data = EMBEDDED_VERSION or DEFAULT_VERSION
+    return {
+        "major": int(data.get("major", DEFAULT_VERSION["major"])),
+        "minor": int(data.get("minor", DEFAULT_VERSION["minor"])),
+        "patch": int(data.get("patch", DEFAULT_VERSION["patch"])),
+        "build": int(data.get("build", DEFAULT_VERSION["build"])),
+    }
 
 
 def format_version(version: dict | None = None) -> str:

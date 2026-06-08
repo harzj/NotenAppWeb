@@ -21,6 +21,7 @@ ROOT = Path(__file__).parent
 VERSION_FILE = ROOT / "version.json"
 DIST_DIR = ROOT / "dist"
 SPEC_FILE = ROOT / "NotenApp.spec"
+BUILD_VERSION_MODULE = ROOT / "app" / "_build_version.py"
 
 RELEASE_TYPES = {
     "1": "major-update",
@@ -37,6 +38,19 @@ def _write_version(v: dict) -> None:
     with open(VERSION_FILE, "w", encoding="utf-8") as f:
         json.dump(v, f, indent=2)
         f.write("\n")
+
+
+def _write_build_version_module(v: dict) -> None:
+    lines = [
+        "VERSION = {",
+        f'    "major": {int(v["major"])},',
+        f'    "minor": {int(v["minor"])},',
+        f'    "patch": {int(v["patch"])},',
+        f'    "build": {int(v["build"])}',
+        "}\n",
+    ]
+    with open(BUILD_VERSION_MODULE, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 
 
 def _version_str(v: dict) -> str:
@@ -75,6 +89,7 @@ def main() -> None:
 
     # PyInstaller aufrufen
     _write_version(next_version_data)
+    _write_build_version_module(next_version_data)
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--clean",
@@ -86,6 +101,7 @@ def main() -> None:
     result = subprocess.run(cmd, cwd=str(ROOT))
     if result.returncode != 0:
         _write_version(current_version_data)
+        _write_build_version_module(current_version_data)
         print("FEHLER: PyInstaller fehlgeschlagen.")
         sys.exit(1)
 
