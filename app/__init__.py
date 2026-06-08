@@ -3,6 +3,7 @@ import sys
 from flask import Flask
 from app.config import config_by_name
 from app.extensions import db, login_manager, sess, csrf, limiter
+from app.versioning import format_version, load_version_data
 
 
 def _display_schuljahr(schuljahr: str | None, schuljahr_bis: str | None = None) -> str:
@@ -30,6 +31,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app = Flask(__name__, instance_relative_config=False,
                 **{"root_path": root_path} if root_path else {})
     app.config.from_object(config_by_name[config_name])
+    app.config["APP_VERSION"] = format_version(load_version_data())
 
     # Ensure instance and session directories exist
     os.makedirs(app.config["SESSION_FILE_DIR"], exist_ok=True)
@@ -74,6 +76,7 @@ def create_app(config_name: str | None = None) -> Flask:
                     abt_ln_idx = i
                     break
         return {
+            "app_version": app.config["APP_VERSION"],
             "current_klasse": gb.get("klasse", "") if gb else "",
             "current_modus": current_modus,
             "current_kurs_info": current_kurs_info,

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pystray
 from PIL import Image, ImageDraw
+from app.versioning import format_version, load_version_data
 
 # ngrok-Konfiguration
 NGROK_DOMAIN = "enzyme-cognitive-nearly.ngrok-free.dev"
@@ -72,6 +73,8 @@ _log_handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(nam
 logging.getLogger().addHandler(_log_handler)
 logging.getLogger().setLevel(logging.INFO)
 
+APP_VERSION = format_version(load_version_data())
+
 
 def _make_icon() -> Image.Image:
     """Erzeugt ein einfaches blaues 'N'-Icon."""
@@ -96,6 +99,7 @@ def _run_flask():
     """Flask-Server in eigenem Thread starten."""
     from app import create_app
     flask_app = create_app(os.environ.get("FLASK_ENV", "development"))
+    print(f"[INFO] Starte NotenApp Version {APP_VERSION} auf http://localhost:5000")
     # use_reloader=False und threaded=True für Tray-Betrieb
     flask_app.run(host="0.0.0.0", port=5000, use_reloader=False, threaded=True)
 
@@ -203,7 +207,7 @@ def main():
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Beenden", _quit),
         )
-        title = "NotenApp – localhost:5000"
+        title = f"NotenApp {APP_VERSION} – localhost:5000"
     else:
         menu = pystray.Menu(
             pystray.MenuItem("Im Browser öffnen (ngrok)", _open_browser, default=True),
@@ -212,7 +216,7 @@ def main():
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Beenden", _quit),
         )
-        title = f"NotenApp → {NGROK_DOMAIN}"
+        title = f"NotenApp {APP_VERSION} → {NGROK_DOMAIN}"
 
     icon = pystray.Icon(
         name="NotenApp",

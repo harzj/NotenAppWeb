@@ -18,6 +18,7 @@ a = Analysis(
         # Templates ins Bundle – Zielpfad 'templates/' damit Flask mit root_path=_MEIPASS
         # über den Default template_folder='templates' findet.
         (str(ROOT / 'app' / 'templates'), 'templates'),
+        (str(ROOT / 'version.json'), '.'),
     ],
     hiddenimports=[
         # Flask und Extensions
