@@ -112,11 +112,16 @@
         data-sl1="{{ row.sl1_act if row.sl1_act is not none else '' }}"
         data-sl2="{{ row.sl2_act if row.sl2_act is not none else '' }}"
         data-sl3="{{ row.sl3_act if row.sl3_act is not none else '' }}"
-        data-sl4="{{ row.sl4_act if row.sl4_act is not none else '' }}" data-aufnahme="{{ row.aufnahme_ab_hj or '' }}">
+        data-sl4="{{ row.sl4_act if row.sl4_act is not none else '' }}"
+        data-aufnahme="{{ row.aufnahme_ab_hj or '' }}"
+        data-korn-exclude="{{ '1' if row.is_abgaenger_hj1 else '0' }}">
       <td>
         {{ row.name }}
         {% if row.is_aufnahme_hj2 %}
           <span class="badge bg-info text-dark ms-1" title="Aufnahme zum Halbjahr 2">ab HJ2</span>
+        {% endif %}
+        {% if row.is_abgaenger_hj1 %}
+          <span class="badge bg-secondary ms-1" title="Nach Halbjahr 1 ausgeschieden">Abgang HJ1</span>
         {% endif %}
       </td>
       <td class="text-center {{ 'aufnahme-cell' if row.is_aufnahme_hj2 else '' }}">
@@ -156,13 +161,17 @@
       <td class="text-center">{{ sl_cell(row.sl4, row.sl4_actual) }}</td>
       {% for c in row.gln_hj2_cols %}
       <td class="text-center">
-        {% if c.note_15 is not none %}
+        {% if row.is_abgaenger_hj1 %}
+          –
+        {% elif c.note_15 is not none %}
           <span class="{{ 'text-muted text-decoration-line-through' if c.ignoriert else ('text-danger' if c.note_15 < rot_schwelle else '') }}">{{ c.note_15 }}</span>
         {% endif %}
       </td>
       {% endfor %}
       <td class="text-center cell-note-soft">
-        {% if row.hj2 is not none %}
+        {% if row.is_abgaenger_hj1 %}
+          –
+        {% elif row.hj2 is not none %}
           {{ note_cell(row.hj2) }}
         {% else %}
           <span class="text-muted small fst-italic">
@@ -182,9 +191,13 @@
         {% else %}–{% endif %}
       </td>
       <td class="text-center cell-actual-strong">
-        <input type="number" class="form-control form-control-sm sj-actual-input"
-               min="0" max="15" step="1"
-               value="{{ row.sj_actual if row.sj_actual is not none else '' }}">
+        {% if row.is_abgaenger_hj1 %}
+          –
+        {% else %}
+          <input type="number" class="form-control form-control-sm sj-actual-input"
+                 min="0" max="15" step="1"
+                 value="{{ row.sj_actual if row.sj_actual is not none else '' }}">
+        {% endif %}
       </td>
     </tr>
     {% endfor %}
@@ -210,6 +223,7 @@ function showToast(msg, type) {
 document.getElementById('btnKornClipboard')?.addEventListener('click', () => {
   const lines = [];
   document.querySelectorAll('#sjTable tbody tr[data-name]').forEach(tr => {
+    if (tr.dataset.kornExclude === '1') return;
     const note = tr.querySelector('.sj-actual-input')?.value.trim() || (tr.dataset.sjNote || '');
     const verh = tr.dataset.verh || '';
     const mit = tr.dataset.mit || '';

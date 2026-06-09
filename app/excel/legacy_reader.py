@@ -71,6 +71,27 @@ _SKIP_NAMES = {"max punkte", "teilaufgabe", "gewicht"}
 _SKIP_KLN_COLS = {"notentabelle", "mw", "mittelwert", "gesamt", "note", "note(15)", "note(6)", "summe"}
 
 
+def _canonical_name(raw) -> str:
+    if raw is None:
+        return ""
+    name = str(raw).replace("\u00a0", " ").strip()
+    if not name:
+        return ""
+    if "," in name:
+        left, right = name.split(",", 1)
+        left = " ".join(left.split())
+        right = " ".join(right.split())
+        return f"{left}, {right}" if right else left
+    return " ".join(name.split())
+
+
+def _split_name(name: str) -> tuple[str, str]:
+    parts = name.split(",", 1)
+    nachname = parts[0].strip() if parts else ""
+    vorname = parts[1].strip() if len(parts) > 1 else ""
+    return nachname, vorname
+
+
 def _get_students(wb: Workbook) -> list[str]:
     """Extract ordered student name list from Noten or first available sheet."""
     for sheet_name in ["Noten", "KLN 1", "KLN1", "GLN1", "GLN 1"]:
@@ -82,7 +103,7 @@ def _get_students(wb: Workbook) -> list[str]:
             v = ws.cell(r, 1).value
             if not v:
                 continue
-            name = str(v).strip()
+            name = _canonical_name(v)
             if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
                 continue
             names.append(name)
@@ -218,7 +239,7 @@ def _get_students_oberstufe(wb: Workbook) -> list[str]:
             v = ws.cell(r, 1).value
             if not v:
                 continue
-            name = str(v).strip()
+            name = _canonical_name(v)
             if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
                 continue
             names.append(name)
@@ -282,7 +303,7 @@ def _read_oberstufe_gln(wb: Workbook, sheet_name: str, students: list[str],
             mp = float(raw) if raw is not None else 100.0
         except (ValueError, TypeError):
             mp = 100.0
-        aufgaben = [{"label": "Gesamt", "afb": "", "max_punkte": mp}]
+        aufgaben = [{"label": "Alle", "afb": "", "max_punkte": mp}]
 
     # Row 6+: student data
     schueler = []
@@ -290,12 +311,12 @@ def _read_oberstufe_gln(wb: Workbook, sheet_name: str, students: list[str],
         raw_name = ws.cell(r, 1).value
         if not raw_name:
             continue
-        name = str(raw_name).strip()
+        name = _canonical_name(raw_name)
         if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
             continue
 
         punkte: list[Optional[float]] = []
-        if len(aufgaben) == 1 and aufgaben[0]["label"] == "Gesamt":
+        if len(aufgaben) == 1 and aufgaben[0]["label"] in ("Gesamt", "Alle"):
             # Single-task fallback: read from gesamt_col
             raw_pts = ws.cell(r, gesamt_col).value if gesamt_col else None
             try:
@@ -379,7 +400,7 @@ def _read_zeugnisnoten(ws, students: list[str], hj_key: str) -> dict:
         raw_name = ws.cell(r, 1).value
         if not raw_name:
             continue
-        name = str(raw_name).strip()
+        name = _canonical_name(raw_name)
         if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
             continue
 
@@ -440,9 +461,7 @@ def import_oberstufe_legacy_file(wb, selections: dict, students: list[str]) -> d
     # ── Build stammdaten ──────────────────────────────────────────────────────
     stammdaten = []
     for name in students:
-        parts = name.split(",", 1)
-        nachname = parts[0].strip()
-        vorname = parts[1].strip() if len(parts) > 1 else ""
+        nachname, vorname = _split_name(name)
         stammdaten.append({
             "nachname": nachname,
             "vorname": vorname,
@@ -466,7 +485,7 @@ def import_oberstufe_legacy_file(wb, selections: dict, students: list[str]) -> d
             v = ws_z.cell(r, 1).value
             if not v:
                 continue
-            n = str(v).strip()
+            n = _canonical_name(v)
             if n and not n.startswith("#") and n.lower() not in _SKIP_NAMES:
                 present.add(n)
         if present:
@@ -524,7 +543,8 @@ def import_legacy_file(file_bytes: bytes, password: Optional[str], selections: d
         students = _get_students_oberstufe(wb) or _get_students(wb)
         return import_oberstufe_legacy_file(wb, selections, students)
 
-    students = _get_students(wb)
+    students = [_canonical_name(n) for n in _get_students(wb)]
+    students = [n for n in students if n]
 
     lns: list[dict] = []
     mdl_noten: dict = {}
@@ -553,6 +573,31 @@ def import_legacy_file(file_bytes: bytes, password: Optional[str], selections: d
     if bis_sl in ("SL3", "SL4") and "Noten (2)" in wb.sheetnames:
         _read_noten_hj2(wb["Noten (2)"], students, mdl_noten, sl_noten_actual, schuljahr_noten_actual, bis_sl)
 
+    # Ensure stammdaten contains all imported students, even if missing in "Noten".
+    # This prevents overview omissions when names exist in LN sheets but not in summary sheets.
+    all_names_ordered = list(students)
+    seen_names = set(all_names_ordered)
+    for ln in lns:
+        for sc in ln.get("schueler", []):
+            n = _canonical_name(sc.get("name"))
+            if n and n not in seen_names:
+                all_names_ordered.append(n)
+                seen_names.add(n)
+            if n:
+                sc["name"] = n
+    for src in (mdl_noten, sl_noten_actual, hj_noten, schuljahr_noten_actual):
+        for n in list(src.keys()):
+            cn = _canonical_name(n)
+            if not cn:
+                continue
+            if cn != n:
+                src.setdefault(cn, src.pop(n))
+            if cn not in seen_names:
+                all_names_ordered.append(cn)
+                seen_names.add(cn)
+
+    students = all_names_ordered
+
     # ── determine inactive students (in Noten but not in Noten (2)) ──────────
     ausgeschieden_names: set = set()
     if "Noten (2)" in wb.sheetnames:
@@ -562,7 +607,7 @@ def import_legacy_file(file_bytes: bytes, password: Optional[str], selections: d
             raw = ws2.cell(r2, 1).value
             if not raw:
                 continue
-            n2 = str(raw).strip()
+            n2 = _canonical_name(raw)
             if n2 and not n2.startswith("#") and n2.lower() not in _SKIP_NAMES:
                 noten2_names.add(n2)
         if noten2_names:
@@ -571,12 +616,18 @@ def import_legacy_file(file_bytes: bytes, password: Optional[str], selections: d
     # ── build stammdaten ──────────────────────────────────────────────────────
     stammdaten = []
     for name in students:
-        parts = name.split(",", 1)
-        nachname = parts[0].strip()
-        vorname = parts[1].strip() if len(parts) > 1 else ""
+        nachname, vorname = _split_name(name)
         status = S.SD_STATUS_AUSGESCHIEDEN if name in ausgeschieden_names else S.SD_STATUS_AKTIV
-        stammdaten.append({"nachname": nachname, "vorname": vorname, "notizen": "",
-                           "status": status, "austritt": ""})
+        row = {
+            "nachname": nachname,
+            "vorname": vorname,
+            "notizen": "",
+            "status": status,
+            "austritt": "",
+        }
+        if status == S.SD_STATUS_AUSGESCHIEDEN:
+            row["abgang_nach_hj"] = "HJ1"
+        stammdaten.append(row)
 
     return {
         "klasse": selections.get("klasse", ""),
@@ -617,7 +668,7 @@ def _read_kln_entry(wb: Workbook, sel: dict, students: list[str]) -> Optional[di
         raw_name = ws.cell(r, 1).value
         if not raw_name:
             continue
-        name = str(raw_name).strip()
+        name = _canonical_name(raw_name)
         if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
             continue
 
@@ -684,7 +735,7 @@ def _read_gln_entry(wb: Workbook, sel: dict, students: list[str]) -> Optional[di
         raw_name = ws.cell(r, 1).value
         if not raw_name:
             continue
-        name = str(raw_name).strip()
+        name = _canonical_name(raw_name)
         if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
             continue
 
@@ -720,7 +771,7 @@ def _read_gln_entry(wb: Workbook, sel: dict, students: list[str]) -> Optional[di
         "ln_typ": "GLN",
         "hj": hj,
         "sl_zuordnung": sl,
-        "aufgaben": [{"label": "Gesamt", "afb": "", "max_punkte": gesamt_max}],
+        "aufgaben": [{"label": "Alle", "afb": "", "max_punkte": gesamt_max}],
         "aufgaben_tree": [],
         "schueler": schueler,
     }
@@ -734,11 +785,18 @@ def _note_from_cell(ws, row: int, col: int) -> Optional[int]:
         return None
     try:
         f = float(v)
-        if 0 <= f <= 15:
-            return round(f)
-        return None
     except (ValueError, TypeError):
-        return None
+        s = str(v).strip().replace(",", ".")
+        m = re.search(r"-?\d+(?:\.\d+)?", s)
+        if not m:
+            return None
+        try:
+            f = float(m.group(0))
+        except (ValueError, TypeError):
+            return None
+    if 0 <= f <= 15:
+        return round(f)
+    return None
 
 
 def _read_noten_hj1(
@@ -761,7 +819,7 @@ def _read_noten_hj1(
         raw_name = ws.cell(r, 1).value
         if not raw_name:
             continue
-        name = str(raw_name).strip()
+        name = _canonical_name(raw_name)
         if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
             continue
 
@@ -805,7 +863,7 @@ def _read_noten_hj2(
         raw_name = ws.cell(r, 1).value
         if not raw_name:
             continue
-        name = str(raw_name).strip()
+        name = _canonical_name(raw_name)
         if not name or name.startswith("#") or name.lower() in _SKIP_NAMES:
             continue
 

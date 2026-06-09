@@ -7,9 +7,12 @@ Rechtsklick → "Beenden" stoppt Server und App.
 import os
 import sys
 import io
+import json
 import logging
 import subprocess
 import threading
+import time
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -17,11 +20,28 @@ import pystray
 from PIL import Image, ImageDraw
 from app.versioning import format_version, load_version_data
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    val = val.strip().lower()
+    if val == "":
+        return default
+    return val in {"1", "true", "yes", "on"}
+
+
 # ngrok-Konfiguration
-NGROK_DOMAIN = "enzyme-cognitive-nearly.ngrok-free.dev"
+NGROK_DOMAIN = os.environ.get("NGROK_DOMAIN", "enzyme-cognitive-nearly.ngrok-free.dev")
+NGROK_ENABLED = _env_bool("NGROK_ENABLED", True)
+APP_HOST = os.environ.get("NOTENAPP_HOST", "0.0.0.0")
+APP_PORT = int(os.environ.get("NOTENAPP_PORT", "5000"))
 # ngrok.exe im gleichen Ordner wie tray.py suchen, sonst im PATH
 _here = Path(__file__).parent
-NGROK_EXE = str(_here / "ngrok.exe") if (_here / "ngrok.exe").exists() else "ngrok"
+NGROK_EXE = os.environ.get(
+    "NGROK_EXE",
+    str(_here / "ngrok.exe") if (_here / "ngrok.exe").exists() else "ngrok",
+)
 
 _ngrok_proc = None
 
@@ -99,27 +119,61 @@ def _run_flask():
     """Flask-Server in eigenem Thread starten."""
     from app import create_app
     flask_app = create_app(os.environ.get("FLASK_ENV", "development"))
-    print(f"[INFO] Starte NotenApp Version {APP_VERSION} auf http://localhost:5000")
+    print(f"[INFO] Starte NotenApp Version {APP_VERSION} auf http://localhost:{APP_PORT}")
     # use_reloader=False und threaded=True für Tray-Betrieb
-    flask_app.run(host="0.0.0.0", port=5000, use_reloader=False, threaded=True)
+    flask_app.run(host=APP_HOST, port=APP_PORT, use_reloader=False, threaded=True)
 
 
 def _run_ngrok():
     """ngrok-Tunnel starten."""
     global _ngrok_proc
-    _ngrok_proc = subprocess.Popen(
-        [NGROK_EXE, "http", f"--domain={NGROK_DOMAIN}", "5000"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    popen_kwargs = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+    cmd_with_domain = [NGROK_EXE, "http", f"--domain={NGROK_DOMAIN}", str(APP_PORT)]
+    _ngrok_proc = subprocess.Popen(cmd_with_domain, **popen_kwargs)
+
+    # If the reserved domain fails quickly, fall back to a random ngrok URL.
+    time.sleep(1.2)
+    if _ngrok_proc.poll() is not None:
+        print("[WARN] ngrok mit fester Domain konnte nicht gestartet werden. Wechsle auf dynamische URL.")
+        _ngrok_proc = subprocess.Popen([NGROK_EXE, "http", str(APP_PORT)], **popen_kwargs)
+
+
+def _get_ngrok_public_url() -> str | None:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=1.5) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        tunnels = payload.get("tunnels", [])
+        for tunnel in tunnels:
+            url = tunnel.get("public_url", "")
+            if url.startswith("https://"):
+                return url
+        for tunnel in tunnels:
+            url = tunnel.get("public_url", "")
+            if url:
+                return url
+    except Exception:
+        return None
+    return None
 
 
 def _open_browser(icon, item):
-    webbrowser.open(f"https://{NGROK_DOMAIN}")
+    tunnel_url = _get_ngrok_public_url()
+    if tunnel_url:
+        webbrowser.open(tunnel_url)
+    elif NGROK_DOMAIN:
+        webbrowser.open(f"https://{NGROK_DOMAIN}")
+    else:
+        webbrowser.open(f"http://localhost:{APP_PORT}")
 
 
 def _open_local(icon, item):
-    webbrowser.open("http://localhost:5000")
+    webbrowser.open(f"http://localhost:{APP_PORT}")
 
 
 def _show_console(icon, item):
@@ -187,7 +241,7 @@ def main():
     t = threading.Thread(target=_run_flask, daemon=True)
     t.start()
 
-    if not is_frozen:
+    if not is_frozen and NGROK_ENABLED:
         # ngrok nur im Entwicklungsmodus starten
         threading.Thread(target=_run_ngrok, daemon=True).start()
 
@@ -195,7 +249,7 @@ def main():
     def _delayed_open():
         import time
         time.sleep(1.5)
-        webbrowser.open("http://localhost:5000")
+        webbrowser.open(f"http://localhost:{APP_PORT}")
 
     threading.Thread(target=_delayed_open, daemon=True).start()
 
@@ -207,16 +261,25 @@ def main():
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Beenden", _quit),
         )
-        title = f"NotenApp {APP_VERSION} – localhost:5000"
+        title = f"NotenApp {APP_VERSION} – localhost:{APP_PORT}"
     else:
-        menu = pystray.Menu(
-            pystray.MenuItem("Im Browser öffnen (ngrok)", _open_browser, default=True),
-            pystray.MenuItem("Lokal öffnen (localhost)", _open_local),
-            pystray.MenuItem("Konsole anzeigen", _show_console),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Beenden", _quit),
-        )
-        title = f"NotenApp {APP_VERSION} → {NGROK_DOMAIN}"
+        if NGROK_ENABLED:
+            menu = pystray.Menu(
+                pystray.MenuItem("Im Browser öffnen (ngrok)", _open_browser, default=True),
+                pystray.MenuItem("Lokal öffnen (localhost)", _open_local),
+                pystray.MenuItem("Konsole anzeigen", _show_console),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Beenden", _quit),
+            )
+            title = f"NotenApp {APP_VERSION} -> {NGROK_DOMAIN}"
+        else:
+            menu = pystray.Menu(
+                pystray.MenuItem("Im Browser öffnen", _open_local, default=True),
+                pystray.MenuItem("Konsole anzeigen", _show_console),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Beenden", _quit),
+            )
+            title = f"NotenApp {APP_VERSION} – localhost:{APP_PORT}"
 
     icon = pystray.Icon(
         name="NotenApp",

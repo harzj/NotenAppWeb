@@ -14,6 +14,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from app.excel import schema as S
+from app.grades import berechnung
 
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -325,10 +326,26 @@ def _build_uebersicht_from_ln(wb: Workbook, ws, data: dict, sheet_name: str) -> 
             return v2 if v2 is not None else v1
         return None
 
+    def _student_visible_in_sheet(student: dict) -> bool:
+        if sheet_name == S.SHEET_UEBERSICHT_HJ1:
+            return berechnung.student_active_in_hj(student, "HJ1")
+        if sheet_name == S.SHEET_UEBERSICHT_HJ2:
+            return berechnung.student_active_in_hj(student, "HJ2")
+        if sheet_name == S.SHEET_UEBERSICHT_HJ3:
+            return berechnung.student_active_in_hj(student, "HJ3")
+        if sheet_name == S.SHEET_UEBERSICHT_HJ4:
+            return berechnung.student_active_in_hj(student, "HJ4")
+        if sheet_name == S.SHEET_UEBERSICHT_JAHR:
+            return any(
+                berechnung.student_active_in_hj(student, hj)
+                for hj in ("HJ1", "HJ2", "HJ3", "HJ4")
+            )
+        return True
+
+    row = 2
     for s_idx, student in enumerate(students):
-        if student.get("status") == S.SD_STATUS_AUSGESCHIEDEN:
+        if not _student_visible_in_sheet(student):
             continue
-        row = s_idx + 2
         full_name = f"{student['nachname']}, {student['vorname']}"
         sd_row_num = S.SD_DATA_START_ROW + s_idx
         ws.cell(row, 1, f'={S.SHEET_STAMMDATEN}!A{sd_row_num}&", "&{S.SHEET_STAMMDATEN}!B{sd_row_num}')
@@ -359,6 +376,7 @@ def _build_uebersicht_from_ln(wb: Workbook, ws, data: dict, sheet_name: str) -> 
             )
             ws.cell(row, len(lns) + 4, _pick_hj_val(verhalten_noten, full_name, hj_key))
             ws.cell(row, len(lns) + 5, _pick_hj_val(mitarbeit_noten, full_name, hj_key))
+        row += 1
 
     _autofit(ws)
 

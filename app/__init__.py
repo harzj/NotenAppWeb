@@ -1,6 +1,7 @@
 import os
 import sys
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import config_by_name
 from app.extensions import db, login_manager, sess, csrf, limiter
 from app.versioning import format_version, load_version_data
@@ -31,6 +32,17 @@ def create_app(config_name: str | None = None) -> Flask:
     app = Flask(__name__, instance_relative_config=False,
                 **{"root_path": root_path} if root_path else {})
     app.config.from_object(config_by_name[config_name])
+
+    if app.config.get("TRUST_PROXY"):
+        app.wsgi_app = ProxyFix(
+            app.wsgi_app,
+            x_for=app.config.get("PROXY_FIX_X_FOR", 1),
+            x_proto=app.config.get("PROXY_FIX_X_PROTO", 1),
+            x_host=app.config.get("PROXY_FIX_X_HOST", 1),
+            x_port=app.config.get("PROXY_FIX_X_PORT", 1),
+            x_prefix=app.config.get("PROXY_FIX_X_PREFIX", 0),
+        )
+
     app.config["APP_VERSION"] = format_version(load_version_data())
 
     # Ensure instance and session directories exist

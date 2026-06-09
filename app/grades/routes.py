@@ -36,6 +36,38 @@ def _save_gradebook(data: dict) -> None:
     session.modified = True
 
 
+def _student_status_norm(student: dict) -> str:
+    return str(student.get("status") or "").strip().lower()
+
+
+def _student_is_ausgeschieden(student: dict) -> bool:
+    return _student_status_norm(student) == S.SD_STATUS_AUSGESCHIEDEN.lower()
+
+
+def _student_is_currently_active(student: dict) -> bool:
+    return not _student_is_ausgeschieden(student)
+
+
+def _sl_key_to_hj(sl_key: str | None) -> str | None:
+    if sl_key in ("SL1", "SL2"):
+        return "HJ1"
+    if sl_key in ("SL3", "SL4"):
+        return "HJ2"
+    return None
+
+
+def _ln_target_hj(ln: dict) -> str | None:
+    if ln.get("ln_typ") == "GLN":
+        return ln.get("hj")
+    if ln.get("ln_typ") == "KLN":
+        return _sl_key_to_hj(ln.get("sl_zuordnung"))
+    return None
+
+
+def _students_active_in_hj(students: list[dict], hj: str) -> list[dict]:
+    return [s for s in students if berechnung.student_active_in_hj(s, hj)]
+
+
 def _rot_schwelle(klasse: str | None) -> int:
     """Return the note_15 threshold below which a note is shown in red.
 
@@ -351,7 +383,7 @@ def notendatei_import():
                 vn = parts[1].strip() if len(parts) > 1 else ""
                 new_stammdaten.append({
                     "nachname": nn, "vorname": vn,
-                    "notizen": "", "status": "aktiv", "austritt": ""
+                    "notizen": "", "status": S.SD_STATUS_AKTIV, "austritt": ""
                 })
                 existing_names.add(name)
         if new_stammdaten:
@@ -531,9 +563,9 @@ def new_wizard():
             abgaenger_include = set(request.form.getlist("abgaenger_include"))
             stammdaten = []
             for s in sd_data:
-                if s.get("status") == S.SD_STATUS_AKTIV:
+                if _student_is_currently_active(s):
                     stammdaten.append(s)
-                elif s.get("status") == S.SD_STATUS_AUSGESCHIEDEN:
+                elif _student_is_ausgeschieden(s):
                     name_key = f"{s['nachname']}, {s['vorname']}"
                     if name_key in abgaenger_include:
                         stammdaten.append(s)
@@ -594,7 +626,7 @@ def wizard_probe_schueler():
     aktive = [
         {"nachname": s["nachname"], "vorname": s["vorname"]}
         for s in stammdaten
-        if s.get("status") == S.SD_STATUS_AKTIV
+        if _student_is_currently_active(s)
     ]
     abgaenger = [
         {
@@ -604,7 +636,7 @@ def wizard_probe_schueler():
             "abgang_nach_hj": s.get("abgang_nach_hj") or "",
         }
         for s in stammdaten
-        if s.get("status") == S.SD_STATUS_AUSGESCHIEDEN
+        if _student_is_ausgeschieden(s)
     ]
 
     session[_WIZARD_SD_FILE] = file_bytes
@@ -793,7 +825,7 @@ def _sync_active_students_into_lns(data: dict) -> int:
     """
     added_rows = 0
     modus = data.get("modus", "klasse")
-    active_students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    students = data.get("stammdaten", [])
 
     for ln in data.get("leistungsnachweise", []):
         # Nachtermin rosters are intentionally managed separately.
@@ -801,15 +833,17 @@ def _sync_active_students_into_lns(data: dict) -> int:
             continue
 
         ln_type = ln.get("ln_typ")
-        hj = ln.get("hj")
+        ln_target_hj = _ln_target_hj(ln)
         n_tasks = len(ln.get("aufgaben", []))
         roster = ln.setdefault("schueler", [])
         existing = {s.get("name", "").strip() for s in roster}
 
-        for s in active_students:
-            if ln_type == "GLN" and hj:
-                if not berechnung.student_active_in_hj(s, hj):
+        for s in students:
+            if ln_target_hj:
+                if not berechnung.student_active_in_hj(s, ln_target_hj):
                     continue
+            elif not _student_is_currently_active(s):
+                continue
 
             full_name = f"{s['nachname']}, {s['vorname']}".strip(", ")
             if full_name in existing:
@@ -1138,18 +1172,19 @@ def ln_neu():
             return redirect(url_for("grades.ln_list"))
 
         schueler = []
+        ln_target_hj = _ln_target_hj({"ln_typ": ln_typ, "hj": hj, "sl_zuordnung": sl_zuordnung})
         for s in data["stammdaten"]:
-            if s.get("status") == S.SD_STATUS_AKTIV:
-                # For GLNs, only add student if active in that HJ (respects both aufnahme and abgang)
-                if ln_typ == "GLN" and hj:
-                    if not berechnung.student_active_in_hj(s, hj):
-                        continue
-                schueler.append({
-                    "name": f"{s['nachname']}, {s['vorname']}",
-                    "punkte": [],
-                    "note_15": None,
-                    "note_6": None,
-                })
+            if ln_target_hj:
+                if not berechnung.student_active_in_hj(s, ln_target_hj):
+                    continue
+            elif not _student_is_currently_active(s):
+                continue
+            schueler.append({
+                "name": f"{s['nachname']}, {s['vorname']}",
+                "punkte": [],
+                "note_15": None,
+                "note_6": None,
+            })
 
         data["leistungsnachweise"].append({
             "sheet_name": sheet_name,
@@ -1509,7 +1544,11 @@ def moodle_import_ln():
         aufgaben = tree_to_flat(aufgaben_tree)
 
         # Match Moodle students to Stammdaten
-        aktiv = [s for s in data["stammdaten"] if s.get("status") == S.SD_STATUS_AKTIV]
+        ln_target_hj = _ln_target_hj({"ln_typ": ln_typ, "hj": hj, "sl_zuordnung": sl_zuordnung})
+        if ln_target_hj:
+            aktiv = _students_active_in_hj(data["stammdaten"], ln_target_hj)
+        else:
+            aktiv = [s for s in data["stammdaten"] if _student_is_currently_active(s)]
         matched, unmatched_moodle = moodle_parser.match_students(
             merged.get("students", []), aktiv
         )
@@ -1597,7 +1636,7 @@ def sl_detail(sl_key):
     kln_list = [ln for ln in lns
                 if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl_key
                 and not ln.get("nachtermin_von")]
-    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    students = _students_active_in_hj(data.get("stammdaten", []), _sl_key_to_hj(sl_key))
 
     _prev_sl = {"SL2": "SL1", "SL3": "SL2", "SL4": "SL3"}
     prev_sl_key = _prev_sl.get(sl_key)
@@ -1737,7 +1776,7 @@ def sl_druck(sl_key):
 
     kln_list = [ln for ln in lns
                 if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl_key]
-    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    students = _students_active_in_hj(data.get("stammdaten", []), _sl_key_to_hj(sl_key))
 
     # Build teacher display name from user profile
     lehrkraft_parts = []
@@ -1827,16 +1866,14 @@ def klasse_korn_export(mode):
         hj_key   = None
         sl1_key2 = None
         sl2_key2 = None
-        students = [s for s in data.get("stammdaten", [])
-                    if s.get("status") == S.SD_STATUS_AKTIV]
+        # Korn2 annual export uses annual note + GLN from HJ2 only.
+        students = _students_active_in_hj(data.get("stammdaten", []), "HJ2")
         gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN"
-                    and ln.get("hj") in ("HJ1", "HJ2") and not ln.get("nachtermin_von")]
+                    and ln.get("hj") == "HJ2" and not ln.get("nachtermin_von")]
     else:
         hj_key   = "HJ1" if mode == "hj1" else "HJ2"
         sl1_key2, sl2_key2 = ("SL1", "SL2") if hj_key == "HJ1" else ("SL3", "SL4")
-        students = [s for s in data.get("stammdaten", [])
-                    if s.get("status") == S.SD_STATUS_AKTIV
-                    and berechnung.student_active_in_hj(s, hj_key)]
+        students = _students_active_in_hj(data.get("stammdaten", []), hj_key)
         gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN"
                     and ln.get("hj") == hj_key and not ln.get("nachtermin_von")]
 
@@ -1930,9 +1967,7 @@ def uebersicht(hj):
     # For HJ2: propose HJ1 Verhaltensnote as default
     verhalten_hj1 = verhalten_noten if hj_key == "HJ2" else {}
 
-    students = [s for s in data.get("stammdaten", [])
-                if s.get("status") == S.SD_STATUS_AKTIV
-                and berechnung.student_active_in_hj(s, hj_key)]
+    students = _students_active_in_hj(data.get("stammdaten", []), hj_key)
     rows = []
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
@@ -2117,7 +2152,7 @@ def hj_druck(hj):
     kln_weights_sl1 = berechnung.get_kln_weights(data, sl1_key)
     kln_weights_sl2 = berechnung.get_kln_weights(data, sl2_key)
 
-    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    students = _students_active_in_hj(data.get("stammdaten", []), hj_key)
     rows = []
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
@@ -2181,7 +2216,10 @@ def schuljahr_uebersicht():
     gw = berechnung.get_gewichtung(data)
     gln_hj1_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == "HJ1"]
     gln_hj2_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == "HJ2"]
-    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    students = [
+        s for s in data.get("stammdaten", [])
+        if berechnung.student_active_in_hj(s, "HJ1") or berechnung.student_active_in_hj(s, "HJ2")
+    ]
 
     def _sl_display(name, sl_key):
         """Return (note_15, is_actual) – prefer saved actual over computed."""
@@ -2199,6 +2237,10 @@ def schuljahr_uebersicht():
         aufnahme_ab_hj = s.get("aufnahme_ab_hj")
         vorherige_noten = s.get("aufnahme_vorherige_noten") or {}
         is_aufnahme_hj2 = aufnahme_ab_hj == "HJ2"
+        is_abgaenger_hj1 = (
+            berechnung.student_active_in_hj(s, "HJ1")
+            and not berechnung.student_active_in_hj(s, "HJ2")
+        )
 
         gln_hj1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj1_list]
         sl1, sl1_actual = _sl_display(name, "SL1")
@@ -2222,7 +2264,7 @@ def schuljahr_uebersicht():
 
         _gln_notes_export = [
             c.get("note_15")
-            for c in (gln_hj1_cols + gln_hj2_cols)
+            for c in gln_hj2_cols
             if c.get("note_15") is not None and not c.get("ignoriert")
         ][:3]
 
@@ -2235,6 +2277,7 @@ def schuljahr_uebersicht():
             "name": name,
             "aufnahme_ab_hj": aufnahme_ab_hj,
             "is_aufnahme_hj2": is_aufnahme_hj2,
+            "is_abgaenger_hj1": is_abgaenger_hj1,
             "vorherige_hj1": vorherige_noten.get("HJ1"),
             "gln_hj1_cols": gln_hj1_cols,
             "sl1": sl1, "sl1_actual": sl1_actual,
@@ -2311,7 +2354,10 @@ def schuljahr_druck():
     gln_hj1_list = _gln_list("HJ1")
     gln_hj2_list = _gln_list("HJ2")
 
-    students = [s for s in data.get("stammdaten", []) if s.get("status") == S.SD_STATUS_AKTIV]
+    students = [
+        s for s in data.get("stammdaten", [])
+        if berechnung.student_active_in_hj(s, "HJ1") or berechnung.student_active_in_hj(s, "HJ2")
+    ]
     rows = []
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
@@ -2903,8 +2949,8 @@ def kurs_gesamt_uebersicht():
 
     # All students (including ausgeschieden)
     all_students = data.get("stammdaten", [])
-    aktiv = [s for s in all_students if s.get("status") == S.SD_STATUS_AKTIV]
-    ausgeschieden = [s for s in all_students if s.get("status") != S.SD_STATUS_AKTIV]
+    aktiv = [s for s in all_students if _student_is_currently_active(s)]
+    ausgeschieden = [s for s in all_students if _student_is_ausgeschieden(s)]
 
     def _build_row(s):
         name = f"{s['nachname']}, {s['vorname']}"

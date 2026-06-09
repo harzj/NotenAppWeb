@@ -348,13 +348,14 @@ def compute_hj_vorschlag_kurs(
 
 
 def student_active_in_hj(student: dict, target_hj: str) -> bool:
+    status_norm = str(student.get("status") or "").strip().lower()
     # Check mid-year enrollment: student is only active from aufnahme_ab_hj onwards
     aufnahme = student.get("aufnahme_ab_hj")
     if aufnahme and aufnahme in HJ_ORDER and target_hj in HJ_ORDER:
         if HJ_ORDER.index(target_hj) < HJ_ORDER.index(aufnahme):
             return False
     # Check mid-year unenrollment: student is only active up to abgang_nach_hj
-    if student.get("status") == "Ausgeschieden":
+    if status_norm == "ausgeschieden":
         abgang = student.get("abgang_nach_hj")
         if abgang is None:
             return False
