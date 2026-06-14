@@ -18,7 +18,7 @@
 
 {% if not has_data %}
 <div class="row g-3">
-  <div class="col-md-5">
+  <div class="col-lg-4 col-md-6">
     <div class="card border-primary h-100">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-upload text-primary me-2"></i>Datei laden</h5>
@@ -27,7 +27,7 @@
       </div>
     </div>
   </div>
-  <div class="col-md-5">
+  <div class="col-lg-4 col-md-6">
     <div class="card border-success h-100">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-file-earmark-plus text-success me-2"></i>Neue Datei</h5>
@@ -40,6 +40,17 @@
             <i class="bi bi-mortarboard me-1"></i>Neuer Kurs (Oberstufe)
           </a>
         </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4 col-md-12">
+    <div class="card border-warning h-100">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-easel text-warning me-2"></i>Demo Modus</h5>
+        <p class="card-text text-muted">Lädt eine anonymisierte Beispielklasse mit vertauschten Punktzahlen zum Ausprobieren.</p>
+        <a href="{{ url_for('grades.demo_beispielklasse') }}" class="btn btn-warning text-dark">
+          <i class="bi bi-stars me-1"></i>Beispielklasse zeigen
+        </a>
       </div>
     </div>
   </div>

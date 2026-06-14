@@ -150,9 +150,15 @@
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('grades.new_file') }}"
-             onclick="return confirm('Neue leere Datei erstellen? Ungespeicherte Daten gehen verloren.')">
-            <i class="bi bi-file-earmark-plus"></i> Neue Datei
+          <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus', 'klasse') == 'klasse' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='klasse') }}"
+             onclick="return confirm('Neue Klasse erstellen? Nicht gespeicherte Änderungen gehen verloren. Wenn du vorher einen Excel-Export machen willst: jetzt Abbrechen drücken, exportieren und danach erneut klicken. Mit OK geht es direkt weiter.')">
+            <i class="bi bi-people"></i> Neue Klasse
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus') == 'kurs' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='kurs') }}"
+             onclick="return confirm('Neuen Kurs erstellen? Nicht gespeicherte Änderungen gehen verloren. Wenn du vorher einen Excel-Export machen willst: jetzt Abbrechen drücken, exportieren und danach erneut klicken. Mit OK geht es direkt weiter.')">
+            <i class="bi bi-mortarboard"></i> Neuer Kurs (Oberstufe)
           </a>
         </li>
         {% if session.get('gradebook') %}

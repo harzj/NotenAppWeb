@@ -1,5 +1,8 @@
 import io
 import json
+import os
+import copy
+import random
 from datetime import datetime
 from flask import (
     Blueprint, render_template, redirect, url_for,
@@ -23,6 +26,8 @@ from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_
 grades_bp = Blueprint("grades", __name__, template_folder="../templates/grades")
 
 SESSION_KEY = "gradebook"
+_DEMO_SOURCE_FILENAME = "Noten_demo_klasse.xlsx"
+_DEMO_SAMPLE_PASSWORD_FALLBACK = "test"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -34,6 +39,133 @@ def _get_gradebook() -> dict | None:
 def _save_gradebook(data: dict) -> None:
     session[SESSION_KEY] = data
     session.modified = True
+
+
+def _demo_name_pairs(n: int) -> list[tuple[str, str]]:
+    first_names = [
+        "Ari", "Bela", "Caro", "Dario", "Ena", "Faro", "Gina", "Hedi", "Ivo", "Jona",
+        "Kira", "Lino", "Mila", "Nerio", "Ona", "Pia", "Quin", "Raya", "Sami", "Tino",
+        "Uma", "Vito", "Weya", "Xeno", "Yara", "Zimo", "Alma", "Bino", "Cira", "Demi",
+        "Elin", "Fino", "Goro", "Hava", "Ilan", "Jari", "Keno", "Luma", "Miro", "Navi",
+    ]
+    last_names = [
+        "Sonnenfeld", "Morgenstern", "Wolkenberg", "Talwind", "Lichtau", "Farnheim", "Bergquell", "Nebelhain",
+        "Sternwald", "Mondenfels", "Rosenquarz", "Kieselhain", "Silbersee", "Dornbach", "Amselgrund", "Flussberg",
+        "Wiesenau", "Schimmer", "Birkenweg", "Adlerquell", "Kornfeld", "Feuerbach", "Kupferhain", "Nachtigall",
+        "Winterborn", "Sommerfeld", "Eichenau", "Blaustein", "Lindenfels", "Sturmtal", "Goldbach", "Falkenried",
+        "Regenwald", "Sandberg", "Tautropf", "Waldhauch", "Seidenberg", "Tannenhof", "Nordlicht", "Westwind",
+    ]
+    combos = [(ln, fn) for ln in last_names for fn in first_names]
+    random.shuffle(combos)
+    return combos[:n]
+
+
+def _replace_student_names(node, name_map: dict[str, str]):
+    if isinstance(node, dict):
+        out = {}
+        for key, value in node.items():
+            new_key = name_map.get(key, key) if isinstance(key, str) else key
+            out[new_key] = _replace_student_names(value, name_map)
+        return out
+    if isinstance(node, list):
+        return [_replace_student_names(item, name_map) for item in node]
+    if isinstance(node, str):
+        return name_map.get(node, node)
+    return node
+
+
+def _shuffle_ln_student_payloads(data: dict) -> None:
+    for ln in data.get("leistungsnachweise", []):
+        schueler = ln.get("schueler")
+        if not isinstance(schueler, list) or len(schueler) < 2:
+            continue
+        payloads = []
+        for entry in schueler:
+            if not isinstance(entry, dict):
+                payloads = []
+                break
+            payload = {k: copy.deepcopy(v) for k, v in entry.items() if k != "name"}
+            payloads.append(payload)
+        if len(payloads) < 2:
+            continue
+        random.shuffle(payloads)
+        for entry, payload in zip(schueler, payloads):
+            for key in list(entry.keys()):
+                if key != "name":
+                    entry.pop(key)
+            entry.update(payload)
+
+
+def _shuffle_name_keyed_values(node, valid_names: set[str]) -> None:
+    if isinstance(node, dict):
+        str_keys = [k for k in node.keys() if isinstance(k, str)]
+        if len(str_keys) >= 2 and all(k in valid_names for k in str_keys):
+            values = [copy.deepcopy(node[k]) for k in str_keys]
+            random.shuffle(values)
+            for key, value in zip(str_keys, values):
+                node[key] = value
+        for value in node.values():
+            _shuffle_name_keyed_values(value, valid_names)
+    elif isinstance(node, list):
+        for item in node:
+            _shuffle_name_keyed_values(item, valid_names)
+
+
+def _build_anonymized_demo_data(source_data: dict) -> dict:
+    demo_data = copy.deepcopy(source_data)
+    stammdaten = demo_data.get("stammdaten", [])
+    if not isinstance(stammdaten, list) or not stammdaten:
+        return demo_data
+
+    pairs = _demo_name_pairs(len(stammdaten))
+    name_map = {}
+    for student, (nachname, vorname) in zip(stammdaten, pairs):
+        old_full = f"{student.get('nachname', '').strip()}, {student.get('vorname', '').strip()}"
+        student["nachname"] = nachname
+        student["vorname"] = vorname
+        if old_full.strip(", "):
+            name_map[old_full] = f"{nachname}, {vorname}"
+
+    demo_data = _replace_student_names(demo_data, name_map)
+    _shuffle_ln_student_payloads(demo_data)
+
+    new_name_set = {
+        f"{s.get('nachname', '').strip()}, {s.get('vorname', '').strip()}"
+        for s in demo_data.get("stammdaten", [])
+    }
+    _shuffle_name_keyed_values(demo_data, {n for n in new_name_set if n.strip(", ")})
+    return demo_data
+
+
+def _load_demo_source_data() -> tuple[dict | None, str | None, str | None]:
+    """Return (data, source_file_name, error_message)."""
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    source_path = os.path.join(root_dir, _DEMO_SOURCE_FILENAME)
+    if not os.path.exists(source_path):
+        return None, None, (
+            f"Die bereitgestellte Demo-Quelldatei '{_DEMO_SOURCE_FILENAME}' wurde im Projektroot nicht gefunden."
+        )
+
+    try:
+        with open(source_path, "rb") as f:
+            file_bytes = f.read()
+        try:
+            data = load_gradebook(file_bytes, None)
+        except ExcelReadError as e:
+            if "passwortgesch" not in str(e).lower():
+                raise
+            data = load_gradebook(file_bytes, _DEMO_SAMPLE_PASSWORD_FALLBACK)
+
+        if data.get("stammdaten") or data.get("leistungsnachweise"):
+            return data, _DEMO_SOURCE_FILENAME, None
+
+        return None, None, (
+            f"Die bereitgestellte Datei '{_DEMO_SOURCE_FILENAME}' enthält keine Schüler und keine Leistungsnachweise."
+        )
+    except Exception as e:
+        return None, None, (
+            f"Die bereitgestellte Datei '{_DEMO_SOURCE_FILENAME}' konnte nicht gelesen werden: {e}"
+        )
 
 
 def _student_status_norm(student: dict) -> str:
@@ -102,6 +234,23 @@ def index():
     data = _get_gradebook()
     return render_template("grades/index.html", has_data=data is not None,
                            data=data)
+
+
+@grades_bp.route("/demo-beispielklasse")
+@login_required
+def demo_beispielklasse():
+    source_data, source_name, load_error = _load_demo_source_data()
+    if source_data is None:
+        flash(load_error or "Beispieldatei konnte nicht geladen werden.", "danger")
+        return redirect(url_for("grades.index"))
+
+    if not source_data.get("stammdaten") and not source_data.get("leistungsnachweise"):
+        flash("Die gewählte Demo-Quelle ist leer. Bitte eine Notendatei mit Daten bereitstellen.", "danger")
+        return redirect(url_for("grades.index"))
+
+    _save_gradebook(source_data)
+    flash(f"Beispielklasse geladen (Quelle: {source_name}).", "success")
+    return redirect(url_for("grades.index"))
 
 
 # ── Upload ────────────────────────────────────────────────────────────────────
