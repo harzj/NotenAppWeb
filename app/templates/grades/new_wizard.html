@@ -14,6 +14,7 @@
     background-color: #f8f9fa; border-radius: 0.375rem; padding: 1rem;
   }
   .abgang-item { border-bottom: 1px solid #dee2e6; padding: 0.35rem 0; }
+  .abgang-item.form-check { padding-left: 1.5rem; }
   .abgang-item:last-child { border-bottom: none; }
 </style>
 {% endblock %}
@@ -33,6 +34,7 @@
   {{ csrf_field() }}
   <input type="hidden" name="modus" value="{{ modus }}">
   <input type="hidden" name="sd_imported" id="sd_imported_flag" value="0">
+  <input type="hidden" name="sd_selection_present" id="sd_selection_present" value="0">
   <input type="hidden" name="ln_imported" id="ln_imported_flag" value="0">
 
   {# ────────────────────────────────────────────────────────────────── #}
@@ -46,9 +48,9 @@
     </div>
     <div class="card-body">
       <p class="text-muted small mb-3">
-        Wähle eine beliebige Notendatei aus. Es werden ausschließlich die Schülerdaten
-        übernommen – keine Noten, keine Aufgaben. Ausgeschiedene Schüler (Abgänger)
-        können optional einzeln ausgewählt werden.
+        Wähle eine Notendatei aus, die mit diesem Programm erstellt wurde.
+        Bei anderen Dateien wird versucht, die Namen automatisch zu erkennen.
+        Es werden nur Schülerdaten übernommen, keine Noten und keine Aufgaben.
       </p>
 
       <div class="import-section">
@@ -79,7 +81,7 @@
 
       <div id="sdResults" class="d-none mt-3">
         <div id="sdSummary"></div>
-        <div id="abgaengerCheckboxes"></div>
+        <div id="sdStudentSelection"></div>
         <button type="button" id="sdClearBtn" class="btn btn-sm btn-outline-secondary mt-2">
           <i class="bi bi-x-circle me-1"></i>Import löschen
         </button>
@@ -282,46 +284,74 @@
           '<i class="bi bi-check-circle me-1"></i>' +
           '<strong>' + data.aktive.length + '</strong> aktive Schüler gefunden';
         if (data.abgaenger.length > 0) {
-          summaryHtml += ', <strong>' + data.abgaenger.length + '</strong> Abgänger (unten auswählbar)';
+          summaryHtml += ', <strong>' + data.abgaenger.length + '</strong> Abgänger gefunden';
         } else {
           summaryHtml += ', keine Abgänger';
         }
         summaryHtml += '.</div>';
         setHtml('sdSummary', summaryHtml);
 
-        // Abgänger checkboxes (injected into the main form)
-        const cbContainer = document.getElementById('abgaengerCheckboxes');
-        if (data.abgaenger.length > 0) {
-          let cbHtml =
-            '<div class="mb-1">' +
-              '<small class="fw-semibold">Abgänger</small> ' +
-              '<small class="text-muted">– standardmäßig nicht importiert; einzeln auswählen:</small>' +
-            '</div>' +
-            '<div class="border rounded p-2" style="max-height:220px;overflow-y:auto;">';
-          for (const s of data.abgaenger) {
-            const val    = s.nachname + ', ' + s.vorname;
-            const safeId = 'abg_' + val.replace(/[^a-zA-Z0-9]/g, '_');
-            const extra  = s.abgang_nach_hj
-              ? ' <span class="text-muted">– Abgang nach ' + s.abgang_nach_hj + '</span>'
-              : (s.austritt ? ' <span class="text-muted">– ' + s.austritt + '</span>' : '');
-            cbHtml +=
+        // Expandable student list with full selection controls.
+        const studentContainer = document.getElementById('sdStudentSelection');
+        const allStudents = [];
+        for (const s of data.aktive) {
+          allStudents.push({ ...s, isAbgaenger: false, checked: true });
+        }
+        for (const s of data.abgaenger) {
+          allStudents.push({ ...s, isAbgaenger: true, checked: false });
+        }
+
+        if (allStudents.length > 0) {
+          let listHtml =
+            '<div class="card border mt-2">' +
+              '<div class="card-header py-2 d-flex flex-wrap align-items-center gap-2">' +
+                '<button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#sdStudentCollapse" aria-expanded="false" aria-controls="sdStudentCollapse">Gefundene Schüler anzeigen/ausblenden</button>' +
+                '<button class="btn btn-sm btn-outline-primary" type="button" id="sdSelectAllBtn">Alle wählen</button>' +
+                '<button class="btn btn-sm btn-outline-secondary" type="button" id="sdSelectNoneBtn">Keine wählen</button>' +
+                '<span class="small text-muted">Aktive sind vorausgewählt, Abgänger nicht.</span>' +
+              '</div>' +
+              '<div id="sdStudentCollapse" class="collapse">' +
+                '<div class="card-body py-2">' +
+                  '<div class="border rounded p-2" style="max-height:260px;overflow-y:auto;">';
+
+          for (const s of allStudents) {
+            const safeId = 'sd_' + String(s.idx);
+            const extra = s.isAbgaenger
+              ? (s.abgang_nach_hj
+                  ? ' <span class="text-muted">- Abgang nach ' + s.abgang_nach_hj + '</span>'
+                  : (s.austritt ? ' <span class="text-muted">- ' + s.austritt + '</span>' : ' <span class="text-muted">- Abgänger</span>'))
+              : '';
+            listHtml +=
               '<div class="abgang-item form-check">' +
-                '<input class="form-check-input" type="checkbox" ' +
-                       'name="abgaenger_include" ' +
-                       'value="' + val.replace(/"/g, '&quot;') + '" ' +
-                       'id="' + safeId + '">' +
+                '<input class="form-check-input sd-student-checkbox" type="checkbox" name="sd_selected" value="' + s.idx + '" id="' + safeId + '"' + (s.checked ? ' checked' : '') + '>' +
                 '<label class="form-check-label small" for="' + safeId + '">' +
                   s.nachname + ', ' + s.vorname + extra +
                 '</label>' +
               '</div>';
           }
-          cbHtml += '</div>';
-          cbContainer.innerHTML = cbHtml;
+
+          listHtml +=
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          studentContainer.innerHTML = listHtml;
+
+          const selectAllBtn = document.getElementById('sdSelectAllBtn');
+          const selectNoneBtn = document.getElementById('sdSelectNoneBtn');
+          const setAll = (checked) => {
+            for (const cb of document.querySelectorAll('.sd-student-checkbox')) {
+              cb.checked = checked;
+            }
+          };
+          if (selectAllBtn) selectAllBtn.addEventListener('click', () => setAll(true));
+          if (selectNoneBtn) selectNoneBtn.addEventListener('click', () => setAll(false));
         } else {
-          cbContainer.innerHTML = '';
+          studentContainer.innerHTML = '';
         }
 
         document.getElementById('sd_imported_flag').value = '1';
+        document.getElementById('sd_selection_present').value = '1';
         show('sdResults');
       }
     );
@@ -331,7 +361,8 @@
     document.getElementById('sdFile').value        = '';
     document.getElementById('sdPassword').value    = '';
     document.getElementById('sd_imported_flag').value = '0';
-    setHtml('abgaengerCheckboxes', '');
+    document.getElementById('sd_selection_present').value = '0';
+    setHtml('sdStudentSelection', '');
     hide('sdResults');
     hide('sdError');
   });

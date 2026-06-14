@@ -560,16 +560,32 @@ def new_wizard():
     if request.form.get("sd_imported") == "1":
         sd_data = session.get(_WIZARD_SD_DATA)
         if sd_data is not None:
-            abgaenger_include = set(request.form.getlist("abgaenger_include"))
-            stammdaten = []
-            for s in sd_data:
-                if _student_is_currently_active(s):
-                    stammdaten.append(s)
-                elif _student_is_ausgeschieden(s):
-                    name_key = f"{s['nachname']}, {s['vorname']}"
-                    if name_key in abgaenger_include:
+            selection_present = request.form.get("sd_selection_present") == "1"
+            if selection_present:
+                selected_indices = set()
+                for raw_idx in request.form.getlist("sd_selected"):
+                    try:
+                        idx = int(raw_idx)
+                    except (ValueError, TypeError):
+                        continue
+                    if 0 <= idx < len(sd_data):
+                        selected_indices.add(idx)
+                empty["stammdaten"] = [
+                    s for i, s in enumerate(sd_data)
+                    if i in selected_indices
+                ]
+            else:
+                # Backward-compatible fallback for older browser state.
+                abgaenger_include = set(request.form.getlist("abgaenger_include"))
+                stammdaten = []
+                for s in sd_data:
+                    if _student_is_currently_active(s):
                         stammdaten.append(s)
-            empty["stammdaten"] = stammdaten
+                    elif _student_is_ausgeschieden(s):
+                        name_key = f"{s['nachname']}, {s['vorname']}"
+                        if name_key in abgaenger_include:
+                            stammdaten.append(s)
+                empty["stammdaten"] = stammdaten
 
     # ── LN import ─────────────────────────────────────────────────────────
     if request.form.get("ln_imported") == "1":
@@ -623,21 +639,22 @@ def wizard_probe_schueler():
         return jsonify(ok=False, error=f"Datei konnte nicht gelesen werden: {e}")
 
     stammdaten = data.get("stammdaten", [])
-    aktive = [
-        {"nachname": s["nachname"], "vorname": s["vorname"]}
-        for s in stammdaten
-        if _student_is_currently_active(s)
-    ]
-    abgaenger = [
-        {
-            "nachname":       s["nachname"],
-            "vorname":        s["vorname"],
-            "austritt":       s.get("austritt", ""),
-            "abgang_nach_hj": s.get("abgang_nach_hj") or "",
+    aktive = []
+    abgaenger = []
+    for idx, s in enumerate(stammdaten):
+        entry = {
+            "idx": idx,
+            "nachname": s["nachname"],
+            "vorname": s["vorname"],
         }
-        for s in stammdaten
-        if _student_is_ausgeschieden(s)
-    ]
+        if _student_is_currently_active(s):
+            aktive.append(entry)
+        elif _student_is_ausgeschieden(s):
+            abgaenger.append({
+                **entry,
+                "austritt": s.get("austritt", ""),
+                "abgang_nach_hj": s.get("abgang_nach_hj") or "",
+            })
 
     session[_WIZARD_SD_FILE] = file_bytes
     session[_WIZARD_SD_PW]   = password
