@@ -10,6 +10,7 @@
   <style>
     body { background-color: #f8f9fa; }
     .navbar-brand { font-weight: 700; letter-spacing: .5px; }
+    .navbar-logo { height: 28px; width: auto; margin-left: .5rem; }
     .sidebar { min-height: calc(100vh - 56px); border-right: 1px solid #dee2e6; background: #fff; }
     .sidebar .nav-link { color: #495057; border-radius: .375rem; margin: 2px 0; }
     .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #e9ecef; color: #1f4e79; }
@@ -29,6 +30,7 @@
   <div class="container-fluid">
     <a class="navbar-brand" href="{{ url_for('grades.index') }}">
       <i class="bi bi-mortarboard-fill me-2"></i>Notenprogramm
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Schullogo" class="navbar-logo">
     </a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
       <span class="navbar-toggler-icon"></span>
