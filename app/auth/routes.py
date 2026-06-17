@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from flask import Blueprint, render_template, redirect, url_for, flash, request, session
+from flask import Blueprint, render_template, redirect, url_for, flash, request, session, current_app
 from flask_login import login_user, logout_user, login_required, current_user
 from app.extensions import db, limiter
 from app.models import User
@@ -27,7 +27,11 @@ def login():
 
         login_user(user, remember=form.remember_me.data)
         user.last_login = datetime.now(timezone.utc)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.warning("Could not persist last_login for %s: %s", user.username, exc)
 
         next_page = request.args.get("next")
         # Prevent open redirect
