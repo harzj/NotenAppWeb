@@ -36,16 +36,78 @@
   <input type="hidden" name="sd_imported" id="sd_imported_flag" value="0">
   <input type="hidden" name="sd_selection_present" id="sd_selection_present" value="0">
   <input type="hidden" name="ln_imported" id="ln_imported_flag" value="0">
+  <input type="hidden" name="korn_imported" id="korn_imported_flag" value="0">
+  <input type="hidden" name="korn_klasse" id="korn_klasse_field" value="">
+  <div id="kornSelectedInputs"></div>
+
+  {# ────────────────────────────────────────────────────────────────── #}
+  {# Card 0: Korn2 Import                                                #}
+  {# ────────────────────────────────────────────────────────────────── #}
+  <div class="card wizard-card shadow-sm">
+    <div class="card-header d-flex align-items-center gap-2" role="button"
+         data-bs-toggle="collapse" data-bs-target="#kornCollapse" aria-expanded="false" aria-controls="kornCollapse">
+      <span class="step-badge bg-success text-white">1</span>
+      <span class="fw-semibold">Klasse aus Korn2 importieren</span>
+      <span class="badge bg-secondary ms-1">optional</span>
+      <i class="bi bi-chevron-down ms-auto"></i>
+    </div>
+    <div class="collapse" id="kornCollapse">
+    <div class="card-body">
+      <p class="text-muted small mb-3">
+        Wähle einen Korn2-CSV-Export (oder ein passwortgeschütztes Zip-Archiv mit der CSV-Datei) aus.
+        Gesucht werden die Spalten "Vorname", "Nachname" und "Klasse".
+      </p>
+
+      <div class="import-section">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold" for="kornFile">CSV- oder Zip-Datei</label>
+            <input type="file" id="kornFile" accept=".csv,.zip" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold" for="kornPassword">Passwort</label>
+            <input type="password" id="kornPassword" class="form-control form-control-sm"
+                   placeholder="(falls vorhanden)" autocomplete="off">
+          </div>
+          <div class="col-md-2">
+            <button type="button" id="kornAnalyzeBtn" class="btn btn-success btn-sm w-100">
+              <i class="bi bi-search me-1"></i>Analysieren
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="kornSpinner" class="d-none text-center py-2 mt-2">
+        <div class="spinner-border spinner-border-sm text-success" role="status"></div>
+        <span class="ms-2 small">Datei wird gelesen…</span>
+      </div>
+
+      <div id="kornError" class="alert alert-danger d-none py-2 mt-2 mb-0"></div>
+
+      <div id="kornResults" class="d-none mt-3">
+        <div id="kornSummary" class="mb-2"></div>
+        <div id="kornClassList"></div>
+        <div id="kornSelectionInfo" class="alert alert-success d-none py-2 mt-2 mb-0"></div>
+        <button type="button" id="kornClearBtn" class="btn btn-sm btn-outline-secondary mt-2">
+          <i class="bi bi-x-circle me-1"></i>Import löschen
+        </button>
+      </div>
+    </div>
+    </div>
+  </div>
 
   {# ────────────────────────────────────────────────────────────────── #}
   {# Card 1: Schüler Import                                             #}
   {# ────────────────────────────────────────────────────────────────── #}
   <div class="card wizard-card shadow-sm">
-    <div class="card-header d-flex align-items-center gap-2">
-      <span class="step-badge bg-primary text-white">1</span>
+    <div class="card-header d-flex align-items-center gap-2" role="button"
+         data-bs-toggle="collapse" data-bs-target="#sdCollapse" aria-expanded="false" aria-controls="sdCollapse">
+      <span class="step-badge bg-primary text-white">2</span>
       <span class="fw-semibold">Schüler aus Datei importieren</span>
       <span class="badge bg-secondary ms-1">optional</span>
+      <i class="bi bi-chevron-down ms-auto"></i>
     </div>
+    <div class="collapse" id="sdCollapse">
     <div class="card-body">
       <p class="text-muted small mb-3">
         Wähle eine Notendatei aus, die mit diesem Programm erstellt wurde.
@@ -87,17 +149,21 @@
         </button>
       </div>
     </div>
+    </div>
   </div>
 
   {# ────────────────────────────────────────────────────────────────── #}
   {# Card 2: LN Import                                                   #}
   {# ────────────────────────────────────────────────────────────────── #}
   <div class="card wizard-card shadow-sm">
-    <div class="card-header d-flex align-items-center gap-2">
-      <span class="step-badge bg-info text-white">2</span>
+    <div class="card-header d-flex align-items-center gap-2" role="button"
+         data-bs-toggle="collapse" data-bs-target="#lnCollapse" aria-expanded="false" aria-controls="lnCollapse">
+      <span class="step-badge bg-info text-white">3</span>
       <span class="fw-semibold">Leistungsnachweise aus Datei importieren</span>
       <span class="badge bg-secondary ms-1">optional</span>
+      <i class="bi bi-chevron-down ms-auto"></i>
     </div>
+    <div class="collapse" id="lnCollapse">
     <div class="card-body">
       <p class="text-muted small mb-3">
         Importiert die Aufgabenstruktur (Aufgaben &amp; Maximalpunkte),
@@ -143,6 +209,7 @@
         </button>
       </div>
     </div>
+    </div>
   </div>
 
   {# ────────────────────────────────────────────────────────────────── #}
@@ -150,7 +217,7 @@
   {# ────────────────────────────────────────────────────────────────── #}
   <div class="card wizard-card shadow-sm border-success">
     <div class="card-header bg-success text-white d-flex align-items-center gap-2">
-      <span class="step-badge bg-white text-success">3</span>
+      <span class="step-badge bg-white text-success">4</span>
       <span class="fw-semibold">Klasse &amp; Schuljahr</span>
       <span class="badge bg-light text-dark ms-1">erforderlich</span>
     </div>
@@ -212,6 +279,31 @@
   </div>
 
 </form>
+
+{# Modal: student selection for a single Korn2 class #}
+<div class="modal fade" id="kornStudentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Schüler auswählen – <span id="kornModalKlasse"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex gap-2 mb-2">
+          <button class="btn btn-sm btn-outline-primary" type="button" id="kornModalSelectAllBtn">Alle wählen</button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" id="kornModalSelectNoneBtn">Keine wählen</button>
+        </div>
+        <div id="kornModalStudentList" class="border rounded p-2" style="max-height:320px;overflow-y:auto;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" class="btn btn-success" id="kornModalApplyBtn">
+          <i class="bi bi-check-lg me-1"></i>Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -489,6 +581,141 @@
     kursTypEl.addEventListener('change', applyWizardKursTyp);
     applyWizardKursTyp();
   }
+
+  // ── Korn2 Probe ────────────────────────────────────────────────────────
+  let kornSelectedIndices = new Set();   // indices of Korn students currently taken over
+  let kornActiveKlasse = '';             // Korn class name currently applied
+
+  function kornSyncHiddenInputs() {
+    const container = document.getElementById('kornSelectedInputs');
+    container.innerHTML = '';
+    for (const idx of kornSelectedIndices) {
+      const inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = 'korn_selected';
+      inp.value = String(idx);
+      container.appendChild(inp);
+    }
+  }
+
+  document.getElementById('kornAnalyzeBtn').addEventListener('click', () => {
+    probeFile(
+      {{ url_for('grades.wizard_probe_korn') | tojson }},
+      document.getElementById('kornFile'),
+      document.getElementById('kornPassword'),
+      'kornSpinner', 'kornError',
+      (data) => {
+        setHtml('kornSummary',
+          '<div class="alert alert-success py-2 mb-0">' +
+            '<i class="bi bi-check-circle me-1"></i>' +
+            '<strong>' + data.classes.length + '</strong> Klasse(n) gefunden.' +
+          '</div>'
+        );
+
+        let html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">' +
+          '<thead class="table-light"><tr><th>Klasse</th><th>Anzahl Schüler</th><th></th></tr></thead><tbody>';
+        for (const c of data.classes) {
+          html +=
+            '<tr>' +
+              '<td>' + c.klasse + '</td>' +
+              '<td>' + c.count + '</td>' +
+              '<td><button type="button" class="btn btn-sm btn-outline-success korn-select-btn" data-klasse="' + c.klasse + '">' +
+                'Klasse auswählen</button></td>' +
+            '</tr>';
+        }
+        html += '</tbody></table></div>';
+        setHtml('kornClassList', html);
+
+        for (const btn of document.querySelectorAll('.korn-select-btn')) {
+          btn.addEventListener('click', () => kornOpenClassModal(btn.dataset.klasse));
+        }
+
+        show('kornResults');
+      }
+    );
+  });
+
+  document.getElementById('kornClearBtn').addEventListener('click', () => {
+    document.getElementById('kornFile').value      = '';
+    document.getElementById('kornPassword').value  = '';
+    document.getElementById('korn_imported_flag').value = '0';
+    document.getElementById('korn_klasse_field').value  = '';
+    kornSelectedIndices = new Set();
+    kornActiveKlasse = '';
+    kornSyncHiddenInputs();
+    setHtml('kornClassList', '');
+    hide('kornResults');
+    hide('kornError');
+    hide('kornSelectionInfo');
+  });
+
+  function kornOpenClassModal(klasse) {
+    const fd = new FormData();
+    fd.append('klasse', klasse);
+    fd.append('csrf_token', CSRF);
+    fetch({{ url_for('grades.wizard_korn_students') | tojson }}, { method: 'POST', body: fd })
+      .then(resp => resp.json())
+      .then(data => {
+        if (!data.ok) {
+          setText('kornError', data.error || 'Unbekannter Fehler.');
+          show('kornError');
+          return;
+        }
+        setText('kornModalKlasse', klasse);
+
+        let html = '';
+        for (const s of data.students) {
+          const safeId = 'kornmodal_' + String(s.idx);
+          html +=
+            '<div class="abgang-item form-check">' +
+              '<input class="form-check-input korn-modal-checkbox" type="checkbox" value="' + s.idx + '" id="' + safeId + '" checked>' +
+              '<label class="form-check-label small" for="' + safeId + '">' + s.nachname + ', ' + s.vorname + '</label>' +
+            '</div>';
+        }
+        setHtml('kornModalStudentList', html);
+
+        const applyBtn = document.getElementById('kornModalApplyBtn');
+        applyBtn.dataset.klasse = klasse;
+
+        const modalEl = document.getElementById('kornStudentModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+      })
+      .catch(() => {
+        setText('kornError', 'Verbindungsfehler. Bitte erneut versuchen.');
+        show('kornError');
+      });
+  }
+
+  document.getElementById('kornModalSelectAllBtn').addEventListener('click', () => {
+    for (const cb of document.querySelectorAll('.korn-modal-checkbox')) cb.checked = true;
+  });
+  document.getElementById('kornModalSelectNoneBtn').addEventListener('click', () => {
+    for (const cb of document.querySelectorAll('.korn-modal-checkbox')) cb.checked = false;
+  });
+
+  document.getElementById('kornModalApplyBtn').addEventListener('click', () => {
+    const klasse = document.getElementById('kornModalApplyBtn').dataset.klasse || '';
+    kornSelectedIndices = new Set();
+    for (const cb of document.querySelectorAll('.korn-modal-checkbox')) {
+      if (cb.checked) kornSelectedIndices.add(parseInt(cb.value, 10));
+    }
+    kornActiveKlasse = klasse;
+    kornSyncHiddenInputs();
+
+    document.getElementById('korn_imported_flag').value = '1';
+    document.getElementById('korn_klasse_field').value  = klasse;
+    document.getElementById('klasse').value             = klasse;
+
+    setText('kornSelectionInfo',
+      kornSelectedIndices.size + ' Schüler aus Klasse "' + klasse + '" werden übernommen.'
+    );
+    show('kornSelectionInfo');
+
+    const modalEl = document.getElementById('kornStudentModal');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.hide();
+  });
 
 }());
 </script>

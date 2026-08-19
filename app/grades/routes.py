@@ -9,7 +9,7 @@ from flask import (
     flash, request, session, send_file, abort, jsonify,
 )
 from flask_login import login_required, current_user
-from app.excel.reader import load_gradebook, ExcelReadError, schuljahr_from_date
+from app.excel.reader import load_gradebook, ExcelReadError, schuljahr_from_date, parse_korn_csv, korn_class_sort_key
 from app.excel.writer import build_gradebook
 from app.excel import schema as S
 from app.excel.legacy_reader import probe_legacy_file, import_legacy_file
@@ -37,6 +37,9 @@ def _get_gradebook() -> dict | None:
 
 
 def _save_gradebook(data: dict) -> None:
+    # Keep Stammdaten alphabetically sorted regardless of which route touched it.
+    if data.get("stammdaten"):
+        data["stammdaten"].sort(key=lambda s: (s.get("nachname", "").lower(), s.get("vorname", "").lower()))
     session[SESSION_KEY] = data
     session.modified = True
 
@@ -600,9 +603,11 @@ _WIZARD_LN_FILE   = "_wizard_ln_bytes"
 _WIZARD_LN_PW     = "_wizard_ln_pw"
 _WIZARD_LN_DATA   = "_wizard_ln_data"
 _WIZARD_LN_MODUS  = "_wizard_ln_modus"
+_WIZARD_KORN_DATA = "_wizard_korn_data"
 _WIZARD_KEYS = (
     _WIZARD_SD_FILE, _WIZARD_SD_PW, _WIZARD_SD_DATA,
     _WIZARD_LN_FILE, _WIZARD_LN_PW, _WIZARD_LN_DATA, _WIZARD_LN_MODUS,
+    _WIZARD_KORN_DATA,
 )
 
 
@@ -754,6 +759,28 @@ def new_wizard():
                 return redirect(url_for("grades.new_wizard", modus=modus))
             empty["leistungsnachweise"] = ln_data
 
+    # ── Korn2 import (takes priority over the manual Schüler-Import) ──────
+    if request.form.get("korn_imported") == "1":
+        korn_data = session.get(_WIZARD_KORN_DATA)
+        if korn_data is not None:
+            selected_indices = set()
+            for raw_idx in request.form.getlist("korn_selected"):
+                try:
+                    idx = int(raw_idx)
+                except (ValueError, TypeError):
+                    continue
+                if 0 <= idx < len(korn_data):
+                    selected_indices.add(idx)
+            empty["stammdaten"] = [
+                {
+                    "nachname": korn_data[i]["nachname"],
+                    "vorname":  korn_data[i]["vorname"],
+                    "status":   S.SD_STATUS_AKTIV,
+                    "austritt": "",
+                }
+                for i in sorted(selected_indices)
+            ]
+
     for k in _WIZARD_KEYS:
         session.pop(k, None)
     session.modified = True
@@ -867,6 +894,48 @@ def wizard_probe_ln():
         mismatch=mismatch,
         vorschlag=vorschlag,
     )
+
+
+@grades_bp.route("/new-wizard/probe-korn", methods=["POST"])
+@login_required
+def wizard_probe_korn():
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify(ok=False, error="Keine Datei ausgewählt.")
+    file_bytes = f.read()
+    password   = request.form.get("password") or None
+    try:
+        students = parse_korn_csv(file_bytes, password)
+    except ExcelReadError as e:
+        return jsonify(ok=False, error=str(e))
+    except Exception as e:
+        return jsonify(ok=False, error=f"Datei konnte nicht gelesen werden: {e}")
+
+    session[_WIZARD_KORN_DATA] = students
+    session.modified = True
+
+    by_klasse: dict[str, int] = {}
+    for s in students:
+        by_klasse[s["klasse"]] = by_klasse.get(s["klasse"], 0) + 1
+    classes = [{"klasse": k, "count": n} for k, n in by_klasse.items()]
+    classes.sort(key=lambda c: korn_class_sort_key(c["klasse"]))
+
+    return jsonify(ok=True, classes=classes)
+
+
+@grades_bp.route("/new-wizard/korn-students", methods=["POST"])
+@login_required
+def wizard_korn_students():
+    korn_data = session.get(_WIZARD_KORN_DATA)
+    if korn_data is None:
+        return jsonify(ok=False, error="Keine Korn-Daten im Speicher. Bitte Datei erneut analysieren.")
+    klasse = request.form.get("klasse", "")
+    students = [
+        {"idx": idx, "nachname": s["nachname"], "vorname": s["vorname"]}
+        for idx, s in enumerate(korn_data)
+        if s["klasse"] == klasse
+    ]
+    return jsonify(ok=True, klasse=klasse, students=students)
 
 
 @grades_bp.route("/klasse", methods=["POST"])

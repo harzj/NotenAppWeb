@@ -4,8 +4,10 @@ All processing happens in-memory (BytesIO); the file never touches disk.
 """
 from __future__ import annotations
 
+import csv
 import io
 import re
+import zipfile
 from datetime import date as date_cls
 from typing import Any
 
@@ -596,3 +598,93 @@ def _date_str(row: tuple, idx: int) -> str:
         return str(v).strip()
     except IndexError:
         return ""
+
+
+# ── Korn2 CSV import ──────────────────────────────────────────────────────────
+
+def _extract_korn_csv_bytes(file_bytes: bytes, password: str | None) -> bytes:
+    """Return raw CSV bytes. If the upload is a Zip archive (classic Zip
+    encryption only, as used by Korn2 exports), it is decrypted with the
+    given password and the first .csv entry inside is returned."""
+    if file_bytes[:4] != b"PK\x03\x04":
+        return file_bytes
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+            csv_names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+            if not csv_names:
+                raise ExcelReadError("Im Zip-Archiv wurde keine CSV-Datei gefunden.")
+            pwd = password.encode("utf-8") if password else None
+            try:
+                return zf.read(csv_names[0], pwd=pwd)
+            except RuntimeError as exc:
+                if not password:
+                    raise ExcelReadError("Die Datei ist passwortgeschützt. Bitte Passwort angeben.") from exc
+                raise ExcelReadError("Falsches Passwort.") from exc
+    except zipfile.BadZipFile as exc:
+        raise ExcelReadError(f"Ungültiges Zip-Format: {exc}") from exc
+
+
+def _decode_csv_bytes(raw: bytes) -> str:
+    for enc in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def korn_class_sort_key(klasse: str) -> tuple:
+    """Sort classes numerically by leading grade number (5..12), else last."""
+    m = re.match(r"\s*(\d+)", klasse or "")
+    if m:
+        return (0, int(m.group(1)), klasse)
+    return (1, 0, klasse)
+
+
+def parse_korn_csv(file_bytes: bytes, password: str | None = None) -> list[dict]:
+    """Parse a Korn2 CSV export (optionally packed in a password-protected
+    Zip archive) and return a list of {"vorname", "nachname", "klasse"} dicts."""
+    csv_bytes = _extract_korn_csv_bytes(file_bytes, password)
+    text = _decode_csv_bytes(csv_bytes)
+
+    try:
+        dialect = csv.Sniffer().sniff(text[:4096], delimiters=";,\t")
+    except csv.Error:
+        dialect = csv.excel
+        dialect.delimiter = ";" if text.count(";") >= text.count(",") else ","
+
+    reader = csv.reader(io.StringIO(text), dialect)
+    rows = [r for r in reader if any(c.strip() for c in r)]
+    if not rows:
+        raise ExcelReadError("Die CSV-Datei ist leer.")
+
+    header = [c.strip().lower() for c in rows[0]]
+
+    def _find_col(*keys: str) -> int | None:
+        for i, c in enumerate(header):
+            if c in keys:
+                return i
+        return None
+
+    col_vor = _find_col("vorname", "first name", "firstname")
+    col_nach = _find_col("nachname", "name", "last name", "lastname")
+    col_klasse = _find_col("klasse", "class")
+    if col_vor is None or col_nach is None or col_klasse is None:
+        raise ExcelReadError(
+            "Es konnten nicht alle benötigten Spalten (Vorname, Nachname, Klasse) gefunden werden."
+        )
+
+    students = []
+    for row in rows[1:]:
+        if len(row) <= max(col_vor, col_nach, col_klasse):
+            continue
+        vorname = row[col_vor].strip()
+        nachname = row[col_nach].strip()
+        klasse = row[col_klasse].strip()
+        if not nachname and not vorname:
+            continue
+        students.append({"vorname": vorname, "nachname": nachname, "klasse": klasse})
+
+    if not students:
+        raise ExcelReadError("Es wurden keine Schülerdaten gefunden.")
+    return students
