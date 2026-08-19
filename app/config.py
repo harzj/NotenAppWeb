@@ -72,7 +72,7 @@ class DevelopmentConfig(Config):
 
 
 class ProductionConfig(Config):
-    DEBUG = False
+    DEBUG = True  # TEMP-DIAGNOSE: 500 auf /new-wizard untersuchen; danach wieder auf False setzen!
     SESSION_COOKIE_SECURE = True  # requires HTTPS
 
 

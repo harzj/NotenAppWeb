@@ -45,6 +45,13 @@ def create_app(config_name: str | None = None) -> Flask:
 
     app.config["APP_VERSION"] = format_version(load_version_data())
 
+    # TEMP-DIAGNOSE: show full tracebacks in the browser even under gunicorn/WSGI
+    # hosting (Flask's interactive debugger only auto-attaches to the Werkzeug dev
+    # server). evalex=False disables the interactive console for safety.
+    if app.config.get("DEBUG"):
+        from werkzeug.debug import DebuggedApplication
+        app.wsgi_app = DebuggedApplication(app.wsgi_app, evalex=False)
+
     # Ensure instance and session directories exist
     os.makedirs(app.config["SESSION_FILE_DIR"], exist_ok=True)
     os.makedirs(os.path.dirname(app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")), exist_ok=True)
