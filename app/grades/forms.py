@@ -2,6 +2,7 @@ from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
 from wtforms import StringField, PasswordField, SubmitField, SelectField, FloatField, HiddenField, RadioField
 from wtforms.validators import DataRequired, Optional, Length, NumberRange, ValidationError
+from wtforms.widgets import PasswordInput
 
 
 def _is_valid_schuljahr_start(raw: str) -> bool:
@@ -96,7 +97,9 @@ class NotendateiImportForm(FlaskForm):
 
 
 class ExportForm(FlaskForm):
-    password = PasswordField("Exportpasswort (leer = ungeschützt)", validators=[Optional()])
+    # hide_value=False so the remembered import password is pre-filled (still masked by the input type).
+    password = PasswordField("Exportpasswort (leer = ungeschützt)", validators=[Optional()],
+                              widget=PasswordInput(hide_value=False))
     submit = SubmitField("Excel exportieren")
 
 

@@ -14,10 +14,17 @@
           {{ form.hidden_tag() }}
           <div class="mb-4">
             {{ form.password.label(class="form-label") }}
-            {{ form.password(class="form-control", autocomplete="new-password",
-                             placeholder="Leer lassen für ungeschützte Datei") }}
+            <div class="input-group">
+              {{ form.password(class="form-control", autocomplete="new-password", id="exportPasswordField",
+                               placeholder="Leer lassen für ungeschützte Datei") }}
+              <button type="button" class="btn btn-outline-secondary" id="exportPasswordToggle" tabindex="-1"
+                      aria-label="Passwort anzeigen/verbergen">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
             <div class="form-text">
-              Empfohlen: gleiches Passwort wie beim Import verwenden.
+              Empfohlen: gleiches Passwort wie beim Import verwenden. Ist ein Import-Passwort bekannt,
+              wird es hier automatisch vorausgefüllt (maskiert).
             </div>
           </div>
           {{ form.submit(class="btn btn-success") }}
@@ -42,4 +49,20 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  'use strict';
+  const field  = document.getElementById('exportPasswordField');
+  const toggle = document.getElementById('exportPasswordToggle');
+  if (!field || !toggle) return;
+  toggle.addEventListener('click', () => {
+    const showing = field.type === 'text';
+    field.type = showing ? 'password' : 'text';
+    toggle.querySelector('i').className = showing ? 'bi bi-eye' : 'bi bi-eye-slash';
+  });
+}());
+</script>
 {% endblock %}

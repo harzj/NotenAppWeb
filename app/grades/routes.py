@@ -26,6 +26,7 @@ from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_
 grades_bp = Blueprint("grades", __name__, template_folder="../templates/grades")
 
 SESSION_KEY = "gradebook"
+_SOURCE_PW_KEY = "_gradebook_source_pw"  # remembers the password the active file was loaded/exported with
 _DEMO_SOURCE_FILENAME = "Noten_demo_klasse.xlsx"
 _DEMO_SAMPLE_PASSWORD_FALLBACK = "test"
 
@@ -41,6 +42,17 @@ def _save_gradebook(data: dict) -> None:
     if data.get("stammdaten"):
         data["stammdaten"].sort(key=lambda s: (s.get("nachname", "").lower(), s.get("vorname", "").lower()))
     session[SESSION_KEY] = data
+    session.modified = True
+
+
+def _set_source_password(password: str | None) -> None:
+    """Remember the password of the currently loaded file for later export."""
+    session[_SOURCE_PW_KEY] = password
+    session.modified = True
+
+
+def _clear_source_password() -> None:
+    session.pop(_SOURCE_PW_KEY, None)
     session.modified = True
 
 
@@ -252,6 +264,7 @@ def demo_beispielklasse():
         return redirect(url_for("grades.index"))
 
     _save_gradebook(source_data)
+    _clear_source_password()
     flash(f"Beispielklasse geladen (Quelle: {source_name}).", "success")
     return redirect(url_for("grades.index"))
 
@@ -268,6 +281,7 @@ def upload():
         try:
             data = load_gradebook(file_bytes, password)
             _save_gradebook(data)
+            _set_source_password(password)
             flash("Datei erfolgreich geladen.", "success")
             return redirect(url_for("grades.index"))
         except ExcelReadError as e:
@@ -357,6 +371,7 @@ def legacy_wizard():
                 return render_template("grades/legacy_wizard.html", probe=probe,
                                        sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
             _save_gradebook(data)
+            _clear_source_password()
             for k in (_LEGACY_FILE_KEY, _LEGACY_PW_KEY, _LEGACY_PROBE_KEY):
                 session.pop(k, None)
             session.modified = True
@@ -421,6 +436,7 @@ def legacy_wizard():
                                    sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
 
         _save_gradebook(data)
+        _clear_source_password()
         # Clean up temp session keys
         for k in (_LEGACY_FILE_KEY, _LEGACY_PW_KEY, _LEGACY_PROBE_KEY):
             session.pop(k, None)
@@ -557,6 +573,7 @@ def notendatei_import():
 def close_file():
     session.pop(SESSION_KEY, None)
     session.modified = True
+    _clear_source_password()
     flash("Datei geschlossen. Alle Daten wurden aus dem Speicher entfernt.", "info")
     return redirect(url_for("grades.index"))
 
@@ -590,6 +607,7 @@ def new_file():
     else:
         label = "Neue leere Datei erstellt."
     _save_gradebook(empty)
+    _clear_source_password()
     flash(label, "success")
     return redirect(url_for("grades.index"))
 
@@ -661,6 +679,7 @@ def new_wizard():
         for k in _WIZARD_KEYS:
             session.pop(k, None)
         session.modified = True
+        _clear_source_password()
         return render_template(
             "grades/new_wizard.html",
             modus=modus,
@@ -786,6 +805,7 @@ def new_wizard():
     session.modified = True
 
     _save_gradebook(empty)
+    _clear_source_password()
 
     n_sd = len(empty["stammdaten"])
     n_ln = len(empty["leistungsnachweise"])
@@ -2653,6 +2673,9 @@ def schuljahr_druck():
 def export_excel():
     data = _require_gradebook()
     form = ExportForm()
+    if request.method == "GET":
+        # Pre-fill with the password the active file was loaded/exported with.
+        form.password.data = session.get(_SOURCE_PW_KEY) or ""
     if form.validate_on_submit():
         password = form.password.data or None
         try:
@@ -2660,6 +2683,7 @@ def export_excel():
         except Exception as e:
             flash(f"Fehler beim Export: {e}", "danger")
             return render_template("grades/export.html", form=form)
+        _set_source_password(password)
         klasse = data.get("klasse", "Klasse") or "Klasse"
         schuljahr = data.get("schuljahr", "") or schuljahr_from_date()
         # For Kurs mode with a time span, combine e.g. "2526"+"2627" → "2527"
