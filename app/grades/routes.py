@@ -711,11 +711,24 @@ _WIZARD_LN_PW     = "_wizard_ln_pw"
 _WIZARD_LN_DATA   = "_wizard_ln_data"
 _WIZARD_LN_MODUS  = "_wizard_ln_modus"
 _WIZARD_KORN_DATA = "_wizard_korn_data"
-_WIZARD_KEYS = (
+# One-shot probes tied to a single wizard run; cleared on every fresh GET/submit.
+_WIZARD_ONE_SHOT_KEYS = (
     _WIZARD_SD_FILE, _WIZARD_SD_PW, _WIZARD_SD_DATA,
     _WIZARD_LN_FILE, _WIZARD_LN_PW, _WIZARD_LN_DATA, _WIZARD_LN_MODUS,
-    _WIZARD_KORN_DATA,
 )
+# Korn2 data is intentionally kept across wizard runs so a second class can be
+# picked from the same import without re-uploading the file.
+_WIZARD_KEYS = _WIZARD_ONE_SHOT_KEYS + (_WIZARD_KORN_DATA,)
+
+
+def _korn_classes_summary(students: list[dict]) -> list[dict]:
+    """Group Korn2 students by class, sorted by grade level (5..12)."""
+    by_klasse: dict[str, int] = {}
+    for s in students:
+        by_klasse[s["klasse"]] = by_klasse.get(s["klasse"], 0) + 1
+    classes = [{"klasse": k, "count": n} for k, n in by_klasse.items()]
+    classes.sort(key=lambda c: korn_class_sort_key(c["klasse"]))
+    return classes
 
 
 def _wizard_filter_lns(lns: list[dict]) -> list[dict]:
@@ -765,13 +778,16 @@ def new_wizard():
         modus = request.args.get("modus", "klasse")
         if modus not in ("klasse", "kurs"):
             modus = "klasse"
-        for k in _WIZARD_KEYS:
+        for k in _WIZARD_ONE_SHOT_KEYS:
             session.pop(k, None)
         session.modified = True
+        korn_data = session.get(_WIZARD_KORN_DATA)
+        korn_classes = _korn_classes_summary(korn_data) if korn_data else []
         return render_template(
             "grades/new_wizard.html",
             modus=modus,
             schuljahr=_schuljahr_start_input(schuljahr_from_date()),
+            korn_classes=korn_classes,
         )
 
     # POST: final submit
@@ -888,7 +904,7 @@ def new_wizard():
                 for i in sorted(selected_indices)
             ]
 
-    for k in _WIZARD_KEYS:
+    for k in _WIZARD_ONE_SHOT_KEYS:
         session.pop(k, None)
     session.modified = True
 
@@ -1021,13 +1037,15 @@ def wizard_probe_korn():
     session[_WIZARD_KORN_DATA] = students
     session.modified = True
 
-    by_klasse: dict[str, int] = {}
-    for s in students:
-        by_klasse[s["klasse"]] = by_klasse.get(s["klasse"], 0) + 1
-    classes = [{"klasse": k, "count": n} for k, n in by_klasse.items()]
-    classes.sort(key=lambda c: korn_class_sort_key(c["klasse"]))
+    return jsonify(ok=True, classes=_korn_classes_summary(students))
 
-    return jsonify(ok=True, classes=classes)
+
+@grades_bp.route("/new-wizard/korn-clear", methods=["POST"])
+@login_required
+def wizard_korn_clear():
+    session.pop(_WIZARD_KORN_DATA, None)
+    session.modified = True
+    return jsonify(ok=True)
 
 
 @grades_bp.route("/new-wizard/korn-students", methods=["POST"])
