@@ -115,6 +115,7 @@
         <button type="button" id="kornClearBtn" class="btn btn-sm btn-outline-secondary mt-2">
           <i class="bi bi-x-circle me-1"></i>Import löschen
         </button>
+        <div id="kornSelectionOverview" class="mt-3"></div>
       </div>
     </div>
     </div>
@@ -613,6 +614,9 @@
   // ── Korn2 Probe ────────────────────────────────────────────────────────
   let kornSelectedIndices = new Set();   // indices of Korn students currently taken over
   let kornSelectedClasses = new Set();  // Korn class labels currently taken over
+  let kornSelectedGroups = new Map();   // class label -> selected student indices
+  let kornGroupCounts = new Map();      // class label -> total students in that group
+  let kornStudentNames = new Map();     // student index -> display name
 
   function kornSyncHiddenInputs() {
     const container = document.getElementById('kornSelectedInputs');
@@ -623,6 +627,75 @@
       inp.name = 'korn_selected';
       inp.value = String(idx);
       container.appendChild(inp);
+    }
+  }
+
+  function kornEscapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+    }[char]));
+  }
+
+  function kornRenderSelectionOverview() {
+    const container = document.getElementById('kornSelectionOverview');
+    if (!kornSelectedGroups.size) {
+      container.innerHTML = '';
+      return;
+    }
+
+    let html = '<div class="small fw-semibold mb-1">Ausgewählte Schüler</div>';
+    for (const [klasse, indices] of kornSelectedGroups) {
+      const groupCount = kornGroupCounts.get(klasse);
+      const complete = groupCount !== undefined && indices.size === groupCount;
+      html += '<div class="border rounded p-2 mb-2">';
+      if (complete) {
+        html += '<div class="d-flex align-items-center justify-content-between">' +
+          '<span>' + kornEscapeHtml('Klasse ' + klasse + ' komplett') + '</span>' +
+          '<button type="button" class="btn btn-sm btn-outline-danger korn-remove-group" data-klasse="' +
+            kornEscapeHtml(klasse) + '" aria-label="Klasse entfernen" title="Klasse entfernen">' +
+            '<i class="bi bi-x-lg"></i></button></div>';
+      } else {
+        html += '<div class="d-flex align-items-center justify-content-between mb-1">' +
+          '<span class="fw-semibold">Klasse ' + kornEscapeHtml(klasse) + '</span>' +
+          '<button type="button" class="btn btn-sm btn-outline-danger korn-remove-group" data-klasse="' +
+            kornEscapeHtml(klasse) + '" aria-label="Klasse entfernen" title="Klasse entfernen">' +
+            '<i class="bi bi-x-lg"></i></button></div>';
+        for (const idx of indices) {
+          html += '<div class="d-flex align-items-center justify-content-between ps-2 border-top py-1">' +
+            '<span>' + kornEscapeHtml(kornStudentNames.get(idx) || 'Schüler') + '</span>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger korn-remove-student" data-idx="' + idx +
+              '" aria-label="Schüler entfernen" title="Schüler entfernen"><i class="bi bi-x-lg"></i></button></div>';
+        }
+      }
+      html += '</div>';
+    }
+    container.innerHTML = html;
+  }
+
+  function kornRebuildSelectedIndices() {
+    kornSelectedIndices = new Set();
+    kornSelectedClasses = new Set(kornSelectedGroups.keys());
+    for (const indices of kornSelectedGroups.values()) {
+      for (const idx of indices) kornSelectedIndices.add(idx);
+    }
+    kornSyncHiddenInputs();
+    kornRenderSelectionOverview();
+  }
+
+  function kornUpdateSelectionFields() {
+    const combinedLabel = kornCombinedClassLabel();
+    document.getElementById('korn_imported_flag').value = kornSelectedIndices.size ? '1' : '0';
+    document.getElementById('korn_klasse_field').value  = combinedLabel;
+    document.getElementById('klasse').value             = combinedLabel;
+    if (kornSelectedIndices.size) {
+      setText('kornSelectionInfo',
+        kornSelectedIndices.size + ' Schüler aus "' + combinedLabel + '" werden übernommen.'
+      );
+      show('kornSelectionInfo');
+      document.getElementById('kornModalMergeBtn').classList.remove('d-none');
+    } else {
+      hide('kornSelectionInfo');
+      document.getElementById('kornModalMergeBtn').classList.add('d-none');
     }
   }
 
@@ -673,10 +746,14 @@
     document.getElementById('korn_klasse_field').value  = '';
     kornSelectedIndices = new Set();
     kornSelectedClasses = new Set();
+    kornSelectedGroups = new Map();
+    kornGroupCounts = new Map();
+    kornStudentNames = new Map();
     document.getElementById('kornModalMergeBtn').classList.add('d-none');
     kornSyncHiddenInputs();
     setHtml('kornSummary', '');
     setHtml('kornClassList', '');
+    kornRenderSelectionOverview();
     hide('kornResults');
     hide('kornError');
     hide('kornSelectionInfo');
@@ -700,6 +777,10 @@
           return;
         }
         setText('kornModalKlasse', klasse);
+        kornGroupCounts.set(klasse, data.students.length);
+        for (const student of data.students) {
+          kornStudentNames.set(student.idx, student.nachname + ', ' + student.vorname);
+        }
 
         let html = '';
         for (const s of data.students) {
@@ -758,24 +839,12 @@
       if (cb.checked) currentIndices.add(parseInt(cb.value, 10));
     }
     if (merge) {
-      for (const idx of currentIndices) kornSelectedIndices.add(idx);
-      kornSelectedClasses.add(klasse);
+      kornSelectedGroups.set(klasse, currentIndices);
     } else {
-      kornSelectedIndices = currentIndices;
-      kornSelectedClasses = new Set([klasse]);
+      kornSelectedGroups = new Map([[klasse, currentIndices]]);
     }
-    kornSyncHiddenInputs();
-
-    document.getElementById('korn_imported_flag').value = '1';
-    document.getElementById('kornModalMergeBtn').classList.remove('d-none');
-    const combinedLabel = kornCombinedClassLabel();
-    document.getElementById('korn_klasse_field').value  = combinedLabel;
-    document.getElementById('klasse').value             = combinedLabel;
-
-    setText('kornSelectionInfo',
-      kornSelectedIndices.size + ' Schüler aus "' + combinedLabel + '" werden übernommen.'
-    );
-    show('kornSelectionInfo');
+    kornRebuildSelectedIndices();
+    kornUpdateSelectionFields();
 
     const modalEl = document.getElementById('kornStudentModal');
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
@@ -784,6 +853,26 @@
 
   document.getElementById('kornModalApplyBtn').addEventListener('click', () => kornApplySelection(false));
   document.getElementById('kornModalMergeBtn').addEventListener('click', () => kornApplySelection(true));
+
+  document.getElementById('kornSelectionOverview').addEventListener('click', (event) => {
+    const groupButton = event.target.closest('.korn-remove-group');
+    if (groupButton) {
+      kornSelectedGroups.delete(groupButton.dataset.klasse);
+      kornRebuildSelectedIndices();
+      kornUpdateSelectionFields();
+      return;
+    }
+
+    const studentButton = event.target.closest('.korn-remove-student');
+    if (!studentButton) return;
+    const idx = parseInt(studentButton.dataset.idx, 10);
+    for (const [klasse, indices] of kornSelectedGroups) {
+      indices.delete(idx);
+      if (!indices.size) kornSelectedGroups.delete(klasse);
+    }
+    kornRebuildSelectedIndices();
+    kornUpdateSelectionFields();
+  });
 
 }());
 </script>
