@@ -3,6 +3,7 @@ import json
 import os
 import copy
 import random
+import zipfile
 from datetime import datetime
 from flask import (
     Blueprint, render_template, redirect, url_for,
@@ -25,28 +26,86 @@ from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_
 
 grades_bp = Blueprint("grades", __name__, template_folder="../templates/grades")
 
-SESSION_KEY = "gradebook"
-_SOURCE_PW_KEY = "_gradebook_source_pw"  # remembers the password the active file was loaded/exported with
+# A session can hold several open classes/courses at once ("Sammlung").
+GRADEBOOKS_KEY = "gradebooks"            # list[dict]: all classes currently open in this session
+ACTIVE_IDX_KEY = "active_gradebook_idx"  # int: index into GRADEBOOKS_KEY of the class shown in the UI
+_SOURCE_PW_KEY = "_gradebook_source_pw"  # remembers the (shared) password files were loaded/exported with
 _DEMO_SOURCE_FILENAME = "Noten_demo_klasse.xlsx"
 _DEMO_SAMPLE_PASSWORD_FALLBACK = "test"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _get_gradebooks() -> list[dict]:
+    """Return all classes/courses currently open in this session."""
+    return session.get(GRADEBOOKS_KEY, [])
+
+
+def _get_active_index() -> int:
+    books = _get_gradebooks()
+    if not books:
+        return 0
+    idx = session.get(ACTIVE_IDX_KEY, 0)
+    return idx if 0 <= idx < len(books) else 0
+
+
 def _get_gradebook() -> dict | None:
-    return session.get(SESSION_KEY)
+    """Return the class/course currently shown in the UI, or None if nothing is open."""
+    books = _get_gradebooks()
+    if not books:
+        return None
+    return books[_get_active_index()]
 
 
 def _save_gradebook(data: dict) -> None:
-    # Keep Stammdaten alphabetically sorted regardless of which route touched it.
-    if data.get("stammdaten"):
-        data["stammdaten"].sort(key=lambda s: (s.get("nachname", "").lower(), s.get("vorname", "").lower()))
-    session[SESSION_KEY] = data
+    """Save changes made to the currently active class."""
+    _sort_stammdaten(data)
+    books = _get_gradebooks()
+    idx = _get_active_index()
+    if books:
+        books[idx] = data
+    else:
+        books = [data]
+        idx = 0
+    session[GRADEBOOKS_KEY] = books
+    session[ACTIVE_IDX_KEY] = idx
+    session.modified = True
+
+
+def _add_gradebook(data: dict) -> int:
+    """Append a new class/course to the open collection and make it the active one."""
+    _sort_stammdaten(data)
+    books = _get_gradebooks()
+    books.append(data)
+    session[GRADEBOOKS_KEY] = books
+    session[ACTIVE_IDX_KEY] = len(books) - 1
+    session.modified = True
+    return len(books) - 1
+
+
+def _replace_all_gradebooks(data_list: list[dict]) -> None:
+    """Discard all open classes and replace them with a new set (e.g. from a .zip import)."""
+    for d in data_list:
+        _sort_stammdaten(d)
+    session[GRADEBOOKS_KEY] = data_list
+    session[ACTIVE_IDX_KEY] = 0
+    session.modified = True
+
+
+def _set_active_index(idx: int) -> None:
+    if 0 <= idx < len(_get_gradebooks()):
+        session[ACTIVE_IDX_KEY] = idx
+        session.modified = True
+
+
+def _close_all_gradebooks() -> None:
+    session.pop(GRADEBOOKS_KEY, None)
+    session.pop(ACTIVE_IDX_KEY, None)
     session.modified = True
 
 
 def _set_source_password(password: str | None) -> None:
-    """Remember the password of the currently loaded file for later export."""
+    """Remember the password files are loaded/exported with (shared across all open classes)."""
     session[_SOURCE_PW_KEY] = password
     session.modified = True
 
@@ -263,26 +322,53 @@ def demo_beispielklasse():
         flash("Die gewählte Demo-Quelle ist leer. Bitte eine Notendatei mit Daten bereitstellen.", "danger")
         return redirect(url_for("grades.index"))
 
-    _save_gradebook(source_data)
-    _clear_source_password()
+    _add_gradebook(source_data)
     flash(f"Beispielklasse geladen (Quelle: {source_name}).", "success")
     return redirect(url_for("grades.index"))
 
 
 # ── Upload ────────────────────────────────────────────────────────────────────
 
+def _load_zip_gradebooks(file_bytes: bytes, password: str | None) -> list[dict]:
+    """Read every .xlsx entry in a Zip archive as a separate class."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+            names = sorted(
+                n for n in zf.namelist()
+                if n.lower().endswith(".xlsx") and "__MACOSX" not in n
+            )
+            if not names:
+                raise ExcelReadError("Im Zip-Archiv wurde keine .xlsx-Datei gefunden.")
+            books = []
+            for name in names:
+                entry_bytes = zf.read(name)
+                try:
+                    books.append(load_gradebook(entry_bytes, password))
+                except ExcelReadError as e:
+                    raise ExcelReadError(f"Datei '{name}' im Zip-Archiv: {e}") from e
+            return books
+    except zipfile.BadZipFile as e:
+        raise ExcelReadError(f"Ungültiges Zip-Format: {e}") from e
+
+
 @grades_bp.route("/upload", methods=["GET", "POST"])
 @login_required
 def upload():
     form = UploadForm()
     if form.validate_on_submit():
+        filename = (form.file.data.filename or "").lower()
         file_bytes = form.file.data.read()
         password = form.password.data or None
         try:
-            data = load_gradebook(file_bytes, password)
-            _save_gradebook(data)
+            if filename.endswith(".zip"):
+                new_books = _load_zip_gradebooks(file_bytes, password)
+                _replace_all_gradebooks(new_books)
+                flash(f"{len(new_books)} Klasse(n) aus Zip-Datei geladen.", "success")
+            else:
+                data = load_gradebook(file_bytes, password)
+                _add_gradebook(data)
+                flash("Datei erfolgreich geladen.", "success")
             _set_source_password(password)
-            flash("Datei erfolgreich geladen.", "success")
             return redirect(url_for("grades.index"))
         except ExcelReadError as e:
             flash(str(e), "danger")
@@ -370,8 +456,7 @@ def legacy_wizard():
                 flash(f"Import fehlgeschlagen: {e}", "danger")
                 return render_template("grades/legacy_wizard.html", probe=probe,
                                        sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
-            _save_gradebook(data)
-            _clear_source_password()
+            _add_gradebook(data)
             for k in (_LEGACY_FILE_KEY, _LEGACY_PW_KEY, _LEGACY_PROBE_KEY):
                 session.pop(k, None)
             session.modified = True
@@ -435,8 +520,7 @@ def legacy_wizard():
             return render_template("grades/legacy_wizard.html", probe=probe,
                                    sl_choices=_SL_CHOICES, hj_choices=_HJ_CHOICES)
 
-        _save_gradebook(data)
-        _clear_source_password()
+        _add_gradebook(data)
         # Clean up temp session keys
         for k in (_LEGACY_FILE_KEY, _LEGACY_PW_KEY, _LEGACY_PROBE_KEY):
             session.pop(k, None)
@@ -571,10 +655,16 @@ def notendatei_import():
 @grades_bp.route("/close")
 @login_required
 def close_file():
-    session.pop(SESSION_KEY, None)
-    session.modified = True
+    _close_all_gradebooks()
     _clear_source_password()
-    flash("Datei geschlossen. Alle Daten wurden aus dem Speicher entfernt.", "info")
+    flash("Alle Klassen geschlossen. Alle Daten wurden aus dem Speicher entfernt.", "info")
+    return redirect(url_for("grades.index"))
+
+
+@grades_bp.route("/switch-class/<int:idx>")
+@login_required
+def switch_class(idx):
+    _set_active_index(idx)
     return redirect(url_for("grades.index"))
 
 
@@ -606,8 +696,7 @@ def new_file():
         label = "Neuer Kurs (Oberstufe) erstellt."
     else:
         label = "Neue leere Datei erstellt."
-    _save_gradebook(empty)
-    _clear_source_password()
+    _add_gradebook(empty)
     flash(label, "success")
     return redirect(url_for("grades.index"))
 
@@ -679,7 +768,6 @@ def new_wizard():
         for k in _WIZARD_KEYS:
             session.pop(k, None)
         session.modified = True
-        _clear_source_password()
         return render_template(
             "grades/new_wizard.html",
             modus=modus,
@@ -804,8 +892,7 @@ def new_wizard():
         session.pop(k, None)
     session.modified = True
 
-    _save_gradebook(empty)
-    _clear_source_password()
+    _add_gradebook(empty)
 
     n_sd = len(empty["stammdaten"])
     n_ln = len(empty["leistungsnachweise"])
@@ -2668,10 +2755,44 @@ def schuljahr_druck():
 
 # ── Export ────────────────────────────────────────────────────────────────────
 
+def _gradebook_export_filename(data: dict) -> str:
+    """Build the standard xlsx filename for a single class/course."""
+    klasse = data.get("klasse", "Klasse") or "Klasse"
+    schuljahr = data.get("schuljahr", "") or schuljahr_from_date()
+    # For Kurs mode with a time span, combine e.g. "2526"+"2627" → "2527"
+    schuljahr_bis = data.get("schuljahr_bis", "")
+    if data.get("modus") == "kurs" and schuljahr_bis and len(schuljahr) == 4 and len(schuljahr_bis) == 4:
+        schuljahr = schuljahr[:2] + schuljahr_bis[2:]
+    # Strip characters that are unsafe in filenames / Zip entry names.
+    safe_klasse = "".join(c for c in klasse if c not in '\\/:*?"<>|').strip() or "Klasse"
+    return f"Noten_{safe_klasse}_{schuljahr}.xlsx"
+
+
+def _build_zip_export(books: list[dict], password: str | None) -> bytes:
+    """Bundle every open class as its own (optionally encrypted) xlsx inside one
+    Zip archive. The Zip container itself is never password-protected."""
+    buf = io.BytesIO()
+    used_names: set[str] = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for book in books:
+            xlsx_bytes = build_gradebook(book, password=password)
+            name = _gradebook_export_filename(book)
+            if name in used_names:
+                base, ext = name.rsplit(".", 1)
+                n = 2
+                while f"{base}_{n}.{ext}" in used_names:
+                    n += 1
+                name = f"{base}_{n}.{ext}"
+            used_names.add(name)
+            zf.writestr(name, xlsx_bytes)
+    return buf.getvalue()
+
+
 @grades_bp.route("/export/excel", methods=["GET", "POST"])
 @login_required
 def export_excel():
-    data = _require_gradebook()
+    _require_gradebook()  # ensures at least one class is open
+    books = _get_gradebooks()
     form = ExportForm()
     if request.method == "GET":
         # Pre-fill with the password the active file was loaded/exported with.
@@ -2679,25 +2800,25 @@ def export_excel():
     if form.validate_on_submit():
         password = form.password.data or None
         try:
-            file_bytes = build_gradebook(data, password=password)
+            if len(books) > 1:
+                file_bytes = _build_zip_export(books, password)
+                filename = f"Noten_Sammlung_{datetime.now().strftime('%Y%m%d')}.zip"
+                mimetype = "application/zip"
+            else:
+                file_bytes = build_gradebook(books[0], password=password)
+                filename = _gradebook_export_filename(books[0])
+                mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         except Exception as e:
             flash(f"Fehler beim Export: {e}", "danger")
-            return render_template("grades/export.html", form=form)
+            return render_template("grades/export.html", form=form, n_classes=len(books))
         _set_source_password(password)
-        klasse = data.get("klasse", "Klasse") or "Klasse"
-        schuljahr = data.get("schuljahr", "") or schuljahr_from_date()
-        # For Kurs mode with a time span, combine e.g. "2526"+"2627" → "2527"
-        schuljahr_bis = data.get("schuljahr_bis", "")
-        if data.get("modus") == "kurs" and schuljahr_bis and len(schuljahr) == 4 and len(schuljahr_bis) == 4:
-            schuljahr = schuljahr[:2] + schuljahr_bis[2:]
-        filename = f"Noten_{klasse}_{schuljahr}.xlsx"
         return send_file(
             io.BytesIO(file_bytes),
             download_name=filename,
             as_attachment=True,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            mimetype=mimetype,
         )
-    return render_template("grades/export.html", form=form)
+    return render_template("grades/export.html", form=form, n_classes=len(books))
 
 
 # ── Klasseneinstellungen ──────────────────────────────────────────────────────

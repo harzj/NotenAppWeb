@@ -9,6 +9,11 @@
         <p class="text-muted small mb-4">
           Exportiert alle Daten (Stammdaten, Leistungsnachweise, Übersichten) als <code>.xlsx</code>
           mit Excel-Formeln. Die Datei kann danach in deine Cloud hochgeladen werden.
+          {% if n_classes and n_classes > 1 %}
+          Da aktuell {{ n_classes }} Klassen geöffnet sind, wird ein <code>.zip</code>-Archiv mit je einer
+          <code>.xlsx</code>-Datei pro Klasse erzeugt. Das Zip selbst bleibt unverschlüsselt, die enthaltenen
+          Excel-Dateien werden mit dem unten angegebenen Passwort verschlüsselt.
+          {% endif %}
         </p>
         <form method="post" novalidate>
           {{ form.hidden_tag() }}

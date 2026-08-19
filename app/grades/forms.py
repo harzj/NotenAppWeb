@@ -12,8 +12,8 @@ def _is_valid_schuljahr_start(raw: str) -> bool:
 
 class UploadForm(FlaskForm):
     file = FileField(
-        "Excel-Datei (.xlsx)",
-        validators=[FileRequired(), FileAllowed(["xlsx"], "Nur .xlsx-Dateien erlaubt.")],
+        "Excel-Datei (.xlsx) oder Zip mit mehreren Klassen (.zip)",
+        validators=[FileRequired(), FileAllowed(["xlsx", "zip"], "Nur .xlsx- oder .zip-Dateien erlaubt.")],
     )
     password = PasswordField("Dateipasswort (leer lassen falls ungeschützt)", validators=[Optional()])
     submit = SubmitField("Datei laden")
