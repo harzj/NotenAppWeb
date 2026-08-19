@@ -3,8 +3,9 @@ import json
 import os
 import copy
 import random
+import re
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 from flask import (
     Blueprint, render_template, redirect, url_for,
     flash, request, session, send_file, abort, jsonify,
@@ -721,11 +722,33 @@ _WIZARD_ONE_SHOT_KEYS = (
 _WIZARD_KEYS = _WIZARD_ONE_SHOT_KEYS + (_WIZARD_KORN_DATA,)
 
 
-def _korn_classes_summary(students: list[dict]) -> list[dict]:
-    """Group Korn2 students by class, sorted by grade level (5..12)."""
+def _korn_grade(klasse: str) -> int | None:
+    """Return the leading grade number from a Korn2 class label."""
+    match = re.match(r"\s*(\d+)", klasse or "")
+    return int(match.group(1)) if match else None
+
+
+def _korn_grade_limits(modus: str) -> set[int]:
+    cutoff = date(2027, 8, 1)
+    if modus == "kurs":
+        return {12, 13} if date.today() >= cutoff else {11, 12}
+    return set(range(5, 12 if date.today() >= cutoff else 11))
+
+
+def _korn_group_key(student: dict, modus: str) -> str | None:
+    grade = _korn_grade(student.get("klasse", ""))
+    if grade not in _korn_grade_limits(modus):
+        return None
+    return str(grade) if modus == "kurs" else student["klasse"]
+
+
+def _korn_classes_summary(students: list[dict], modus: str = "klasse") -> list[dict]:
+    """Group Korn2 students according to the selected wizard mode and date."""
     by_klasse: dict[str, int] = {}
-    for s in students:
-        by_klasse[s["klasse"]] = by_klasse.get(s["klasse"], 0) + 1
+    for student in students:
+        group_key = _korn_group_key(student, modus)
+        if group_key is not None:
+            by_klasse[group_key] = by_klasse.get(group_key, 0) + 1
     classes = [{"klasse": k, "count": n} for k, n in by_klasse.items()]
     classes.sort(key=lambda c: korn_class_sort_key(c["klasse"]))
     return classes
@@ -782,7 +805,7 @@ def new_wizard():
             session.pop(k, None)
         session.modified = True
         korn_data = session.get(_WIZARD_KORN_DATA)
-        korn_classes = _korn_classes_summary(korn_data) if korn_data else []
+        korn_classes = _korn_classes_summary(korn_data, modus) if korn_data else []
         return render_template(
             "grades/new_wizard.html",
             modus=modus,
@@ -1027,6 +1050,9 @@ def wizard_probe_korn():
         return jsonify(ok=False, error="Keine Datei ausgewählt.")
     file_bytes = f.read()
     password   = request.form.get("password") or None
+    modus = request.form.get("modus", "klasse")
+    if modus not in ("klasse", "kurs"):
+        modus = "klasse"
     try:
         students = parse_korn_csv(file_bytes, password)
     except ExcelReadError as e:
@@ -1037,7 +1063,7 @@ def wizard_probe_korn():
     session[_WIZARD_KORN_DATA] = students
     session.modified = True
 
-    return jsonify(ok=True, classes=_korn_classes_summary(students))
+    return jsonify(ok=True, classes=_korn_classes_summary(students, modus))
 
 
 @grades_bp.route("/new-wizard/korn-clear", methods=["POST"])
@@ -1055,10 +1081,13 @@ def wizard_korn_students():
     if korn_data is None:
         return jsonify(ok=False, error="Keine Korn-Daten im Speicher. Bitte Datei erneut analysieren.")
     klasse = request.form.get("klasse", "")
+    modus = request.form.get("modus", "klasse")
+    if modus not in ("klasse", "kurs"):
+        modus = "klasse"
     students = [
         {"idx": idx, "nachname": s["nachname"], "vorname": s["vorname"]}
         for idx, s in enumerate(korn_data)
-        if s["klasse"] == klasse
+        if _korn_group_key(s, modus) == klasse
     ]
     return jsonify(ok=True, klasse=klasse, students=students)
 

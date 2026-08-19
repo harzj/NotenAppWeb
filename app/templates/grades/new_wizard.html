@@ -324,6 +324,9 @@
         <button type="button" class="btn btn-success" id="kornModalApplyBtn">
           <i class="bi bi-check-lg me-1"></i>Übernehmen
         </button>
+        <button type="button" class="btn btn-primary d-none" id="kornModalMergeBtn">
+          <i class="bi bi-node-plus me-1"></i>Klassenübergreifend
+        </button>
       </div>
     </div>
   </div>
@@ -350,7 +353,7 @@
     row.style.display = ktEl.value === 'LK' ? 'none' : 'block';
   }
 
-  async function probeFile(url, fileEl, passwordEl, spinnerId, errorId, onSuccess) {
+  async function probeFile(url, fileEl, passwordEl, spinnerId, errorId, onSuccess, modus = null) {
     const file = fileEl.files[0];
     if (!file) {
       setText(errorId, 'Bitte zuerst eine Datei auswählen.');
@@ -364,6 +367,7 @@
     fd.append('file', file);
     fd.append('password', passwordEl.value);
     fd.append('csrf_token', CSRF);
+    if (modus) fd.append('modus', modus);
 
     try {
       const resp = await fetch(url, { method: 'POST', body: fd });
@@ -608,7 +612,7 @@
 
   // ── Korn2 Probe ────────────────────────────────────────────────────────
   let kornSelectedIndices = new Set();   // indices of Korn students currently taken over
-  let kornActiveKlasse = '';             // Korn class name currently applied
+  let kornSelectedClasses = new Set();  // Korn class labels currently taken over
 
   function kornSyncHiddenInputs() {
     const container = document.getElementById('kornSelectedInputs');
@@ -651,7 +655,7 @@
         setHtml('kornClassList', html);
 
         show('kornResults');
-      }
+      }, MODUS
     );
   });
 
@@ -668,7 +672,8 @@
     document.getElementById('korn_imported_flag').value = '0';
     document.getElementById('korn_klasse_field').value  = '';
     kornSelectedIndices = new Set();
-    kornActiveKlasse = '';
+    kornSelectedClasses = new Set();
+    document.getElementById('kornModalMergeBtn').classList.add('d-none');
     kornSyncHiddenInputs();
     setHtml('kornSummary', '');
     setHtml('kornClassList', '');
@@ -684,6 +689,7 @@
   function kornOpenClassModal(klasse) {
     const fd = new FormData();
     fd.append('klasse', klasse);
+    fd.append('modus', MODUS);
     fd.append('csrf_token', CSRF);
     fetch({{ url_for('grades.wizard_korn_students') | tojson }}, { method: 'POST', body: fd })
       .then(resp => resp.json())
@@ -706,8 +712,8 @@
         }
         setHtml('kornModalStudentList', html);
 
-        const applyBtn = document.getElementById('kornModalApplyBtn');
-        applyBtn.dataset.klasse = klasse;
+        document.getElementById('kornModalApplyBtn').dataset.klasse = klasse;
+        document.getElementById('kornModalMergeBtn').dataset.klasse = klasse;
 
         const modalEl = document.getElementById('kornStudentModal');
         const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
@@ -726,28 +732,58 @@
     for (const cb of document.querySelectorAll('.korn-modal-checkbox')) cb.checked = false;
   });
 
-  document.getElementById('kornModalApplyBtn').addEventListener('click', () => {
-    const klasse = document.getElementById('kornModalApplyBtn').dataset.klasse || '';
-    kornSelectedIndices = new Set();
-    for (const cb of document.querySelectorAll('.korn-modal-checkbox')) {
-      if (cb.checked) kornSelectedIndices.add(parseInt(cb.value, 10));
+  function kornCombinedClassLabel() {
+    const grouped = new Map();
+    for (const label of kornSelectedClasses) {
+      const match = label.match(/^\s*(\d+)(.*)$/);
+      if (!match) {
+        grouped.set(label, new Set());
+        continue;
+      }
+      const grade = match[1];
+      const suffix = match[2].trim().toUpperCase();
+      if (!grouped.has(grade)) grouped.set(grade, new Set());
+      if (suffix) grouped.get(grade).add(suffix);
     }
-    kornActiveKlasse = klasse;
+    return [...grouped.entries()].sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([grade, suffixes]) => suffixes.size ? grade + [...suffixes].sort().join('') : grade)
+      .join('/');
+  }
+
+  function kornApplySelection(merge) {
+    const applyBtn = document.getElementById('kornModalApplyBtn');
+    const klasse = applyBtn.dataset.klasse || '';
+    const currentIndices = new Set();
+    for (const cb of document.querySelectorAll('.korn-modal-checkbox')) {
+      if (cb.checked) currentIndices.add(parseInt(cb.value, 10));
+    }
+    if (merge) {
+      for (const idx of currentIndices) kornSelectedIndices.add(idx);
+      kornSelectedClasses.add(klasse);
+    } else {
+      kornSelectedIndices = currentIndices;
+      kornSelectedClasses = new Set([klasse]);
+    }
     kornSyncHiddenInputs();
 
     document.getElementById('korn_imported_flag').value = '1';
-    document.getElementById('korn_klasse_field').value  = klasse;
-    document.getElementById('klasse').value             = klasse;
+    document.getElementById('kornModalMergeBtn').classList.remove('d-none');
+    const combinedLabel = kornCombinedClassLabel();
+    document.getElementById('korn_klasse_field').value  = combinedLabel;
+    document.getElementById('klasse').value             = combinedLabel;
 
     setText('kornSelectionInfo',
-      kornSelectedIndices.size + ' Schüler aus Klasse "' + klasse + '" werden übernommen.'
+      kornSelectedIndices.size + ' Schüler aus "' + combinedLabel + '" werden übernommen.'
     );
     show('kornSelectionInfo');
 
     const modalEl = document.getElementById('kornStudentModal');
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     modal.hide();
-  });
+  }
+
+  document.getElementById('kornModalApplyBtn').addEventListener('click', () => kornApplySelection(false));
+  document.getElementById('kornModalMergeBtn').addEventListener('click', () => kornApplySelection(true));
 
 }());
 </script>
