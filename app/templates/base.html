@@ -113,6 +113,22 @@
     </div>
   </div>
 </nav>
+{% if current_user.is_authenticated and open_classes %}
+<nav class="navbar navbar-expand navbar-dark py-1" style="background-color:#16395c;">
+  <div class="container-fluid">
+    <ul class="nav flex-nowrap overflow-auto">
+      {% for c in open_classes %}
+      <li class="nav-item">
+        <a class="nav-link px-3 py-1 rounded-top {% if c.idx == active_class_idx %}active bg-white text-dark fw-semibold{% else %}text-white-50{% endif %}"
+           href="{{ url_for('grades.switch_class', idx=c.idx) }}">
+          {{ c.klasse }}{% if c.fach %} – {{ c.fach }}{% endif %}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</nav>
+{% endif %}
 {% if current_user.is_authenticated %}
 <div class="sidebar-backdrop d-xl-none" id="sidebarBackdrop"></div>
 {% endif %}
@@ -150,21 +166,19 @@
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus', 'klasse') == 'klasse' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='klasse') }}"
-             onclick="return confirm('Neue Klasse erstellen? Nicht gespeicherte Änderungen gehen verloren. Wenn du vorher einen Excel-Export machen willst: jetzt Abbrechen drücken, exportieren und danach erneut klicken. Mit OK geht es direkt weiter.')">
+          <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus', 'klasse') == 'klasse' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='klasse') }}">
             <i class="bi bi-people"></i> Neue Klasse
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus') == 'kurs' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='kurs') }}"
-             onclick="return confirm('Neuen Kurs erstellen? Nicht gespeicherte Änderungen gehen verloren. Wenn du vorher einen Excel-Export machen willst: jetzt Abbrechen drücken, exportieren und danach erneut klicken. Mit OK geht es direkt weiter.')">
+          <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus') == 'kurs' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='kurs') }}">
             <i class="bi bi-mortarboard"></i> Neuer Kurs (Oberstufe)
           </a>
         </li>
-        {% if session.get('gradebook') %}
+        {% if open_classes %}
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('grades.close_file') }}"
-             onclick="return confirm('Datei schließen? Alle nicht exportierten Daten gehen verloren.')">
+             onclick="return confirm('Alle offenen Klassen schließen? Alle nicht exportierten Daten gehen verloren.')">
             <i class="bi bi-x-circle"></i> Datei schließen
           </a>
         </li>
@@ -264,7 +278,7 @@
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.export_excel' %}active{% endif %}"
              href="{{ url_for('grades.export_excel') }}">
-            <i class="bi bi-file-earmark-excel"></i> Excel exportieren
+            <i class="bi bi-file-earmark-excel"></i> Exportieren
           </a>
         </li>
         <hr class="my-2">

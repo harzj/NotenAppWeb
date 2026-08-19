@@ -71,8 +71,11 @@ def create_app(config_name: str | None = None) -> Flask:
     # Context processors
     @app.context_processor
     def inject_meta():
-        from flask import session as _sess
-        gb = _sess.get("gradebook")
+        from app.grades.routes import _get_gradebooks, _get_active_index
+
+        books = _get_gradebooks()
+        idx = _get_active_index()
+        gb = books[idx] if books else None
         current_modus = gb.get("modus", "klasse") if gb else "klasse"
         kurs_typ = gb.get("kurs_typ", "") if gb else ""
         kurs_stunden = gb.get("kurs_stunden", "") if gb else ""
@@ -87,6 +90,15 @@ def create_app(config_name: str | None = None) -> Flask:
                 if ln.get("ln_typ") == "ABT" and not ln.get("nachtermin_von"):
                     abt_ln_idx = i
                     break
+        open_classes = [
+            {
+                "idx": i,
+                "klasse": b.get("klasse", "") or "(ohne Namen)",
+                "fach": b.get("fach", ""),
+                "modus": b.get("modus", "klasse"),
+            }
+            for i, b in enumerate(books)
+        ]
         return {
             "app_version": app.config["APP_VERSION"],
             "current_klasse": gb.get("klasse", "") if gb else "",
@@ -97,6 +109,8 @@ def create_app(config_name: str | None = None) -> Flask:
                 gb.get("schuljahr", "") if gb else "",
                 gb.get("schuljahr_bis", "") if gb else "",
             ),
+            "open_classes": open_classes,
+            "active_class_idx": idx,
         }
 
     # Create DB tables

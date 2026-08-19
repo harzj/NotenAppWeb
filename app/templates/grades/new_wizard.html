@@ -45,13 +45,14 @@
   {# ────────────────────────────────────────────────────────────────── #}
   <div class="card wizard-card shadow-sm">
     <div class="card-header d-flex align-items-center gap-2" role="button"
-         data-bs-toggle="collapse" data-bs-target="#kornCollapse" aria-expanded="false" aria-controls="kornCollapse">
+         data-bs-toggle="collapse" data-bs-target="#kornCollapse"
+         aria-expanded="{{ 'true' if korn_classes else 'false' }}" aria-controls="kornCollapse">
       <span class="step-badge bg-success text-white">1</span>
       <span class="fw-semibold">Klasse aus Korn2 importieren</span>
       <span class="badge bg-secondary ms-1">optional</span>
       <i class="bi bi-chevron-down ms-auto"></i>
     </div>
-    <div class="collapse" id="kornCollapse">
+    <div class="collapse {{ 'show' if korn_classes else '' }}" id="kornCollapse">
     <div class="card-body">
       <p class="text-muted small mb-3">
         Wähle einen Korn2-CSV-Export (oder ein passwortgeschütztes Zip-Archiv mit der CSV-Datei) aus.
@@ -84,9 +85,32 @@
 
       <div id="kornError" class="alert alert-danger d-none py-2 mt-2 mb-0"></div>
 
-      <div id="kornResults" class="d-none mt-3">
-        <div id="kornSummary" class="mb-2"></div>
-        <div id="kornClassList"></div>
+      <div id="kornResults" class="{{ '' if korn_classes else 'd-none' }} mt-3">
+        <div id="kornSummary" class="mb-2">
+          {% if korn_classes %}
+          <div class="alert alert-success py-2 mb-0">
+            <i class="bi bi-check-circle me-1"></i>
+            <strong>{{ korn_classes|length }}</strong> Klasse(n) aus vorherigem Korn2-Import verfügbar.
+          </div>
+          {% endif %}
+        </div>
+        <div id="kornClassList">
+          {% if korn_classes %}
+          <div class="table-responsive"><table class="table table-sm table-bordered mb-0">
+            <thead class="table-light"><tr><th>Klasse</th><th>Anzahl Schüler</th><th></th></tr></thead>
+            <tbody>
+              {% for c in korn_classes %}
+              <tr>
+                <td>{{ c.klasse }}</td>
+                <td>{{ c.count }}</td>
+                <td><button type="button" class="btn btn-sm btn-outline-success korn-select-btn" data-klasse="{{ c.klasse }}">
+                  Klasse auswählen</button></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table></div>
+          {% endif %}
+        </div>
         <div id="kornSelectionInfo" class="alert alert-success d-none py-2 mt-2 mb-0"></div>
         <button type="button" id="kornClearBtn" class="btn btn-sm btn-outline-secondary mt-2">
           <i class="bi bi-x-circle me-1"></i>Import löschen
@@ -626,13 +650,16 @@
         html += '</tbody></table></div>';
         setHtml('kornClassList', html);
 
-        for (const btn of document.querySelectorAll('.korn-select-btn')) {
-          btn.addEventListener('click', () => kornOpenClassModal(btn.dataset.klasse));
-        }
-
         show('kornResults');
       }
     );
+  });
+
+  // Handle clicks on "Klasse auswählen" whether the row was rendered by the
+  // server (already-known Korn2 import) or inserted after an AJAX probe.
+  document.getElementById('kornClassList').addEventListener('click', (e) => {
+    const btn = e.target.closest('.korn-select-btn');
+    if (btn) kornOpenClassModal(btn.dataset.klasse);
   });
 
   document.getElementById('kornClearBtn').addEventListener('click', () => {
@@ -643,10 +670,15 @@
     kornSelectedIndices = new Set();
     kornActiveKlasse = '';
     kornSyncHiddenInputs();
+    setHtml('kornSummary', '');
     setHtml('kornClassList', '');
     hide('kornResults');
     hide('kornError');
     hide('kornSelectionInfo');
+
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fetch({{ url_for('grades.wizard_korn_clear') | tojson }}, { method: 'POST', body: fd });
   });
 
   function kornOpenClassModal(klasse) {
