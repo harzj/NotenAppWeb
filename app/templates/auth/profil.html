@@ -41,4 +41,24 @@
     </div>
   </div>
 </div>
+<script>
+  // Zeigt die Dienstbezeichnung passend zur gerade gewählten Anrede an (Wert/Rang bleibt gleich).
+  const DIENSTBEZEICHNUNG_LABELS = {{ dienstbezeichnung_labels | tojson }};
+  (function () {
+    const anredeEl = document.getElementById("anrede");
+    const dbEl = document.getElementById("dienstbezeichnung");
+    if (!anredeEl || !dbEl) return;
+
+    function applyGenderLabels() {
+      const gender = anredeEl.value === "Frau" ? "w" : "m";
+      Array.from(dbEl.options).forEach(function (opt) {
+        const labels = DIENSTBEZEICHNUNG_LABELS[opt.value];
+        if (labels) opt.textContent = labels[gender];
+      });
+    }
+
+    anredeEl.addEventListener("change", applyGenderLabels);
+    applyGenderLabels();
+  })();
+</script>
 {% endblock %}

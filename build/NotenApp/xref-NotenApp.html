@@ -153,6 +153,7 @@ imports:
  &#8226;   <a href="#_weakrefset">_weakrefset</a>
  &#8226;   <a href="#abc">abc</a>
  &#8226;   <a href="#app">app</a>
+ &#8226;   <a href="#app._build_profile">app._build_profile</a>
  &#8226;   <a href="#app.versioning">app.versioning</a>
  &#8226;   <a href="#cachelib">cachelib</a>
  &#8226;   <a href="#cachelib.file">cachelib.file</a>
@@ -641,7 +642,7 @@ imported by:
   <a target="code" href="" type="text/plain"><tt>'org.python'</tt></a>
 <span class="moduletype">MissingModule</span>  <div class="import">
 imported by:
-    <a href="#copy">copy</a>
+    <a href="#pickle">pickle</a>
  &#8226;   <a href="#xml.sax">xml.sax</a>
 
   </div>
@@ -5607,12 +5608,14 @@ imports:
  &#8226;   <a href="#flask">flask</a>
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#werkzeug.debug">werkzeug.debug</a>
  &#8226;   <a href="#werkzeug.middleware.proxy_fix">werkzeug.middleware.proxy_fix</a>
 
   </div>
   <div class="import">
 imported by:
-    <a href="#app._build_version">app._build_version</a>
+    <a href="#app._build_profile">app._build_profile</a>
+ &#8226;   <a href="#app._build_version">app._build_version</a>
  &#8226;   <a href="#app.auth">app.auth</a>
  &#8226;   <a href="#app.config">app.config</a>
  &#8226;   <a href="#app.excel">app.excel</a>
@@ -5622,6 +5625,22 @@ imported by:
  &#8226;   <a href="#app.pdf">app.pdf</a>
  &#8226;   <a href="#app.versioning">app.versioning</a>
  &#8226;   <a href="#tray.py">tray.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="app._build_profile"></a>
+  <a target="code" href="///D:/git/WebNoten/NotenAppWeb/app/_build_profile.py" type="text/plain"><tt>app._build_profile</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#app">app</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tray.py">tray.py</a>
 
   </div>
 
@@ -5800,6 +5819,7 @@ imports:
     <a href="#__future__">__future__</a>
  &#8226;   <a href="#app.excel">app.excel</a>
  &#8226;   <a href="#app.excel.schema">app.excel.schema</a>
+ &#8226;   <a href="#csv">csv</a>
  &#8226;   <a href="#datetime">datetime</a>
  &#8226;   <a href="#io">io</a>
  &#8226;   <a href="#msoffcrypto">msoffcrypto</a>
@@ -5808,6 +5828,7 @@ imports:
  &#8226;   <a href="#openpyxl.worksheet.worksheet">openpyxl.worksheet.worksheet</a>
  &#8226;   <a href="#re">re</a>
  &#8226;   <a href="#typing">typing</a>
+ &#8226;   <a href="#zipfile">zipfile</a>
 
   </div>
   <div class="import">
@@ -5961,6 +5982,7 @@ imports:
  &#8226;   <a href="#flask_wtf.file">flask_wtf.file</a>
  &#8226;   <a href="#wtforms">wtforms</a>
  &#8226;   <a href="#wtforms.validators">wtforms.validators</a>
+ &#8226;   <a href="#wtforms.widgets">wtforms.widgets</a>
 
   </div>
   <div class="import">
@@ -6020,6 +6042,7 @@ imports:
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#random">random</a>
  &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#zipfile">zipfile</a>
 
   </div>
   <div class="import">
@@ -11380,8 +11403,8 @@ imported by:
   <a target="code" href="///C:/Program%20Files/WindowsApps/PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0/lib/copy.py" type="text/plain"><tt>copy</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
-    <a href="#'org.python'">'org.python'</a>
- &#8226;   <a href="#copyreg">copyreg</a>
+    <a href="#copyreg">copyreg</a>
+ &#8226;   <a href="#org">org</a>
  &#8226;   <a href="#types">types</a>
  &#8226;   <a href="#weakref">weakref</a>
 
@@ -13386,7 +13409,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#app.grades.moodle">app.grades.moodle</a>
+    <a href="#app.excel.reader">app.excel.reader</a>
+ &#8226;   <a href="#app.grades.moodle">app.grades.moodle</a>
  &#8226;   <a href="#importlib.metadata">importlib.metadata</a>
  &#8226;   <a href="#setuptools._vendor.importlib_metadata">setuptools._vendor.importlib_metadata</a>
 
@@ -43493,7 +43517,7 @@ imported by:
   <a target="code" href="" type="text/plain"><tt>org</tt></a>
 <span class="moduletype">MissingModule</span>  <div class="import">
 imported by:
-    <a href="#pickle">pickle</a>
+    <a href="#copy">copy</a>
 
   </div>
 
@@ -45238,14 +45262,14 @@ imported by:
   <a target="code" href="///C:/Program%20Files/WindowsApps/PythonSoftwareFoundation.Python.3.10_3.10.3056.0_x64__qbz5n2kfra8p0/lib/pickle.py" type="text/plain"><tt>pickle</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
-    <a href="#_compat_pickle">_compat_pickle</a>
+    <a href="#'org.python'">'org.python'</a>
+ &#8226;   <a href="#_compat_pickle">_compat_pickle</a>
  &#8226;   <a href="#_pickle">_pickle</a>
  &#8226;   <a href="#codecs">codecs</a>
  &#8226;   <a href="#copyreg">copyreg</a>
  &#8226;   <a href="#functools">functools</a>
  &#8226;   <a href="#io">io</a>
  &#8226;   <a href="#itertools">itertools</a>
- &#8226;   <a href="#org">org</a>
  &#8226;   <a href="#pprint">pprint</a>
  &#8226;   <a href="#re">re</a>
  &#8226;   <a href="#struct">struct</a>
@@ -76218,7 +76242,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#werkzeug.debug.console">werkzeug.debug.console</a>
+    <a href="#app">app</a>
+ &#8226;   <a href="#werkzeug.debug.console">werkzeug.debug.console</a>
  &#8226;   <a href="#werkzeug.debug.repr">werkzeug.debug.repr</a>
  &#8226;   <a href="#werkzeug.debug.tbtools">werkzeug.debug.tbtools</a>
  &#8226;   <a href="#werkzeug.serving">werkzeug.serving</a>
@@ -77918,7 +77943,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#flask_wtf.form">flask_wtf.form</a>
+    <a href="#app.grades.forms">app.grades.forms</a>
+ &#8226;   <a href="#flask_wtf.form">flask_wtf.form</a>
  &#8226;   <a href="#wtforms">wtforms</a>
  &#8226;   <a href="#wtforms.fields.choices">wtforms.fields.choices</a>
  &#8226;   <a href="#wtforms.fields.core">wtforms.fields.core</a>
@@ -79664,7 +79690,9 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#distutils.archive_util">distutils.archive_util</a>
+    <a href="#app.excel.reader">app.excel.reader</a>
+ &#8226;   <a href="#app.grades.routes">app.grades.routes</a>
+ &#8226;   <a href="#distutils.archive_util">distutils.archive_util</a>
  &#8226;   <a href="#importlib.metadata">importlib.metadata</a>
  &#8226;   <a href="#importlib.readers">importlib.readers</a>
  &#8226;   <a href="#jinja2.environment">jinja2.environment</a>

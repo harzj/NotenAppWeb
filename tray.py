@@ -20,6 +20,12 @@ import pystray
 from PIL import Image, ImageDraw
 from app.versioning import format_version, load_version_data
 
+try:
+    # Von build.py vor dem Bauen der Notfall-exe auf True gesetzt.
+    from app._build_profile import EMERGENCY_MODE
+except ImportError:
+    EMERGENCY_MODE = False
+
 
 def _env_bool(name: str, default: bool) -> bool:
     val = os.environ.get(name)
@@ -124,24 +130,37 @@ def _run_flask():
     flask_app.run(host=APP_HOST, port=APP_PORT, use_reloader=False, threaded=True)
 
 
+def _pump_ngrok_output(proc):
+    """Leitet ngrok-Fehlermeldungen (z.B. fehlender Authtoken) in die Tray-Konsole um."""
+    try:
+        for line in proc.stdout:
+            print(f"[ngrok] {line.rstrip()}")
+    except Exception:
+        pass
+
+
 def _run_ngrok():
     """ngrok-Tunnel starten."""
     global _ngrok_proc
     popen_kwargs = {
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "text": True,
+        "bufsize": 1,
     }
     if os.name == "nt":
         popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
     cmd_with_domain = [NGROK_EXE, "http", f"--domain={NGROK_DOMAIN}", str(APP_PORT)]
     _ngrok_proc = subprocess.Popen(cmd_with_domain, **popen_kwargs)
+    threading.Thread(target=_pump_ngrok_output, args=(_ngrok_proc,), daemon=True).start()
 
     # If the reserved domain fails quickly, fall back to a random ngrok URL.
     time.sleep(1.2)
     if _ngrok_proc.poll() is not None:
         print("[WARN] ngrok mit fester Domain konnte nicht gestartet werden. Wechsle auf dynamische URL.")
         _ngrok_proc = subprocess.Popen([NGROK_EXE, "http", str(APP_PORT)], **popen_kwargs)
+        threading.Thread(target=_pump_ngrok_output, args=(_ngrok_proc,), daemon=True).start()
 
 
 def _get_ngrok_public_url() -> str | None:
@@ -234,15 +253,15 @@ def _quit(icon, item):
 
 
 def main():
-    # Im frozen-Modus (Distribution) nur lokaler Betrieb, kein ngrok
+    # Im frozen-Modus (Distribution) nur ngrok starten, wenn als Notfall-Build markiert
     is_frozen = getattr(sys, "frozen", False)
+    ngrok_allowed = NGROK_ENABLED and (not is_frozen or EMERGENCY_MODE)
 
     # Flask starten
     t = threading.Thread(target=_run_flask, daemon=True)
     t.start()
 
-    if not is_frozen and NGROK_ENABLED:
-        # ngrok nur im Entwicklungsmodus starten
+    if ngrok_allowed:
         threading.Thread(target=_run_ngrok, daemon=True).start()
 
     # Kurz warten, dann Browser öffnen
@@ -254,7 +273,7 @@ def main():
     threading.Thread(target=_delayed_open, daemon=True).start()
 
     # Tray-Icon erstellen
-    if is_frozen:
+    if is_frozen and not ngrok_allowed:
         menu = pystray.Menu(
             pystray.MenuItem("Im Browser öffnen", _open_local, default=True),
             pystray.MenuItem("Konsole anzeigen", _show_console),
@@ -263,7 +282,7 @@ def main():
         )
         title = f"NotenApp {APP_VERSION} – localhost:{APP_PORT}"
     else:
-        if NGROK_ENABLED:
+        if ngrok_allowed:
             menu = pystray.Menu(
                 pystray.MenuItem("Im Browser öffnen (ngrok)", _open_browser, default=True),
                 pystray.MenuItem("Lokal öffnen (localhost)", _open_local),

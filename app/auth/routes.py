@@ -3,7 +3,10 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_user, logout_user, login_required, current_user
 from app.extensions import db, limiter
 from app.models import User
-from app.auth.forms import LoginForm, RegistrationForm, ChangePasswordForm, LehrerProfilForm
+from app.auth.forms import (
+    LoginForm, RegistrationForm, ChangePasswordForm, LehrerProfilForm,
+    dienstbezeichnung_choices, LEGACY_DIENSTBEZEICHNUNG_MAP, DIENSTBEZEICHNUNG_RANGE,
+)
 
 auth_bp = Blueprint("auth", __name__, template_folder="../templates/auth")
 
@@ -96,12 +99,18 @@ def change_password():
 @auth_bp.route("/profil", methods=["GET", "POST"])
 @login_required
 def profil():
+    # Bestandsdaten können noch die alten, ausgeschriebenen Werte enthalten
+    stored_dienstbezeichnung = LEGACY_DIENSTBEZEICHNUNG_MAP.get(
+        current_user.dienstbezeichnung or "", current_user.dienstbezeichnung or ""
+    )
     form = LehrerProfilForm(
         lehrer_vorname=current_user.lehrer_vorname or "",
         lehrer_nachname=current_user.lehrer_nachname or "",
-        dienstbezeichnung=current_user.dienstbezeichnung or "",
+        dienstbezeichnung=stored_dienstbezeichnung,
         anrede=current_user.anrede or "keine",
     )
+    # Auswahlliste hängt von der (bei POST bereits abgesendeten) Anrede ab
+    form.dienstbezeichnung.choices = dienstbezeichnung_choices(form.anrede.data)
     if form.validate_on_submit():
         current_user.lehrer_vorname = form.lehrer_vorname.data.strip() or None
         current_user.lehrer_nachname = form.lehrer_nachname.data.strip() or None
@@ -110,7 +119,13 @@ def profil():
         db.session.commit()
         flash("Profil gespeichert.", "success")
         return redirect(url_for("auth.profil"))
-    return render_template("auth/profil.html", form=form)
+    dienstbezeichnung_labels = {
+        key: {"m": label_m, "w": label_w} for key, label_m, label_w in DIENSTBEZEICHNUNG_RANGE
+    }
+    dienstbezeichnung_labels[""] = {"m": "– keine –", "w": "– keine –"}
+    return render_template(
+        "auth/profil.html", form=form, dienstbezeichnung_labels=dienstbezeichnung_labels
+    )
 
 
 # ── Admin area ──────────────────────────────────────────────────────────────

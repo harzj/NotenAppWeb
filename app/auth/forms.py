@@ -49,15 +49,36 @@ class ChangePasswordForm(FlaskForm):
     submit = SubmitField("Passwort ändern")
 
 
-DIENSTBEZEICHNUNGEN = [
-    ("", "– keine –"),
-    ("ADL", "ADL"),
-    ("Studienreferendar/in", "Studienreferendar/in"),
-    ("Studienrat/rätin", "Studienrat/rätin"),
-    ("Oberstudienrat/rätin", "Oberstudienrat/rätin"),
-    ("Studiendirektor/in", "Studiendirektor/in"),
-    ("Oberstudiendirektor/in", "Oberstudiendirektor/in"),
+# Ränge unabhängig vom Geschlecht als (Key, männliche Abkürzung, weibliche Abkürzung).
+# AdL hat keine eigene weibliche Abkürzung, daher identisch in beiden Spalten.
+DIENSTBEZEICHNUNG_RANGE = [
+    ("adl", "AdL", "AdL"),
+    ("stref", "StRef", "StRef'in"),
+    ("str", "StR", "StR'in"),
+    ("ostr", "OStR", "OStR'in"),
+    ("std", "StD", "StD'in"),
+    ("ostd", "OStD", "OStD'in"),
 ]
+
+# Bildet frühere, ausgeschriebene Werte auf die neuen Kurz-Keys ab (Bestandsdaten).
+LEGACY_DIENSTBEZEICHNUNG_MAP = {
+    "ADL": "adl",
+    "Studienreferendar/in": "stref",
+    "Studienrat/rätin": "str",
+    "Oberstudienrat/rätin": "ostr",
+    "Studiendirektor/in": "std",
+    "Oberstudiendirektor/in": "ostd",
+}
+
+
+def dienstbezeichnung_choices(anrede: str) -> list[tuple[str, str]]:
+    """Baut die Auswahlliste mit der zur Anrede passenden Abkürzung."""
+    is_female = anrede == "Frau"
+    choices = [("", "– keine –")]
+    for key, label_m, label_w in DIENSTBEZEICHNUNG_RANGE:
+        choices.append((key, label_w if is_female else label_m))
+    return choices
+
 
 ANREDEN = [
     ("keine", "keine"),
@@ -71,7 +92,7 @@ class LehrerProfilForm(FlaskForm):
     lehrer_nachname = StringField("Nachname", validators=[Optional(), Length(max=64)])
     dienstbezeichnung = SelectField(
         "Dienstbezeichnung",
-        choices=DIENSTBEZEICHNUNGEN,
+        choices=dienstbezeichnung_choices("keine"),  # wird pro Request in routes.py neu gesetzt
         validators=[Optional()],
     )
     anrede = SelectField(

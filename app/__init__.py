@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -23,14 +24,24 @@ def create_app(config_name: str | None = None) -> Flask:
     if config_name is None:
         config_name = os.environ.get("FLASK_ENV", "default")
 
-    # When frozen by PyInstaller, templates/static are bundled in _MEIPASS.
+    # When frozen by PyInstaller, templates are bundled in _MEIPASS (read-only).
     if getattr(sys, "frozen", False):
         root_path = sys._MEIPASS  # noqa: SLF001
+        # Static files live next to the .exe (not in _MEIPASS) so users can replace
+        # assets like logo.png without rebuilding; seed it from the bundled defaults once.
+        static_folder = os.path.join(os.path.dirname(sys.executable), "static")
+        bundled_static = os.path.join(root_path, "static")
+        if not os.path.isdir(static_folder) and os.path.isdir(bundled_static):
+            shutil.copytree(bundled_static, static_folder)
     else:
         root_path = None  # default: package directory
+        static_folder = None  # default: app/static
 
-    app = Flask(__name__, instance_relative_config=False,
-                **{"root_path": root_path} if root_path else {})
+    app = Flask(
+        __name__, instance_relative_config=False,
+        **({"root_path": root_path} if root_path else {}),
+        **({"static_folder": static_folder} if static_folder else {}),
+    )
     app.config.from_object(config_by_name[config_name])
 
     if app.config.get("TRUST_PROXY"):

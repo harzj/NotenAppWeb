@@ -2,5 +2,5 @@ VERSION = {
     "major": 1,
     "minor": 1,
     "patch": 0,
-    "build": 0
+    "build": 1
 }

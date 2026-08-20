@@ -18,6 +18,9 @@ a = Analysis(
         # Templates ins Bundle – Zielpfad 'templates/' damit Flask mit root_path=_MEIPASS
         # über den Default template_folder='templates' findet.
         (str(ROOT / 'app' / 'templates'), 'templates'),
+        # Static-Dateien (z.B. logo.png) als Default; werden beim ersten Start
+        # in einen externen static/-Ordner neben der .exe kopiert (siehe app/__init__.py).
+        (str(ROOT / 'app' / 'static'), 'static'),
     ],
     hiddenimports=[
         # Flask und Extensions
