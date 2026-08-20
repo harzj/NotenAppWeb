@@ -22,6 +22,8 @@ VERSION_FILE = ROOT / "version.json"
 DIST_DIR = ROOT / "dist"
 SPEC_FILE = ROOT / "NotenApp.spec"
 BUILD_VERSION_MODULE = ROOT / "app" / "_build_version.py"
+BUILD_PROFILE_MODULE = ROOT / "app" / "_build_profile.py"
+NGROK_EXE_SOURCE = ROOT / "ngrok.exe"
 
 RELEASE_TYPES = {
     "1": "major-update",
@@ -53,6 +55,17 @@ def _write_build_version_module(v: dict) -> None:
         f.write("\n".join(lines))
 
 
+def _write_build_profile_module(emergency_mode: bool) -> None:
+    with open(BUILD_PROFILE_MODULE, "w", encoding="utf-8") as f:
+        f.write(f"EMERGENCY_MODE = {emergency_mode}\n")
+
+
+def _prompt_emergency_mode() -> bool:
+    print("\nSoll dies ein Notfall-Build sein (Tray + ngrok auch in der .exe aktiv)?")
+    answer = input("Notfall-Build [j/N]: ").strip().lower()
+    return answer in {"j", "ja", "y", "yes"}
+
+
 def _version_str(v: dict) -> str:
     return format_version(v)
 
@@ -79,6 +92,7 @@ def main() -> None:
     next_version_data = bump_version(current_version_data, release_type)
     version = _version_str(next_version_data)
     print(f"Neue Version: {version}")
+    emergency_mode = _prompt_emergency_mode()
 
     # Ausgabeverzeichnis nach Versionsnummer
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -90,6 +104,7 @@ def main() -> None:
     # PyInstaller aufrufen
     _write_version(next_version_data)
     _write_build_version_module(next_version_data)
+    _write_build_profile_module(emergency_mode)
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--clean",
@@ -102,6 +117,7 @@ def main() -> None:
     if result.returncode != 0:
         _write_version(current_version_data)
         _write_build_version_module(current_version_data)
+        _write_build_profile_module(False)
         print("FEHLER: PyInstaller fehlgeschlagen.")
         sys.exit(1)
 
@@ -110,15 +126,23 @@ def main() -> None:
         print("FEHLER: NotenApp.exe wurde nicht gefunden.")
         sys.exit(1)
 
+    # Notfall-Build: ngrok.exe mit ausliefern, da tray.py sie neben der .exe erwartet
+    if emergency_mode and NGROK_EXE_SOURCE.exists():
+        shutil.copy2(NGROK_EXE_SOURCE, out_dir / "ngrok.exe")
+
     # build_info.json ablegen
     build_info = {
         "version": version,
         "release_type": release_type,
+        "emergency_mode": emergency_mode,
         "timestamp": timestamp,
         "python": sys.version,
     }
     with open(out_dir / "build_info.json", "w", encoding="utf-8") as f:
         json.dump(build_info, f, indent=2)
+
+    # Repo-Default zurücksetzen: die .exe hat das Flag bereits eingebettet, Quelltext bleibt sicher/aus
+    _write_build_profile_module(False)
 
     # "latest"-Symlink / Kopie aktualisieren
     latest = DIST_DIR / "NotenApp_latest.exe"
