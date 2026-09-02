@@ -94,9 +94,10 @@ def main() -> None:
     print(f"Neue Version: {version}")
     emergency_mode = _prompt_emergency_mode()
 
-    # Ausgabeverzeichnis nach Versionsnummer
+    # Der Ordnername macht die vorgesehene Betriebsart der .exe sichtbar.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = DIST_DIR / f"NotenApp_v{version}"
+    build_kind = "Notfall" if emergency_mode else "Lokal"
+    out_dir = DIST_DIR / f"NotenApp_{build_kind}_v{version}"
     if out_dir.exists():
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
