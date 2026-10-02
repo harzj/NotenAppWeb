@@ -20,32 +20,6 @@ def _display_schuljahr(schuljahr: str | None, schuljahr_bis: str | None = None) 
     return schuljahr
 
 
-def _datum_kurz(value: str | None) -> str:
-    """'2025-05-25' → '25.05.25'; anything else is returned unchanged."""
-    value = (value or "").strip()
-    parts = value.split("-")
-    if len(parts) == 3 and all(p.isdigit() for p in parts) and len(parts[0]) == 4:
-        return f"{parts[2]}.{parts[1]}.{parts[0][2:]}"
-    return value
-
-
-def _sync_static(src: str, dst: str) -> None:
-    """Copy bundled static files next to the .exe.
-
-    Code assets (js/, vendor/) are always refreshed so an update brings its scripts
-    along; everything else (e.g. a replaced logo.png) is only copied if missing.
-    """
-    for dirpath, _dirs, files in os.walk(src):
-        rel = os.path.relpath(dirpath, src)
-        always = rel.split(os.sep)[0] in ("js", "vendor")
-        target_dir = os.path.join(dst, rel) if rel != "." else dst
-        os.makedirs(target_dir, exist_ok=True)
-        for name in files:
-            target = os.path.join(target_dir, name)
-            if always or not os.path.exists(target):
-                shutil.copy2(os.path.join(dirpath, name), target)
-
-
 def create_app(config_name: str | None = None) -> Flask:
     if config_name is None:
         config_name = os.environ.get("FLASK_ENV", "default")
@@ -57,8 +31,8 @@ def create_app(config_name: str | None = None) -> Flask:
         # assets like logo.png without rebuilding; seed it from the bundled defaults once.
         static_folder = os.path.join(os.path.dirname(sys.executable), "static")
         bundled_static = os.path.join(root_path, "static")
-        if os.path.isdir(bundled_static):
-            _sync_static(bundled_static, static_folder)
+        if not os.path.isdir(static_folder) and os.path.isdir(bundled_static):
+            shutil.copytree(bundled_static, static_folder)
     else:
         root_path = None  # default: package directory
         static_folder = None  # default: app/static
@@ -110,7 +84,6 @@ def create_app(config_name: str | None = None) -> Flask:
     # Custom Jinja filters
     app.jinja_env.filters["enumerate"] = enumerate
     app.jinja_env.filters["schuljahr_display"] = _display_schuljahr
-    app.jinja_env.filters["datum_kurz"] = _datum_kurz
     app.jinja_env.globals["schuljahr_display"] = _display_schuljahr
 
     # Context processors
