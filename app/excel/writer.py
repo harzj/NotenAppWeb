@@ -130,6 +130,10 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
         (S.LN_META_NT_VAL,    None, ln.get("nachtermin_von") or ""),
         (S.LN_META_RUNDEN_COL, S.LN_META_RUNDEN_LABEL, None),
         (S.LN_META_RUNDEN_VAL, None, "1" if ln.get("noten_runden", True) else "0"),
+        (S.LN_META_THEMA_COL, S.LN_META_THEMA_LABEL, None),
+        (S.LN_META_THEMA_VAL, None, ln.get("thema") or ""),
+        (S.LN_META_DATUM_COL, S.LN_META_DATUM_LABEL, None),
+        (S.LN_META_DATUM_VAL, None, ln.get("datum") or ""),
     ]:
         c = ws.cell(S.LN_ROW_META, col)
         c.value = label if label is not None else val
@@ -141,6 +145,8 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
     ws.cell(S.LN_ROW_META, S.LN_META_SL_VAL).value  = ln.get("sl_zuordnung") or ""
     ws.cell(S.LN_ROW_META, S.LN_META_NT_VAL).value  = ln.get("nachtermin_von") or ""
     ws.cell(S.LN_ROW_META, S.LN_META_RUNDEN_VAL).value = "1" if ln.get("noten_runden", True) else "0"
+    ws.cell(S.LN_ROW_META, S.LN_META_THEMA_VAL).value = ln.get("thema") or ""
+    ws.cell(S.LN_ROW_META, S.LN_META_DATUM_VAL).value = ln.get("datum") or ""
 
     # ── Row 2: headers ──
     ws.cell(S.LN_ROW_HEADER, S.LN_COL_NAME, S.LN_HEADER_NAME)
@@ -200,6 +206,11 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
             ws.cell(row, col_note15,
                 _note15_formula(gesamt_letter, row_letter,
                                 gesamt_letter, str(S.LN_ROW_MAX), nt_sheet))
+            ws.cell(row, col_note6,
+                _note6_formula(get_column_letter(col_note15), row_letter))
+        elif s.get("note_15") is not None:
+            # No tasks (e.g. mündliche Teilnote): the note itself is the data
+            ws.cell(row, col_note15, int(s["note_15"]))
             ws.cell(row, col_note6,
                 _note6_formula(get_column_letter(col_note15), row_letter))
 
@@ -441,14 +452,28 @@ def _write_einstellungen(wb: Workbook, data: dict) -> None:
     """Write sl_gewichtung and Kurs settings as key-value pairs to a hidden sheet."""
     ws = wb.create_sheet(S.SHEET_EINSTELLUNGEN)
     ws.sheet_state = "hidden"
-    _write_header_row(ws, S.ES_HEADER_ROW, ["Einstellung", "Wert"])
+    _write_header_row(ws, S.ES_HEADER_ROW, ["Einstellung", "Wert", "Bedeutung"])
     gw = data.get("sl_gewichtung") or {}
     kgw = data.get("kurs_gewichtung") or {}
     row = S.ES_DATA_START
     for key in S.ES_GEWICHTUNG_KEYS:
         ws.cell(row, S.ES_COL_KEY,   key)
         ws.cell(row, S.ES_COL_VALUE, gw.get(key))
+        if key in S.ES_GEWICHTUNG_INFO:
+            ws.cell(row, S.ES_COL_INFO, S.ES_GEWICHTUNG_INFO[key])
         row += 1
+    # Per-LN weights (KLN/MDL within an SL, GLN within an HJ)
+    ln_names = {ln["sheet_name"]: ln.get("name", ln["sheet_name"])
+                for ln in data.get("leistungsnachweise", [])}
+    for typ, store in S.ES_LN_WEIGHT_STORES.items():
+        for slot, weights in sorted((data.get(store) or {}).items()):
+            for sheet, w in sorted((weights or {}).items()):
+                if sheet not in ln_names or w is None:
+                    continue
+                ws.cell(row, S.ES_COL_KEY,   f"{S.ES_LN_WEIGHT_PREFIX}|{typ}|{slot}|{sheet}")
+                ws.cell(row, S.ES_COL_VALUE, float(w))
+                ws.cell(row, S.ES_COL_INFO,  f"Gewicht {typ} \"{ln_names[sheet]}\" in {slot}")
+                row += 1
     # Kurs-specific settings
     kurs_vals = {
         "modus":       data.get("modus", "klasse"),

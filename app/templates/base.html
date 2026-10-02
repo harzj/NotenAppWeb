@@ -7,6 +7,7 @@
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/driver.css') }}">
   <style>
     body { background-color: #f8f9fa; }
     .navbar-brand { font-weight: 700; letter-spacing: .5px; }
@@ -23,6 +24,9 @@
     .table th { background-color: #1f4e79; color: #fff; }
     .table-striped > tbody > tr:nth-of-type(odd) > * { background-color: rgba(31,78,121,.04); }
     .app-version { position: fixed; left: 1rem; bottom: .75rem; font-size: .8rem; color: #6c757d; z-index: 1030; }
+    .driver-popover { max-width: 360px; }
+    .driver-popover-title { font-size: 1.05rem; }
+    .driver-popover-description { font-size: .92rem; }
 
     @media (max-width: 1199.98px) {
       .sidebar {
@@ -89,8 +93,19 @@
             </a>
           </li>
           {% endif %}
+          <li class="nav-item dropdown" data-tour="nav-help">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="bi bi-question-circle me-1"></i>Hilfe
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="#" data-start-tour><i class="bi bi-signpost-split me-2"></i>Rundgang für diese Seite</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('grades.index') }}#erste-schritte"><i class="bi bi-list-check me-2"></i>Erste Schritte (Startseite)</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item small text-muted" href="#" data-reset-tours><i class="bi bi-arrow-counterclockwise me-2"></i>Alle Rundgänge wieder anbieten</a></li>
+            </ul>
+          </li>
           <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('auth.profil') }}">
+            <a class="nav-link" href="{{ url_for('auth.profil') }}" data-tour="nav-profil">
               <i class="bi bi-person-badge me-1"></i>Profil
             </a>
           </li>
@@ -114,7 +129,7 @@
   </div>
 </nav>
 {% if current_user.is_authenticated and open_classes %}
-<nav class="navbar navbar-expand navbar-dark py-1" style="background-color:#16395c;">
+<nav class="navbar navbar-expand navbar-dark py-1" style="background-color:#16395c;" data-tour="class-tabs">
   <div class="container-fluid">
     <ul class="nav flex-nowrap overflow-auto">
       {% for c in open_classes %}
@@ -161,12 +176,12 @@
         <li class="nav-item text-muted small px-2 mb-1">DATEI</li>
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.upload' %}active{% endif %}"
-             href="{{ url_for('grades.upload') }}">
+             href="{{ url_for('grades.upload') }}" data-tour="side-upload">
             <i class="bi bi-upload"></i> Daten laden
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus', 'klasse') == 'klasse' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='klasse') }}">
+          <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus', 'klasse') == 'klasse' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='klasse') }}" data-tour="side-new">
             <i class="bi bi-people"></i> Neue Klasse
           </a>
         </li>
@@ -192,7 +207,7 @@
         </li>
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint in ('grades.ln_list','grades.ln_detail') %}active{% endif %}"
-             href="{{ url_for('grades.ln_list') }}">
+             href="{{ url_for('grades.ln_list') }}" data-tour="side-ln">
             <i class="bi bi-list-check"></i> Leistungsnachweise
           </a>
         </li>
@@ -223,31 +238,31 @@
           {% endif %}
         {% else %}
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL1' %}active{% endif %}"
-             href="{{ url_for('grades.sl_detail', sl_key='SL1') }}">
+          <a class="nav-link {% if request.endpoint in ('grades.sl_detail', 'grades.sl_muendlich') and request.view_args.sl_key == 'SL1' %}active{% endif %}"
+             href="{{ url_for('grades.sl_detail', sl_key='SL1') }}" data-tour="side-sl">
             <i class="bi bi-1-circle"></i> SL1
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL2' %}active{% endif %}"
+          <a class="nav-link {% if request.endpoint in ('grades.sl_detail', 'grades.sl_muendlich') and request.view_args.sl_key == 'SL2' %}active{% endif %}"
              href="{{ url_for('grades.sl_detail', sl_key='SL2') }}">
             <i class="bi bi-2-circle"></i> SL2
           </a>
         </li>
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.uebersicht' and request.view_args.hj == 'hj1' %}active{% endif %}"
-             href="{{ url_for('grades.uebersicht', hj='hj1') }}">
+             href="{{ url_for('grades.uebersicht', hj='hj1') }}" data-tour="side-hj">
             <i class="bi bi-table"></i> Übersicht Halbjahr 1
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL3' %}active{% endif %}"
+          <a class="nav-link {% if request.endpoint in ('grades.sl_detail', 'grades.sl_muendlich') and request.view_args.sl_key == 'SL3' %}active{% endif %}"
              href="{{ url_for('grades.sl_detail', sl_key='SL3') }}">
             <i class="bi bi-3-circle"></i> SL3
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.sl_detail' and request.view_args.sl_key == 'SL4' %}active{% endif %}"
+          <a class="nav-link {% if request.endpoint in ('grades.sl_detail', 'grades.sl_muendlich') and request.view_args.sl_key == 'SL4' %}active{% endif %}"
              href="{{ url_for('grades.sl_detail', sl_key='SL4') }}">
             <i class="bi bi-4-circle"></i> SL4
           </a>
@@ -277,7 +292,7 @@
         <li class="nav-item text-muted small px-2 mb-1">EXPORT</li>
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.export_excel' %}active{% endif %}"
-             href="{{ url_for('grades.export_excel') }}">
+             href="{{ url_for('grades.export_excel') }}" data-tour="side-export">
             <i class="bi bi-file-earmark-excel"></i> Exportieren
           </a>
         </li>
@@ -285,10 +300,18 @@
         <li class="nav-item text-muted small px-2 mb-1">EINSTELLUNGEN</li>
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.einstellungen' %}active{% endif %}"
-             href="{{ url_for('grades.einstellungen') }}">
+             href="{{ url_for('grades.einstellungen') }}" data-tour="side-einst">
             <i class="bi bi-gear"></i> Klasse &amp; Schuljahr
           </a>
         </li>
+        {% if current_modus != 'kurs' %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.notenberechnung' %}active{% endif %}"
+             href="{{ url_for('grades.notenberechnung') }}" data-tour="side-berechnung">
+            <i class="bi bi-diagram-3"></i> Notenberechnung
+          </a>
+        </li>
+        {% endif %}
         {% endif %}
       </ul>
     </nav>
@@ -308,6 +331,18 @@
           {% endfor %}
         {% endif %}
       {% endwith %}
+
+      {% if current_user.is_authenticated and not current_user.lehrer_nachname
+            and request.endpoint not in ('auth.profil', 'auth.change_password') %}
+      <div class="alert alert-warning d-flex align-items-center gap-2 py-2 small" id="profilHinweis">
+        <i class="bi bi-person-badge fs-5"></i>
+        <div class="flex-grow-1">
+          <strong>Dein Name fehlt noch.</strong>
+          Trage ihn einmalig im Profil ein – er erscheint auf den Notenzetteln, die du druckst.
+        </div>
+        <a href="{{ url_for('auth.profil') }}" class="btn btn-sm btn-warning">Zum Profil</a>
+      </div>
+      {% endif %}
 
       {% block content %}{% endblock %}
 
@@ -671,6 +706,9 @@
 })(window);
 </script>
 
+<script type="application/json" id="pageTour">{% block tour %}null{% endblock %}</script>
+<script src="{{ url_for('static', filename='vendor/driver.js.iife.js') }}"></script>
+<script src="{{ url_for('static', filename='js/onboarding.js') }}"></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

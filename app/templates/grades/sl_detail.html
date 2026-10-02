@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "grades/_gewichtung.html" import formel_bar, gw_modal %}
 {% block title %}{{ sl_key }} – Schulleistungen{% endblock %}
 {% block extra_head %}
 <style>
@@ -10,21 +11,32 @@
   .sl-badge { min-width: 2.2rem; text-align: center; display: inline-block; }
   .proposal-raw { font-size: .82em; color: #6c757d; font-weight: 400; }
   .proposal-arrow { font-size: .9em; color: #6c757d; padding: 0 .15rem; }
+  .mdl-link { color: inherit; text-decoration: none; }
+  .mdl-link:hover { text-decoration: underline; }
+  .mdl-vorl { font-style: italic; color: #6c757d; }
+  th a.mdl-head-link { color: #fff; }
 </style>
 {% endblock %}
+{% block tour %}{{ {
+  "id": "sl",
+  "steps": [
+    {"title": sl_key ~ "-Note", "text": "Pro Halbjahr gibt es zwei SL-Noten. Sie setzen sich aus der mündlichen Note und den hier zugeordneten KLN zusammen."},
+    {"el": "[data-tour=formel]", "title": "So wird gerechnet", "text": "Die aktuelle Formel. Über „Gewichtung anpassen“ änderst du die Anteile – z.B. mündlich gegen KLN oder einen KLN doppelt gewichten."},
+    {"el": "[data-tour=sl-mdl]", "title": "Mündliche Note", "text": "Entweder direkt eintragen – oder, wenn du mündliche Teilnoten angelegt hast, aus diesen übernehmen (Klick auf die Spalte)."},
+    {"el": "[data-tour=sl-actual]", "title": "Tatsächliche SL-Note", "text": "Der Vorschlag ist nur eine Hilfe. Die Note, die zählt, trägst du hier selbst ein. Sie wird für die Halbjahresübersicht verwendet.", "side": "left"},
+    {"el": "[data-tour=sl-save]", "title": "Speichern nicht vergessen", "text": "Eingaben werden erst mit „Speichern“ übernommen.", "side": "left"},
+    {"el": "[data-tour=sl-mdl-mehrfach]", "title": "Mehrere mündliche Noten?", "text": "Hier legst du mündliche Teilnoten an, z.B. Referat und Abfrage.", "side": "top"}
+  ]
+} | tojson }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+{% set has_mdl_lns = mdl_lns | length > 0 %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-0">
       <span class="badge bg-warning text-dark me-2 fs-5">{{ sl_key }}</span>
       Schulleistungen
     </h4>
-    <div class="text-muted small mt-1">
-      SL-Note = {{ gewichtung.sl_mdl_pct | int }}% mündl. + {{ gewichtung.sl_kln_pct | int }}% KLN-Mittel
-      <a href="{{ url_for('grades.einstellungen') }}" class="ms-1">
-        <i class="bi bi-gear-fill" title="Gewichtung ändern"></i>
-      </a>
-    </div>
+    {{ formel_bar([sl_key ~ '-Note = ' ~ gw_model.sl[sl_key].formel]) }}
   </div>
   <div class="d-flex gap-2">
     <div class="btn-group">
@@ -55,7 +67,7 @@
         </li>
       </ul>
     </div>
-    <button class="btn btn-success" id="btnSave">
+    <button class="btn btn-success" id="btnSave" data-tour="sl-save">
       <i class="bi bi-save me-1"></i>Speichern
     </button>
   </div>
@@ -69,6 +81,19 @@
   <a href="{{ url_for('grades.ln_list') }}" class="alert-link ms-1">KLN anlegen</a>
 </div>
 {% endif %}
+
+{% if has_mdl_lns %}
+<div class="alert alert-light border small py-2 mb-3" data-tour="sl-mdl-info">
+  <i class="bi bi-chat-dots me-1 text-info"></i>
+  Die mündliche Note für {{ sl_key }} entsteht aus {{ mdl_lns | length }} mündlichen Teilnote{{ 'n' if mdl_lns | length != 1 }}
+  ({{ mdl_lns | map(attribute='name') | join(', ') }}).
+  <em>Kursiv</em> = vorläufig (gewichtetes Mittel), noch nicht festgelegt.
+  <a href="{{ url_for('grades.sl_muendlich', sl_key=sl_key) }}" class="ms-1">
+    Teilnoten eintragen &amp; mündliche Note festlegen <i class="bi bi-arrow-right"></i>
+  </a>
+</div>
+{% endif %}
+
 <div class="table-responsive">
 <table class="table table-bordered table-sm align-middle" id="slTable">
   <thead>
@@ -80,48 +105,25 @@
       {% if kln_list | length >= 2 %}
       <th class="text-center bg-secondary text-white">KLN Mittel</th>
       {% endif %}
-      <th class="text-center bg-info text-white">Mündl. Note<br><small class="fw-normal">(0–15)</small></th>
+      <th class="text-center bg-info text-white" data-tour="sl-mdl">
+        {% if has_mdl_lns %}
+        <a class="mdl-head-link" href="{{ url_for('grades.sl_muendlich', sl_key=sl_key) }}" title="Mündliche Teilnoten öffnen">
+          Mündl. Note <i class="bi bi-box-arrow-up-right small"></i>
+        </a>
+        <br><small class="fw-normal">aus Teilnoten</small>
+        {% else %}
+        Mündl. Note<br><small class="fw-normal">(0–15)</small>
+        {% endif %}
+      </th>
       <th class="text-center bg-warning text-dark">{{ sl_key }}-Note<br><small class="fw-normal">Vorschlag</small></th>
-      <th class="text-center bg-success text-white">{{ sl_key }}-Note<br><small class="fw-normal">Tatsächlich</small></th>
+      <th class="text-center bg-success text-white" data-tour="sl-actual">{{ sl_key }}-Note<br><small class="fw-normal">Tatsächlich</small></th>
     </tr>
-    {% if kln_list %}
-    <tr class="table-secondary" id="gewichtRow">
-      <td class="text-muted small fst-italic">Gewichtung</td>
-      {# 1 KLN: show its individual weight; 2+ KLN: empty cells (KLN mean used instead) #}
-      {% if kln_list | length == 1 %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm kln-weight-input text-center"
-               min="0" step="0.1"
-               data-sheet="{{ kln_list[0].sheet_name }}"
-               value="{{ kln_weights[kln_list[0].sheet_name] | default(1) }}">
-      </td>
-      {% else %}
-      {% for ln in kln_list %}<td></td>{% endfor %}
-      {% endif %}
-      {# KLN-Mittel weight – only when >= 2 KLNs #}
-      {% if kln_list | length >= 2 %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm text-center" id="wKlnMittel"
-               min="0" step="0.1" title="Gewicht KLN-Mittel in SL-Note"
-               value="{{ gewichtung.sl_kln_pct | round(1) }}">
-      </td>
-      {% endif %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm text-center" id="wMdl"
-               min="0" step="0.1" title="Gewicht Mündliche Note in SL-Note"
-               value="{{ gewichtung.sl_mdl_pct | round(1) }}">
-      </td>
-      <td></td>
-      <td></td>
-    </tr>
-    {% endif %}
   </thead>
   <tbody>
     {% for row in rows %}
     <tr data-name="{{ row.name }}"
-        data-kln-notes="{{ row.kln_cols | map(attribute='note_15') | list | tojson }}"
-        data-kln-sheets="{{ kln_list | map(attribute='sheet_name') | list | tojson }}"
-        data-kln-ignoriert="{{ row.kln_cols | map(attribute='ignoriert') | list | tojson }}">
+        data-kln-mean="{{ row.kln_mean_raw if row.kln_mean_raw is not none else '' }}"
+        data-mdl-eff="{{ row.mdl_eff if row.mdl_eff is not none else '' }}">
       <td>{{ row.name }}</td>
       {% for c in row.kln_cols %}
       <td class="text-center">
@@ -133,11 +135,21 @@
       </td>
       {% endfor %}
       {% if kln_list | length >= 2 %}
-      <td class="text-center text-muted small kln-mean-cell">
+      <td class="text-center text-muted small">
         {{ row.kln_mean if row.kln_mean is not none else '' }}
       </td>
       {% endif %}
       <td class="text-center bg-info bg-opacity-10">
+        {% if has_mdl_lns %}
+          <a class="mdl-link note-cell {{ 'mdl-vorl' if row.mdl_status == 'vorlaeufig' }}"
+             href="{{ url_for('grades.sl_muendlich', sl_key=sl_key) }}"
+             title="{{ 'Vorläufig: gewichtetes Mittel der Teilnoten' if row.mdl_status == 'vorlaeufig' else 'Festgelegte mündliche Note' }}">
+            {% if row.mdl_eff is none %}–
+            {% elif row.mdl_status == 'vorlaeufig' %}{{ "%.1f"|format(row.mdl_eff)|replace('.', ',') }}
+            {% else %}{{ row.mdl_eff | int }} <i class="bi bi-lock-fill text-muted" style="font-size:.7rem"></i>
+            {% endif %}
+          </a>
+        {% else %}
         <div class="d-flex align-items-center justify-content-center gap-1">
           <input type="number" class="form-control form-control-sm mdl-input"
                  min="0" max="15" step="1"
@@ -158,6 +170,7 @@
             {%- endif -%}
           {%- endif -%}
         </div>
+        {% endif %}
       </td>
       <td class="text-center note-cell sl-note-display bg-warning bg-opacity-25{% if row.sl_note_15 is not none and row.sl_note_15 < rot_schwelle %} text-danger{% endif %}">
         {% if row.sl_raw is not none and row.sl_note_15 is not none %}
@@ -180,184 +193,98 @@
   </tbody>
 </table>
 </div>
+
+{% if not has_mdl_lns %}
+<div class="small text-muted" data-tour="sl-mdl-mehrfach">
+  <i class="bi bi-chat-dots me-1"></i>
+  Mehrere mündliche Noten in {{ sl_key }} vergeben (z.B. Referat + Abfrage)?
+  <a href="{{ url_for('grades.ln_list', typ='MDL', sl=sl_key) }}">Mündliche Teilnote anlegen</a>
+  – die mündliche Note wird dann aus den Teilnoten vorgeschlagen.
+</div>
+{% endif %}
+
+{{ gw_modal(gw_model, ['sl_anteil', 'kln:' ~ sl_key, 'mdl:' ~ sl_key], 'Gewichtung ' ~ sl_key) }}
 {% endblock %}
 {% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/notenberechnung.js') }}"></script>
+<script src="{{ url_for('static', filename='js/gewichtung.js') }}"></script>
 <script>
 const SL_KEY = {{ sl_key | tojson }};
 const GW = {{ gewichtung | tojson }};
 const ROT_SCHWELLE = {{ rot_schwelle }};
-
-function getKlnWeights() {
-  // Read from weight input row
-  const w = {};
-  document.querySelectorAll('.kln-weight-input').forEach(inp => {
-    const v = inp.value !== '' ? parseFloat(inp.value) : 1.0;
-    w[inp.dataset.sheet] = isNaN(v) ? 1.0 : v;
-  });
-  return w;
-}
-
-function getSlWeights() {
-  const klnW = parseFloat(document.getElementById('wKlnMittel')?.value) || GW.sl_kln_pct;
-  const mdlW = parseFloat(document.getElementById('wMdl')?.value) || GW.sl_mdl_pct;
-  return { kln: klnW, mdl: mdlW };
-}
-
-function computeKlnMean(notes, ignoriert, sheets, kw) {
-  let sumN = 0, sumW = 0;
-  for (let i = 0; i < notes.length; i++) {
-    if (ignoriert[i] || notes[i] === null) continue;
-    const w = (kw[sheets[i]] !== undefined) ? kw[sheets[i]] : 1.0;
-    sumN += notes[i] * w;
-    sumW += w;
-  }
-  return sumW > 0 ? sumN / sumW : null;
-}
-
-function computeSlNote(mdl, klnMean) {
-  const sw = getSlWeights();
-  if (mdl === null && klnMean === null) return null;
-  if (mdl === null) return klnMean;
-  if (klnMean === null) return mdl;
-  const total = sw.mdl + sw.kln;
-  if (total <= 0) return null;
-  return (mdl * sw.mdl + klnMean * sw.kln) / total;
-}
-
-function roundNote15(x) {
-  if (x === null || x === undefined) return null;
-  return Math.max(0, Math.min(15, Math.round(x)));
-}
+const HAS_MDL_LNS = {{ 'true' if has_mdl_lns else 'false' }};
+const N = window.Noten;
 
 function updateRow(row) {
-  const notes    = JSON.parse(row.dataset.klnNotes);
-  const sheets   = JSON.parse(row.dataset.klnSheets);
-  const ignoriert = JSON.parse(row.dataset.klnIgnoriert);
-  const kw = getKlnWeights();
-  const klnMean = computeKlnMean(notes, ignoriert, sheets, kw);
-
-  // Update kln-mean cell
-  const meanCell = row.querySelector('.kln-mean-cell');
-  if (meanCell) {
-    meanCell.textContent = klnMean !== null ? Math.round(klnMean * 100) / 100 : '–';
-  }
-
+  const klnMean = N.parseNote(row.dataset.klnMean);
   const mdlInput = row.querySelector('.mdl-input');
-  const mdl = mdlInput.value !== '' ? parseFloat(mdlInput.value) : null;
+  const mdl = mdlInput ? N.parseNote(mdlInput.value) : N.parseNote(row.dataset.mdlEff);
 
-  // Update diff display
+  // Diff to previous SL's mündliche Note
   const diffSpan = row.querySelector('.mdl-diff');
-  if (diffSpan) {
-    const prevRaw = mdlInput.dataset.prevMdl;
-    if (prevRaw !== '' && prevRaw != null) {
-      const prev = parseFloat(prevRaw);
+  if (diffSpan && mdlInput) {
+    const prev = N.parseNote(mdlInput.dataset.prevMdl);
+    if (prev !== null) {
+      diffSpan.style.color = '';
+      diffSpan.className = 'small text-nowrap mdl-diff';
       if (mdl === null) {
         diffSpan.textContent = '(' + prev + ')';
-        diffSpan.style.color = '';
-        diffSpan.className = 'small text-nowrap text-muted mdl-diff';
+        diffSpan.classList.add('text-muted');
       } else {
         const diff = mdl - prev;
-        if (diff > 0) {
-          diffSpan.textContent = '(+' + diff + ')';
-          diffSpan.style.color = '#5a9a5a';
-          diffSpan.className = 'small text-nowrap mdl-diff';
-        } else if (diff < 0) {
-          diffSpan.textContent = '(' + diff + ')';
-          diffSpan.style.color = '#c0504d';
-          diffSpan.className = 'small text-nowrap mdl-diff';
-        } else {
-          diffSpan.textContent = '(–)';
-          diffSpan.style.color = '';
-          diffSpan.className = 'small text-nowrap text-muted mdl-diff';
-        }
+        diffSpan.textContent = diff > 0 ? '(+' + diff + ')' : (diff < 0 ? '(' + diff + ')' : '(–)');
+        if (diff > 0) diffSpan.style.color = '#5a9a5a';
+        else if (diff < 0) diffSpan.style.color = '#c0504d';
+        else diffSpan.classList.add('text-muted');
       }
     }
   }
 
-  const slNoteDisplay = row.querySelector('.sl-note-display');
-  const slRaw = computeSlNote(mdl, klnMean);
-  const slNote = roundNote15(slRaw);
-
-  if (slNote !== null) {
-    slNoteDisplay.textContent = slNote;
-    slNoteDisplay.classList.toggle('text-danger', slNote < ROT_SCHWELLE);
+  const disp = row.querySelector('.sl-note-display');
+  const raw = N.slNote(mdl, klnMean, GW);
+  const n15 = N.roundNote15(raw);
+  if (n15 !== null) {
+    disp.innerHTML = `<span class="proposal-raw">${N.fmt1(raw)}</span><span class="proposal-arrow">&rarr;</span><strong>${String(n15).padStart(2, '0')}</strong>`;
+    disp.classList.toggle('text-danger', n15 < ROT_SCHWELLE);
   } else {
-    slNoteDisplay.textContent = '–';
-    slNoteDisplay.classList.remove('text-danger');
+    disp.textContent = '–';
+    disp.classList.remove('text-danger');
   }
-}
-
-function updateAllRows() {
-  document.querySelectorAll('#slTable tbody tr[data-name]').forEach(row => updateRow(row));
 }
 
 document.querySelectorAll('#slTable tbody tr[data-name]').forEach(row => {
   row.querySelector('.mdl-input')?.addEventListener('input', () => updateRow(row));
 });
 
-// Re-compute all rows when any weight changes
-document.querySelectorAll('.kln-weight-input, #wKlnMittel, #wMdl').forEach(inp => {
-  inp.addEventListener('input', updateAllRows);
-});
+const dirty = N.trackDirty(document.getElementById('slTable'));
 
-document.getElementById('btnSave')?.addEventListener('click', async () => {
+async function savePage() {
   const schueler = [];
   document.querySelectorAll('#slTable tbody tr[data-name]').forEach(row => {
-    const name = row.dataset.name;
+    const item = { name: row.dataset.name };
     const mdlInp = row.querySelector('.mdl-input');
+    // With mündliche Teilnoten the note is set on the Teilnoten page – don't send it
+    if (mdlInp) item.note = mdlInp.value !== '' ? parseInt(mdlInp.value, 10) : null;
     const actInp = row.querySelector('.sl-actual-input');
-    const note     = mdlInp && mdlInp.value !== '' ? parseInt(mdlInp.value, 10) : null;
-    const sl_actual = actInp && actInp.value !== '' ? parseInt(actInp.value, 10) : null;
-    schueler.push({ name, note, sl_actual });
+    item.sl_actual = actInp && actInp.value !== '' ? parseInt(actInp.value, 10) : null;
+    schueler.push(item);
   });
-
-  // Collect kln weights
-  const kln_weights = {};
-  document.querySelectorAll('.kln-weight-input').forEach(inp => {
-    if (inp.value !== '') kln_weights[inp.dataset.sheet] = parseFloat(inp.value);
-  });
-  const sw = getSlWeights();
-
-  const r1 = await fetch('/api/mdl-noten/speichern', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
-    body: JSON.stringify({ sl_key: SL_KEY, schueler })
-  });
-  const r2 = await fetch('/api/kln-gewichte/speichern', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
-    body: JSON.stringify({ sl_key: SL_KEY, kln_weights, sl_kln_pct: sw.kln, sl_mdl_pct: sw.mdl })
-  });
-  const d1 = await r1.json();
-  const d2 = await r2.json();
-  if (d1.ok && d2.ok) {
-    showToast('Noten und Gewichtung gespeichert.', 'success');
-  } else {
-    showToast('Fehler beim Speichern.', 'danger');
-  }
-});
-
-function showToast(msg, type) {
-  const div = document.createElement('div');
-  div.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
-  div.setAttribute('role', 'alert');
-  div.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div>
-    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
-  document.body.appendChild(div);
-  new bootstrap.Toast(div, { delay: 3000 }).show();
-  div.addEventListener('hidden.bs.toast', () => div.remove());
+  const res = await N.postJson('/api/mdl-noten/speichern', { sl_key: SL_KEY, schueler });
+  if (res.ok) { dirty.clear(); N.toast('Noten gespeichert.', 'success'); }
+  else N.toast(res.error || 'Fehler beim Speichern.', 'danger');
+  return res.ok;
 }
+window.notenPage = { isDirty: dirty.isDirty, save: savePage };
+document.getElementById('btnSave')?.addEventListener('click', savePage);
 
 // ── Smart Paste ────────────────────────────────────────────────────────────
-const _SL_INPUT_CLS = ['mdl-input', 'sl-actual-input'];
+const _SL_INPUT_CLS = HAS_MDL_LNS ? ['sl-actual-input'] : ['mdl-input', 'sl-actual-input'];
+const _SL_INPUT_LABELS = HAS_MDL_LNS ? ['SL-Note tatsächlich'] : ['Mündl. Note', 'SL-Note tatsächlich'];
 smartPasteAttach({
   tableId: 'slTable',
   inputSelector: 'input[type=number]',
   getRowName: tr => tr.dataset.name || null,
   getTargetInput: (tr, focused, colOffset) => {
-    // Find which input class the focused input belongs to, then step colOffset from there
     const startIdx = _SL_INPUT_CLS.findIndex(c => focused.classList.contains(c));
     if (startIdx === -1) return null;
     const targetCls = _SL_INPUT_CLS[startIdx + colOffset];
@@ -365,8 +292,7 @@ smartPasteAttach({
   },
   getColLabel: (focused, colOffset) => {
     const startIdx = _SL_INPUT_CLS.findIndex(c => focused.classList.contains(c));
-    const labels = ['Mündl. Note', 'SL-Note tatsächlich'];
-    return labels[startIdx + colOffset] || `Spalte ${colOffset + 1}`;
+    return _SL_INPUT_LABELS[startIdx + colOffset] || `Spalte ${colOffset + 1}`;
   },
 });
 </script>

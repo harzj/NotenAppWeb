@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% from "grades/_gewichtung.html" import formel_bar, gw_modal %}
+{% block title %}{{ sl_key }} – Mündliche Noten{% endblock %}
+{% block extra_head %}
+<style>
+  .note-input { width: 56px; text-align: center; -moz-appearance: textfield; margin: 0 auto; }
+  .note-input::-webkit-outer-spin-button,
+  .note-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .mean-cell { white-space: nowrap; }
+  .final-input.is-vorschlag { font-style: italic; }
+</style>
+{% endblock %}
+{% block tour %}{{ {
+  "id": "sl_muendlich",
+  "steps": [
+    {"title": "Mündliche Teilnoten", "text": "Hier trägst du alle mündlichen Teilnoten dieses SL ein – jede Spalte ist ein „Mündliche Note“-Leistungsnachweis."},
+    {"el": "[data-tour=formel]", "title": "Gewichtung", "text": "Teilnoten können unterschiedlich zählen, z.B. ein Referat doppelt."},
+    {"el": "[data-tour=mdl-vorschlag]", "title": "Vorschlag", "text": "Das gewichtete Mittel der Teilnoten – nur eine Hilfe."},
+    {"el": "[data-tour=mdl-final]", "title": "Endgültige mündliche Note", "text": "Die legst du selbst fest. Solange das Feld leer ist, rechnet die SL-Seite vorläufig mit dem Vorschlag (kursiv). Mit „Vorschlag übernehmen“ füllst du alle leeren Felder auf einmal.", "side": "left"},
+    {"el": "[data-tour=mdl-neu]", "title": "Weitere Teilnote", "text": "Neue mündliche Teilnote für dieses SL anlegen.", "side": "left"}
+  ]
+} | tojson }}{% endblock %}
+{% block content %}
+{% set mdl_items = gw_model.sl[sl_key].mdl %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">
+      <a href="{{ url_for('grades.sl_detail', sl_key=sl_key) }}" class="badge bg-warning text-dark me-2 fs-5 text-decoration-none">{{ sl_key }}</a>
+      Mündliche Noten
+    </h4>
+    {% if mdl_items | length >= 2 %}
+    {{ formel_bar(['Vorschlag mündl. Note = ' ~ mdl_formel]) }}
+    {% else %}
+    <div class="small text-muted mt-1"><i class="bi bi-calculator me-1"></i>Vorschlag mündl. Note = Mittel der Teilnoten</div>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('grades.ln_list', typ='MDL', sl=sl_key) }}" class="btn btn-outline-secondary" data-tour="mdl-neu">
+      <i class="bi bi-plus-lg me-1"></i>Weitere Teilnote
+    </a>
+    <a href="{{ url_for('grades.sl_detail', sl_key=sl_key) }}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Zurück zu {{ sl_key }}
+    </a>
+    <button class="btn btn-success" id="btnSave" {% if not mdl_lns %}disabled{% endif %}>
+      <i class="bi bi-save me-1"></i>Speichern
+    </button>
+  </div>
+</div>
+
+{% if not mdl_lns %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-1"></i>
+  Für {{ sl_key }} gibt es noch keine mündlichen Teilnoten. Solange keine angelegt ist, trägst du die mündliche Note
+  wie gewohnt direkt auf der <a href="{{ url_for('grades.sl_detail', sl_key=sl_key) }}" class="alert-link">{{ sl_key }}-Seite</a> ein.
+  <div class="mt-2">
+    <a href="{{ url_for('grades.ln_list', typ='MDL', sl=sl_key) }}" class="btn btn-sm btn-primary">
+      <i class="bi bi-plus-lg me-1"></i>Mündliche Teilnote anlegen
+    </a>
+  </div>
+</div>
+{% else %}
+<div class="small text-muted mb-2">
+  Trage die Teilnoten ein (0–15). Der <strong>Vorschlag</strong> ist das gewichtete Mittel.
+  Die <strong>endgültige mündliche Note</strong> legst du selbst fest – sie geht in die {{ sl_key }}-Note ein.
+  Solange sie leer ist, wird vorläufig der Vorschlag verwendet.
+</div>
+<div class="table-responsive">
+<table class="table table-bordered table-sm align-middle" id="mdlTable">
+  <thead>
+    <tr>
+      <th>Schüler</th>
+      {% for ln in mdl_lns %}
+      <th class="text-center" data-sheet="{{ ln.sheet_name }}" title="{{ ln.name }}{{ (' – ' ~ ln.thema) if ln.thema }}">
+        {%- set kurz = ln.name[:-(sl_key | length + 1)] if ln.name.endswith(' ' ~ sl_key) else ln.name -%}
+        {{ kurz }}
+        {% if ln.datum %}<br><small class="fw-normal">{{ ln.datum | datum_kurz }}</small>{% endif %}
+        {% if mdl_lns | length >= 2 %}<br><small class="fw-normal opacity-75">×{{ '%g' | format(mdl_weights[ln.sheet_name]) | replace('.', ',') }}</small>{% endif %}
+      </th>
+      {% endfor %}
+      <th class="text-center bg-secondary text-white" data-tour="mdl-vorschlag">Vorschlag<br><small class="fw-normal">gew. Mittel</small></th>
+      <th class="text-center bg-info text-white" data-tour="mdl-final">
+        Mündl. Note {{ sl_key }}<br><small class="fw-normal">endgültig</small>
+      </th>
+    </tr>
+    <tr class="table-light">
+      <td class="small text-muted fst-italic">Für alle</td>
+      {% for ln in mdl_lns %}<td></td>{% endfor %}
+      <td></td>
+      <td class="text-center">
+        <button type="button" class="btn btn-sm btn-outline-primary" id="btnTakeAll"
+                title="Für alle Schüler ohne endgültige Note den gerundeten Vorschlag übernehmen">
+          <i class="bi bi-arrow-right-square me-1"></i>Vorschlag übernehmen
+        </button>
+      </td>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr data-name="{{ row.name }}">
+      <td>{{ row.name }}</td>
+      {% for c in row.cols %}
+      {% set ln = mdl_lns[loop.index0] %}
+      <td class="text-center">
+        <input type="number" class="form-control form-control-sm note-input teil-input"
+               min="0" max="15" step="1"
+               data-sheet="{{ ln.sheet_name }}" data-w="{{ mdl_weights[ln.sheet_name] }}"
+               {% if c.ignoriert %}data-ignoriert="1" title="ignoriert"{% endif %}
+               value="{{ c.note_15 if c.note_15 is not none else '' }}">
+      </td>
+      {% endfor %}
+      <td class="text-center mean-cell text-muted">{{ "%.1f"|format(row.mean)|replace('.', ',') if row.mean is not none else '–' }}</td>
+      <td class="text-center bg-info bg-opacity-10">
+        <input type="number" class="form-control form-control-sm note-input final-input"
+               min="0" max="15" step="1"
+               value="{{ row.final if row.final is not none else '' }}">
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{{ gw_modal(gw_model, ['mdl:' ~ sl_key], 'Gewichtung mündliche Teilnoten ' ~ sl_key) }}
+{% endblock %}
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/notenberechnung.js') }}"></script>
+<script src="{{ url_for('static', filename='js/gewichtung.js') }}"></script>
+<script>
+(function () {
+  const SL_KEY = {{ sl_key | tojson }};
+  const N = window.Noten;
+  const table = document.getElementById('mdlTable');
+  if (!table) return;
+
+  function rowMean(row) {
+    const pairs = [];
+    row.querySelectorAll('.teil-input').forEach(inp => {
+      if (inp.dataset.ignoriert) return;
+      pairs.push([N.parseNote(inp.value), parseFloat(inp.dataset.w) || 0]);
+    });
+    return N.weightedMean(pairs);
+  }
+
+  function updateRow(row) {
+    const mean = rowMean(row);
+    row.querySelector('.mean-cell').textContent = mean !== null ? N.fmt1(mean) : '–';
+    const fin = row.querySelector('.final-input');
+    fin.placeholder = mean !== null ? String(N.roundNote15(mean)) : '';
+  }
+
+  table.querySelectorAll('tbody tr[data-name]').forEach(row => {
+    updateRow(row);
+    row.addEventListener('input', () => updateRow(row));
+  });
+
+  document.getElementById('btnTakeAll')?.addEventListener('click', () => {
+    table.querySelectorAll('tbody tr[data-name]').forEach(row => {
+      const fin = row.querySelector('.final-input');
+      const mean = rowMean(row);
+      if (fin.value === '' && mean !== null) {
+        fin.value = N.roundNote15(mean);
+        fin.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  });
+
+  const dirty = N.trackDirty(table);
+
+  async function savePage() {
+    const schueler = [];
+    const toInt = v => (v !== '' && v != null) ? parseInt(v, 10) : null;
+    table.querySelectorAll('tbody tr[data-name]').forEach(row => {
+      const teilnoten = {};
+      row.querySelectorAll('.teil-input').forEach(inp => { teilnoten[inp.dataset.sheet] = toInt(inp.value); });
+      schueler.push({ name: row.dataset.name, teilnoten, final: toInt(row.querySelector('.final-input').value) });
+    });
+    const res = await N.postJson('/api/mdl-teilnoten/speichern', { sl_key: SL_KEY, schueler });
+    if (res.ok) { dirty.clear(); N.toast('Mündliche Noten gespeichert.', 'success'); }
+    else N.toast(res.error || 'Fehler beim Speichern.', 'danger');
+    return res.ok;
+  }
+  window.notenPage = { isDirty: dirty.isDirty, save: savePage };
+  document.getElementById('btnSave')?.addEventListener('click', savePage);
+
+  // Smart Paste: all number inputs of a row, left to right
+  const cols = Array.from(table.querySelectorAll('thead tr:first-child th')).slice(1);
+  smartPasteAttach({
+    tableId: 'mdlTable',
+    inputSelector: 'input[type=number]',
+    getRowName: tr => tr.dataset.name || null,
+    getTargetInput: (tr, focused, colOffset) => {
+      const inputs = Array.from(tr.querySelectorAll('input[type=number]'));
+      const i = inputs.indexOf(focused);
+      return i === -1 ? null : (inputs[i + colOffset] || null);
+    },
+    getColLabel: (focused, colOffset) => {
+      const inputs = Array.from(focused.closest('tr').querySelectorAll('input[type=number]'));
+      const i = inputs.indexOf(focused) + colOffset;
+      const th = cols[i < cols.length - 2 ? i : i + 1];  // skip the Vorschlag column
+      return th ? th.textContent.trim().split('\n')[0] : `Spalte ${colOffset + 1}`;
+    },
+  });
+})();
+</script>
+{% endblock %}
