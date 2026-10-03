@@ -1,0 +1,4 @@
+1.1.0.4
+
+# Passenger (Plesk) startet die App neu, wenn sich der Zeitstempel dieser Datei aendert.
+# Bei jedem Release den Inhalt aendern (z.B. Versionsnummer), damit git pull die Datei neu schreibt.
