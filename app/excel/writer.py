@@ -486,6 +486,11 @@ def _write_einstellungen(wb: Workbook, data: dict) -> None:
         ws.cell(row, S.ES_COL_KEY,   key)
         ws.cell(row, S.ES_COL_VALUE, kurs_vals.get(key))
         row += 1
+    if data.get("_zugang"):
+        ws.cell(row, S.ES_COL_KEY,   S.ES_ZUGANG_KEY)
+        ws.cell(row, S.ES_COL_VALUE, data["_zugang"])
+        ws.cell(row, S.ES_COL_INFO,  "Zugriffsschlüssel für die Anmeldung mit dieser Datei – nicht verändern")
+        row += 1
 
 
 def _write_notentabelle(wb: Workbook) -> None:

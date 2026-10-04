@@ -19,6 +19,7 @@ from pathlib import Path
 import pystray
 from PIL import Image, ImageDraw
 from app.versioning import format_version, load_version_data
+from app import paths
 
 try:
     # Von build.py vor dem Bauen der Notfall-exe auf True gesetzt.
@@ -245,6 +246,33 @@ def _show_console(icon, item):
     threading.Thread(target=_build, daemon=True).start()
 
 
+def _open_data_dir(icon=None, item=None):
+    """Datenordner (Benutzer-DB, Schlüssel, Admin-Passwort) im Explorer öffnen."""
+    os.makedirs(paths.data_dir(), exist_ok=True)
+    os.startfile(paths.data_dir())  # noqa: S606 – Windows only, local folder
+
+
+def _show_admin_password(icon=None, item=None):
+    pw_file = paths.data_file("admin_passwort.txt")
+    if os.path.exists(pw_file):
+        os.startfile(pw_file)  # noqa: S606
+    else:
+        print("[INFO] Kein gespeichertes Admin-Passwort vorhanden "
+              "(bereits gelöscht oder Admin existierte schon).")
+        _show_console(icon, item)
+
+
+def _show_file_login_key(icon=None, item=None):
+    """Schlüssel für das Anmelden mit Notendatei öffnen (Wert = FILE_LOGIN_KEY beim Landkreis)."""
+    from app.auth import dateilogin
+    key_file = dateilogin.key_file_path()
+    if key_file:
+        os.startfile(key_file)  # noqa: S606
+    else:
+        print("[INFO] Kein Datei-Login-Schlüssel vorhanden (nur Notfall-Build legt ihn automatisch an).")
+        _open_data_dir(icon, item)
+
+
 def _quit(icon, item):
     if _ngrok_proc:
         _ngrok_proc.terminate()
@@ -256,6 +284,11 @@ def main():
     # Im frozen-Modus (Distribution) nur ngrok starten, wenn als Notfall-Build markiert
     is_frozen = getattr(sys, "frozen", False)
     ngrok_allowed = NGROK_ENABLED and (not is_frozen or EMERGENCY_MODE)
+
+    if ngrok_allowed and NGROK_DOMAIN and not os.environ.get("PUBLIC_BASE_URL"):
+        # Zugangslinks (Einladung / Passwort) sollen die öffentliche ngrok-Adresse enthalten,
+        # auch wenn die Admin-Seite lokal über localhost geöffnet wird.
+        os.environ["PUBLIC_BASE_URL"] = f"https://{NGROK_DOMAIN}"
 
     # Flask starten
     t = threading.Thread(target=_run_flask, daemon=True)
@@ -277,6 +310,9 @@ def main():
         menu = pystray.Menu(
             pystray.MenuItem("Im Browser öffnen", _open_local, default=True),
             pystray.MenuItem("Konsole anzeigen", _show_console),
+            pystray.MenuItem("Datenordner öffnen", _open_data_dir),
+            pystray.MenuItem("Admin-Passwort anzeigen", _show_admin_password),
+            pystray.MenuItem("Datei-Login-Schlüssel anzeigen", _show_file_login_key),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Beenden", _quit),
         )
@@ -287,6 +323,9 @@ def main():
                 pystray.MenuItem("Im Browser öffnen (ngrok)", _open_browser, default=True),
                 pystray.MenuItem("Lokal öffnen (localhost)", _open_local),
                 pystray.MenuItem("Konsole anzeigen", _show_console),
+                pystray.MenuItem("Datenordner öffnen", _open_data_dir),
+                pystray.MenuItem("Admin-Passwort anzeigen", _show_admin_password),
+                pystray.MenuItem("Datei-Login-Schlüssel anzeigen", _show_file_login_key),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Beenden", _quit),
             )
@@ -295,6 +334,9 @@ def main():
             menu = pystray.Menu(
                 pystray.MenuItem("Im Browser öffnen", _open_local, default=True),
                 pystray.MenuItem("Konsole anzeigen", _show_console),
+                pystray.MenuItem("Datenordner öffnen", _open_data_dir),
+                pystray.MenuItem("Admin-Passwort anzeigen", _show_admin_password),
+                pystray.MenuItem("Datei-Login-Schlüssel anzeigen", _show_file_login_key),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Beenden", _quit),
             )

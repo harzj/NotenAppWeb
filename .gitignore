@@ -11,3 +11,7 @@ instance/
 !Noten_demo_klasse.xlsx
 _inspect_legacy.py
 _test_legacy.py
+
+# Build-Ergebnisse (PyInstaller) gehoeren nicht ins Repository
+build/
+dist/

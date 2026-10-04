@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
-from flask import Blueprint, render_template, redirect, url_for, flash, request, session, current_app
+import secrets
+
+from flask import Blueprint, render_template, redirect, url_for, flash, request, session, current_app, abort
 from flask_login import login_user, logout_user, login_required, current_user
 from app.extensions import db, limiter
-from app.models import User
+from app.models import User, UsedZugangslink
+from sqlalchemy.exc import IntegrityError
+from app.auth import dateilogin, zugangslinks
 from app.auth.forms import (
-    LoginForm, RegistrationForm, ChangePasswordForm, LehrerProfilForm,
+    LoginForm, RegistrationForm, ChangePasswordForm, LehrerProfilForm, DateiLoginForm, NeuesPasswortForm,
     dienstbezeichnung_choices, LEGACY_DIENSTBEZEICHNUNG_MAP, DIENSTBEZEICHNUNG_RANGE,
 )
 
@@ -18,15 +22,16 @@ def login():
         return redirect(url_for("grades.index"))
 
     form = LoginForm()
+    datei_form = DateiLoginForm() if current_app.config.get("FILE_LOGIN_ACCEPT") else None
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
         if user is None or not user.check_password(form.password.data):
             flash("Ungültiger Benutzername oder Passwort.", "danger")
-            return render_template("auth/login.html", form=form)
+            return render_template("auth/login.html", form=form, datei_form=datei_form)
 
         if not user.is_approved:
             flash("Dein Konto wurde noch nicht freigeschaltet. Bitte warte auf die Admin-Freischaltung.", "warning")
-            return render_template("auth/login.html", form=form)
+            return render_template("auth/login.html", form=form, datei_form=datei_form)
 
         login_user(user, remember=form.remember_me.data)
         user.last_login = datetime.now(timezone.utc)
@@ -42,7 +47,85 @@ def login():
             next_page = None
         return redirect(next_page or url_for("grades.index"))
 
-    return render_template("auth/login.html", form=form)
+    return render_template("auth/login.html", form=form, datei_form=datei_form)
+
+
+def _user_from_token(info: dict) -> User | None:
+    """Find or (re-)create the user described by a valid access token."""
+    user = User.query.filter_by(username=info["username"]).first()
+    if user is None:
+        if User.query.filter_by(email=info["email"]).first() is not None:
+            return None  # e-mail belongs to another account on this server
+        user = User(username=info["username"], email=info["email"], is_admin=False)
+        user.set_password(secrets.token_urlsafe(24))  # login only via file until changed
+        db.session.add(user)
+    user.is_approved = True
+    for attr in ("lehrer_vorname", "lehrer_nachname", "dienstbezeichnung", "anrede"):
+        if not getattr(user, attr) and info.get(attr):
+            setattr(user, attr, info[attr])
+    if info.get("notendatei_import"):
+        user.notendatei_import = True
+    return user
+
+
+@auth_bp.route("/login-datei", methods=["POST"])
+@limiter.limit("10 per minute")
+def login_datei():
+    """Anmelden mit Notendatei: the file's password proves possession, the signed
+    access token inside says who it belongs to. The classes are loaded right away."""
+    key = current_app.config.get("FILE_LOGIN_KEY")
+    if not current_app.config.get("FILE_LOGIN_ACCEPT") or not key:
+        abort(404)
+    if current_user.is_authenticated:
+        return redirect(url_for("grades.index"))
+    from app.excel.reader import ExcelReadError, load_gradebook
+    from app.grades.routes import _load_zip_gradebooks, _replace_all_gradebooks, _set_source_password
+
+    form = DateiLoginForm()
+    if not form.validate_on_submit():
+        for errors in form.errors.values():
+            for e in errors:
+                flash(e, "danger")
+        return redirect(url_for("auth.login"))
+
+    filename = (form.datei.data.filename or "").lower()
+    file_bytes = form.datei.data.read()
+    password = form.datei_passwort.data
+    try:
+        if filename.endswith(".zip"):
+            books = _load_zip_gradebooks(file_bytes, password)
+        else:
+            books = [load_gradebook(file_bytes, password)]
+    except ExcelReadError:
+        flash("Die Datei konnte mit diesem Passwort nicht geöffnet werden.", "danger")
+        return redirect(url_for("auth.login"))
+
+    info = None
+    for book in books:
+        info = dateilogin.read_token(book.get("_zugang"), key)
+        if info:
+            break
+    if not info:
+        flash("Diese Datei enthält keinen gültigen Zugriffsschlüssel (oder er ist abgelaufen). "
+              "Melde dich einmal normal an, lade die Datei und exportiere sie mit Passwort – "
+              "danach klappt die Anmeldung mit der Datei.", "warning")
+        return redirect(url_for("auth.login"))
+
+    user = _user_from_token(info)
+    if user is None:
+        db.session.rollback()
+        flash("Zu dieser Datei passt kein Konto auf diesem Server (E-Mail-Adresse bereits vergeben). "
+              "Bitte wende dich an den Admin.", "danger")
+        return redirect(url_for("auth.login"))
+    user.last_login = datetime.now(timezone.utc)
+    db.session.commit()
+
+    session.clear()
+    login_user(user)
+    _replace_all_gradebooks(books)
+    _set_source_password(password)
+    flash(f"Angemeldet als {user.username} – {len(books)} Klasse(n) aus deiner Notendatei geladen.", "success")
+    return redirect(url_for("grades.index"))
 
 
 @auth_bp.route("/logout")
@@ -78,6 +161,59 @@ def register():
         return redirect(url_for("auth.login"))
 
     return render_template("auth/register.html", form=form)
+
+
+@auth_bp.route("/zugang/<token>", methods=["GET", "POST"])
+@limiter.limit("20 per minute")
+def zugang(token):
+    """Zugangslink: Einladung (Konto anlegen, sofort freigeschaltet) oder Passwort neu setzen."""
+    payload = zugangslinks.read_token(token)
+    if payload is None:
+        return render_template("auth/zugang.html", fehler="Dieser Link ist ungültig oder abgelaufen "
+                               "(Links gelten 14 Tage). Bitte lass dir einen neuen schicken.")
+    if db.session.get(UsedZugangslink, payload["j"]) is not None:
+        return render_template("auth/zugang.html", fehler="Dieser Link wurde bereits benutzt. "
+                               "Bitte lass dir bei Bedarf einen neuen schicken.")
+    if current_user.is_authenticated:
+        return render_template("auth/zugang.html", fehler="Du bist gerade angemeldet. Bitte melde dich zuerst ab "
+                               "und öffne den Link dann erneut – er ist noch unbenutzt.")
+
+    art = payload["a"]
+    form = RegistrationForm() if art == zugangslinks.EINLADUNG else NeuesPasswortForm()
+    if form.validate_on_submit():
+        if art == zugangslinks.EINLADUNG:
+            user = User(username=form.username.data, email=form.email.data, is_admin=False)
+            db.session.add(user)
+        else:
+            user = User.query.filter_by(username=payload["u"]).first()
+            if user is None:
+                # Link from the other server (Landkreis ↔ Notfallserver): create the account here
+                if User.query.filter_by(email=payload["e"]).first() is not None:
+                    return render_template("auth/zugang.html", fehler="Die E-Mail-Adresse dieses Kontos ist auf "
+                                           "diesem Server schon einem anderen Benutzer zugeordnet. Bitte wende dich an den Admin.")
+                user = User(username=payload["u"], email=payload["e"], is_admin=False)
+                db.session.add(user)
+        user.set_password(form.password.data)
+        user.is_approved = True
+        user.last_login = datetime.now(timezone.utc)
+        db.session.add(UsedZugangslink(jti=payload["j"], art=art))
+        try:
+            db.session.commit()
+        except IntegrityError:   # used in parallel or username/email just taken
+            db.session.rollback()
+            return render_template("auth/zugang.html", fehler="Der Link konnte nicht verwendet werden "
+                                   "(bereits benutzt oder Benutzername/E-Mail inzwischen vergeben).")
+        session.clear()
+        login_user(user)
+        if art == zugangslinks.EINLADUNG:
+            flash(f"Willkommen, {user.username}! Dein Konto ist eingerichtet. "
+                  "Trag hier noch deinen Namen ein – er erscheint auf den Notenzetteln.", "success")
+            return redirect(url_for("auth.profil"))
+        flash("Neues Passwort gespeichert – du bist angemeldet.", "success")
+        return redirect(url_for("grades.index"))
+
+    return render_template("auth/zugang.html", form=form, art=art,
+                           username=payload.get("u"))
 
 
 @auth_bp.route("/change-password", methods=["GET", "POST"])
@@ -148,8 +284,35 @@ def admin_required(f):
 @login_required
 @admin_required
 def admin_users():
+    return _render_admin_users()
+
+
+def _render_admin_users(**extra):
     users = User.query.order_by(User.created_at.desc()).all()
-    return render_template("auth/admin_users.html", users=users)
+    return render_template("auth/admin_users.html", users=users,
+                           link_server_uebergreifend=bool(current_app.config.get("FILE_LOGIN_KEY")),
+                           **extra)
+
+
+@auth_bp.route("/admin/einladung", methods=["POST"])
+@login_required
+@admin_required
+def admin_einladung():
+    """Create a single-use invitation link (account is approved right away)."""
+    return _render_admin_users(
+        neuer_link=zugangslinks.make_link(zugangslinks.EINLADUNG),
+        link_titel="Einladungslink für eine neue Kollegin / einen neuen Kollegen")
+
+
+@auth_bp.route("/admin/users/<int:user_id>/passwort-link", methods=["POST"])
+@login_required
+@admin_required
+def admin_passwort_link(user_id):
+    """Create a single-use link with which the user sets a new password."""
+    user = db.get_or_404(User, user_id)
+    return _render_admin_users(
+        neuer_link=zugangslinks.make_link(zugangslinks.PASSWORT, user),
+        link_titel=f"Link zum Passwort-Neusetzen für {user.username}")
 
 
 @auth_bp.route("/admin/users/<int:user_id>/approve", methods=["POST"])

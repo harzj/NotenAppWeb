@@ -173,6 +173,7 @@ ES_GEWICHTUNG_INFO = {
 }
 # Per-LN weights: key "gewicht|<TYP>|<SLOT>|<sheet_name>"  (TYP = KLN/MDL/GLN,
 # SLOT = SL1..SL4 for KLN/MDL, HJ1/HJ2 for GLN)
+ES_ZUGANG_KEY = "zugang"   # signed access token for "Anmelden mit Notendatei"
 ES_LN_WEIGHT_PREFIX = "gewicht"
 ES_LN_WEIGHT_STORES = {"KLN": "kln_weights", "MDL": "mdl_weights", "GLN": "gln_weights"}
 ES_KURS_KEYS = ["modus", "kurs_typ", "kurs_stunden", "kurs_gln_pct", "kurs_mdl_pct"]

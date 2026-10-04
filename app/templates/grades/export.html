@@ -39,6 +39,13 @@
               Empfohlen: gleiches Passwort wie beim Import verwenden. Ist ein Import-Passwort bekannt,
               wird es hier automatisch vorausgefüllt (maskiert).
             </div>
+            {% if zugang_aktiv %}
+            <div class="form-text">
+              <i class="bi bi-key me-1"></i>
+              Mit Passwort enthält die Datei außerdem deinen Zugriffsschlüssel: Damit kannst du dich bei einem
+              Ausfall am Notfallserver direkt mit dieser Datei anmelden. Ohne Passwort fehlt der Schlüssel.
+            </div>
+            {% endif %}
           </div>
           {{ form.submit(class="btn btn-success", **{"data-tour": "export-submit", "data-check-click": "export"}) }}
           <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>

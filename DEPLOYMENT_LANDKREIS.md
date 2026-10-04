@@ -54,6 +54,48 @@ Die App läuft auf einem internen Port (Standard 5000). Der Landkreis stellt die
 6. DATABASE_URL auf die zentrale Produktivdatenbank setzen
 7. NGROK_ENABLED=false
 
+## Update per Webhook: App neu starten
+
+Nach jedem `git pull` muss die Python-App neu gestartet werden, sonst laeuft der alte Code mit neuen Templates weiter
+(Fehler wie `BuildError: Could not build url for endpoint ...`). Unter Plesk/Passenger als zusaetzliche Bereitstellungsaktion:
+
+```
+mkdir -p tmp && touch tmp/restart.txt
+```
+
+## Anmelden mit Notendatei (Notfallserver)
+
+Exportierte Notendateien (mit Passwort) enthalten einen signierten Zugriffsschluessel. Damit koennen sich Kollegen bei
+einem Ausfall am Notfallserver (Notfall-exe) direkt mit ihrer Datei anmelden. Der Landkreis-Server schreibt den
+Schluessel nur, er nimmt selbst keine Datei-Anmeldung an.
+
+Einmalige Einrichtung:
+
+1. Die Notfall-exe legt beim ersten Start selbst einen Schluessel an:
+   `%LOCALAPPDATA%\NotenApp\dateilogin.key` (Tray-Menue "Datei-Login-Schluessel anzeigen").
+   Alternativ selbst erzeugen mit `python -c "import secrets; print(secrets.token_urlsafe(48))"` und dort ablegen
+   (auch `dateilogin.key.txt`, UTF-8 oder UTF-16 werden gelesen).
+2. Diesen Wert beim Landkreis als Umgebungsvariable `FILE_LOGIN_KEY` setzen (und App neu starten).
+
+Der Schluessel gehoert nicht ins Repository und nicht in die exe. Ein neuer Schluessel macht alle alten Dateien als
+Anmeldung ungueltig (die Noten bleiben lesbar); so laesst sich der Zugang im Notfall fuer alle sperren.
+
+## Zugangslinks (Einladung, Passwort neu setzen)
+
+Im Admin-Menue erzeugt "Einladungslink erzeugen" einen Link, mit dem sich ein Kollege selbst ein Konto anlegt
+(sofort freigeschaltet). Der Schluessel-Button je Benutzer erzeugt einen Link zum Neusetzen des Passworts.
+Links sind 14 Tage gueltig und auf jedem Server nur einmal nutzbar (Tabelle `used_zugangslinks`, wird automatisch
+angelegt). Ist `FILE_LOGIN_KEY` gesetzt, funktionieren die Links beim Landkreis und am Notfallserver.
+Fuer korrekte Adressen im Link ggf. `PUBLIC_BASE_URL` setzen (die Notfall-exe nimmt automatisch die ngrok-Domain).
+
+## Notfall-exe: Datenordner
+
+Die exe legt Benutzerdatenbank, Sessions, `secret_key`, `admin_passwort.txt` und `dateilogin.key` in
+`%LOCALAPPDATA%\NotenApp\` ab (abweichend per Umgebungsvariable `NOTENAPP_DATA_DIR`). Neue Builds in anderen
+Ordnern finden die Benutzer dadurch wieder. Eine alte `instance/` neben der exe wird beim ersten Start einmalig
+uebernommen. Auf einem frischen Datenordner bekommt der Admin ein zufaelliges Passwort (Tray-Menue
+"Admin-Passwort anzeigen").
+
 ## Fragen an den Landkreis
 
 1. Welches Hosting-Modell wird genutzt: VM, Container, Kubernetes, IIS, Nginx, Apache?

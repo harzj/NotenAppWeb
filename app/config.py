@@ -1,6 +1,7 @@
 import os
-import sys
 from datetime import timedelta
+
+from app import paths
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -12,14 +13,9 @@ def _env_bool(name: str, default: bool) -> bool:
         return default
     return val in {"1", "true", "yes", "on"}
 
-# When frozen by PyInstaller, instance/ lives next to the .exe (persistent).
-# During normal development it lives at the repo root.
-if getattr(sys, "frozen", False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
+# From source: instance/ at the repo root. As exe: in the fixed data folder
+# (%LOCALAPPDATA%\NotenApp or NOTENAPP_DATA_DIR), see app/paths.py.
+INSTANCE_DIR = paths.instance_dir()
 SESSION_DIR = os.path.join(INSTANCE_DIR, "sessions")
 
 

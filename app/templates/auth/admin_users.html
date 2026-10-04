@@ -2,7 +2,35 @@
 {% from "macros.html" import csrf_field %}
 {% block title %}Benutzerverwaltung – Admin{% endblock %}
 {% block content %}
-<h4 class="mb-4"><i class="bi bi-shield-lock me-2"></i>Benutzerverwaltung</h4>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <h4 class="mb-0"><i class="bi bi-shield-lock me-2"></i>Benutzerverwaltung</h4>
+  <form method="post" action="{{ url_for('auth.admin_einladung') }}">
+    {{ csrf_field() }}
+    <button class="btn btn-primary"><i class="bi bi-envelope-plus me-1"></i>Einladungslink erzeugen</button>
+  </form>
+</div>
+
+{% if neuer_link %}
+<div class="card border-success shadow-sm mb-4" id="neuerLink">
+  <div class="card-body">
+    <h6 class="card-title text-success"><i class="bi bi-link-45deg me-1"></i>{{ link_titel }}</h6>
+    <div class="input-group mb-2">
+      <input type="text" class="form-control font-monospace small" id="linkFeld" value="{{ neuer_link }}" readonly>
+      <button class="btn btn-success" type="button" id="btnLinkKopieren"><i class="bi bi-clipboard me-1"></i>Kopieren</button>
+    </div>
+    <div class="small text-muted">
+      Einmal benutzbar, 14 Tage gültig.
+      {% if link_server_uebergreifend %}Funktioniert beim Landkreis und am Notfallserver.{% else %}Funktioniert nur auf diesem Server
+      (für beide Server muss <code>FILE_LOGIN_KEY</code> gesetzt sein).{% endif %}
+      Schick ihn per Dienstmail oder Messenger – wer den Link hat, kann ihn benutzen.
+      {% if 'localhost' in neuer_link or '127.0.0.1' in neuer_link %}
+      <div class="text-danger mt-1"><i class="bi bi-exclamation-triangle me-1"></i>Der Link enthält „localhost“ und funktioniert so nur auf diesem Rechner.
+        Öffne die Admin-Seite über die öffentliche Adresse oder setze <code>PUBLIC_BASE_URL</code>.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div class="table-responsive">
 <table class="table table-bordered table-hover align-middle">
@@ -58,6 +86,10 @@
             <button class="btn btn-warning" title="Sperren"><i class="bi bi-slash-circle"></i></button>
           </form>
           {% endif %}
+          <form method="post" action="{{ url_for('auth.admin_passwort_link', user_id=u.id) }}" class="d-inline">
+            {{ csrf_field() }}
+            <button class="btn btn-outline-primary" title="Link zum Passwort-Neusetzen erzeugen"><i class="bi bi-key"></i></button>
+          </form>
           <form method="post" action="{{ url_for('auth.toggle_admin', user_id=u.id) }}" class="d-inline">
             {{ csrf_field() }}
             <button class="btn btn-outline-secondary" title="Admin umschalten"><i class="bi bi-shield"></i></button>
@@ -76,4 +108,15 @@
   </tbody>
 </table>
 </div>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.getElementById('btnLinkKopieren')?.addEventListener('click', async (e) => {
+  const feld = document.getElementById('linkFeld');
+  try { await navigator.clipboard.writeText(feld.value); }
+  catch (err) { feld.select(); document.execCommand('copy'); }
+  e.currentTarget.innerHTML = '<i class="bi bi-check-lg me-1"></i>Kopiert';
+});
+document.getElementById('neuerLink')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+</script>
 {% endblock %}

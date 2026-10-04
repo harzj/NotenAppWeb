@@ -1,4 +1,5 @@
 import os
+import secrets
 import shutil
 import sys
 from flask import Flask
@@ -6,6 +7,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import config_by_name
 from app.extensions import db, login_manager, sess, csrf, limiter
 from app.versioning import format_version, load_version_data
+from app import paths
 
 
 def _display_schuljahr(schuljahr: str | None, schuljahr_bis: str | None = None) -> str:
@@ -46,6 +48,38 @@ def _sync_static(src: str, dst: str) -> None:
                 shutil.copy2(os.path.join(dirpath, name), target)
 
 
+def _read_or_create_secret(path: str, nbytes: int = 48) -> str:
+    """Return the secret stored in *path*; create a random one on first use."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            value = f.read().strip()
+        if value:
+            return value
+    except FileNotFoundError:
+        pass
+    value = secrets.token_urlsafe(nbytes)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(value + "\n")
+    return value
+
+
+def _prepare_frozen(app: Flask) -> None:
+    """exe only: fixed data folder, own secret key, no debug mode."""
+    os.makedirs(paths.instance_dir(), exist_ok=True)
+    # One-time takeover of the user database from the old location next to the exe
+    old_db = os.path.join(paths.exe_dir(), "instance", "app.db")
+    new_db = os.path.join(paths.instance_dir(), "app.db")
+    if (not os.environ.get("DATABASE_URL") and os.path.exists(old_db)
+            and not os.path.exists(new_db)):
+        shutil.copy2(old_db, new_db)
+        print(f"[INFO] Benutzerdatenbank übernommen: {old_db} -> {new_db}")
+    if not os.environ.get("SECRET_KEY"):
+        app.config["SECRET_KEY"] = _read_or_create_secret(paths.data_file("secret_key"))
+    app.config["DEBUG"] = False
+    print(f"[INFO] Datenordner: {paths.data_dir()}")
+
+
 def create_app(config_name: str | None = None) -> Flask:
     if config_name is None:
         config_name = os.environ.get("FLASK_ENV", "default")
@@ -69,6 +103,15 @@ def create_app(config_name: str | None = None) -> Flask:
         **({"static_folder": static_folder} if static_folder else {}),
     )
     app.config.from_object(config_by_name[config_name])
+    if paths.is_frozen():
+        _prepare_frozen(app)
+
+    # Anmelden mit Notendatei: the key signs access tokens written into exported
+    # files; accepting such a login is only enabled where configured (Notfall-exe).
+    from app.auth import dateilogin
+    app.config["FILE_LOGIN_KEY"] = dateilogin.load_key()
+    app.config["FILE_LOGIN_WANTED"] = dateilogin.accept_enabled()
+    app.config["FILE_LOGIN_ACCEPT"] = bool(app.config["FILE_LOGIN_KEY"]) and app.config["FILE_LOGIN_WANTED"]
 
     if app.config.get("TRUST_PROXY"):
         app.wsgi_app = ProxyFix(
@@ -177,7 +220,20 @@ def _ensure_admin_exists() -> None:
             is_approved=True,
             is_admin=True,
         )
-        admin.set_password("admin")  # Must be changed on first login
+        if paths.is_frozen():
+            # The exe may be reachable via ngrok: never start with admin/admin
+            password = secrets.token_urlsafe(9)
+            pw_file = paths.data_file("admin_passwort.txt")
+            with open(pw_file, "w", encoding="utf-8") as f:
+                f.write(
+                    "NotenApp – Zugang für den Admin\n\n"
+                    f"Benutzername: admin\nPasswort:     {password}\n\n"
+                    "Bitte nach dem ersten Login unter „Passwort“ ändern und diese Datei löschen.\n"
+                )
+            print(f"[INFO] Admin angelegt: admin / {password}  (auch in {pw_file})")
+        else:
+            password = "admin"  # Must be changed on first login
+            print("[INFO] Default admin created: username=admin password=admin — CHANGE IMMEDIATELY")
+        admin.set_password(password)
         db.session.add(admin)
         db.session.commit()
-        print("[INFO] Default admin created: username=admin password=admin — CHANGE IMMEDIATELY")

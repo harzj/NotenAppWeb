@@ -8,7 +8,7 @@ import zipfile
 from datetime import date, datetime
 from flask import (
     Blueprint, render_template, redirect, url_for,
-    flash, request, session, send_file, abort, jsonify,
+    flash, request, session, send_file, abort, jsonify, current_app,
 )
 from flask_login import login_required, current_user
 from app.excel.reader import load_gradebook, ExcelReadError, schuljahr_from_date, parse_korn_csv, korn_class_sort_key
@@ -23,6 +23,7 @@ from app.grades.forms import (
 from app.grades import moodle as moodle_parser
 from app.grades import berechnung
 from app.grades import gewichtung as gewichtung_ui
+from app.auth import dateilogin
 from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
 from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_zettel_pdf
 
@@ -76,6 +77,7 @@ def _save_gradebook(data: dict) -> None:
 
 def _add_gradebook(data: dict) -> int:
     """Append a new class/course to the open collection and make it the active one."""
+    data.pop("_zugang", None)
     _sort_stammdaten(data)
     books = _get_gradebooks()
     books.append(data)
@@ -88,6 +90,7 @@ def _add_gradebook(data: dict) -> int:
 def _replace_all_gradebooks(data_list: list[dict]) -> None:
     """Discard all open classes and replace them with a new set (e.g. from a .zip import)."""
     for d in data_list:
+        d.pop("_zugang", None)
         _sort_stammdaten(d)
     session[GRADEBOOKS_KEY] = data_list
     session[ACTIVE_IDX_KEY] = 0
@@ -2936,29 +2939,45 @@ def _build_zip_export(books: list[dict], password: str | None) -> bytes:
     return buf.getvalue()
 
 
+def _with_zugang(books: list[dict], password: str | None) -> list[dict]:
+    """Copies of *books* carrying the access token for "Anmelden mit Notendatei".
+
+    Only for password-protected exports: in an unencrypted file the token could
+    be used by anyone who gets hold of the file.
+    """
+    key = current_app.config.get("FILE_LOGIN_KEY")
+    if not key or not password or not current_user.is_approved:
+        return books
+    token = dateilogin.make_token(current_user, key)
+    return [{**b, "_zugang": token} for b in books]
+
+
 @grades_bp.route("/export/excel", methods=["GET", "POST"])
 @login_required
 def export_excel():
     _require_gradebook()  # ensures at least one class is open
     books = _get_gradebooks()
+    zugang_aktiv = bool(current_app.config.get("FILE_LOGIN_KEY"))
     form = ExportForm()
     if request.method == "GET":
         # Pre-fill with the password the active file was loaded/exported with.
         form.password.data = session.get(_SOURCE_PW_KEY) or ""
     if form.validate_on_submit():
         password = form.password.data or None
+        export_books = _with_zugang(books, password)
         try:
             if len(books) > 1:
-                file_bytes = _build_zip_export(books, password)
+                file_bytes = _build_zip_export(export_books, password)
                 filename = f"Noten_Sammlung_{datetime.now().strftime('%Y%m%d')}.zip"
                 mimetype = "application/zip"
             else:
-                file_bytes = build_gradebook(books[0], password=password)
+                file_bytes = build_gradebook(export_books[0], password=password)
                 filename = _gradebook_export_filename(books[0])
                 mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         except Exception as e:
             flash(f"Fehler beim Export: {e}", "danger")
-            return render_template("grades/export.html", form=form, n_classes=len(books))
+            return render_template("grades/export.html", form=form, n_classes=len(books),
+                                   zugang_aktiv=zugang_aktiv)
         _set_source_password(password)
         return send_file(
             io.BytesIO(file_bytes),
@@ -2966,7 +2985,8 @@ def export_excel():
             as_attachment=True,
             mimetype=mimetype,
         )
-    return render_template("grades/export.html", form=form, n_classes=len(books))
+    return render_template("grades/export.html", form=form, n_classes=len(books),
+                           zugang_aktiv=zugang_aktiv)
 
 
 # ── Klasseneinstellungen ──────────────────────────────────────────────────────

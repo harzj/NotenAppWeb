@@ -33,6 +33,19 @@ class User(UserMixin, db.Model):
         return f"<User {self.username}>"
 
 
+class UsedZugangslink(db.Model):
+    """Remembers access links (Einladung / Passwort neu setzen) that were already used.
+
+    The links themselves are signed tokens (app/auth/zugangslinks.py); this table only
+    makes each link single-use on this server.
+    """
+    __tablename__ = "used_zugangslinks"
+
+    jti = db.Column(db.String(32), primary_key=True)
+    art = db.Column(db.String(16), nullable=False)
+    used_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
 @login_manager.user_loader
 def load_user(user_id: str):
     return db.session.get(User, int(user_id))
