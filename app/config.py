@@ -45,6 +45,8 @@ class Config:
     SESSION_TYPE = "filesystem"
     SESSION_FILE_DIR = SESSION_DIR
     SESSION_PERMANENT = True
+    # Only write the session when it changed (see app/session_guard.py)
+    SESSION_REFRESH_EACH_REQUEST = False
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"

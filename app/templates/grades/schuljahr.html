@@ -137,7 +137,7 @@
       <td class="text-center {{ 'aufnahme-cell' if row.is_aufnahme_hj2 else '' }}">
         {% if row.is_aufnahme_hj2 %}–
         {% elif c.note_15 is not none %}
-          <span class="{{ 'text-muted text-decoration-line-through' if c.ignoriert else ('text-danger' if c.note_15 < rot_schwelle else '') }}">{{ c.note_15 }}</span>
+          <span class="{{ 'text-muted text-decoration-line-through' if c.ignoriert else ('text-danger' if c.note_15 < rot_schwelle else '') }}">{{ c.note_15 }}</span>{% if c.nt %}<sup class="text-muted" title="Note aus dem Nachtermin">NT</sup>{% endif %}
         {% endif %}
       </td>
       {% endfor %}
@@ -167,7 +167,7 @@
         {% if row.is_abgaenger_hj1 %}
           –
         {% elif c.note_15 is not none %}
-          <span class="{{ 'text-muted text-decoration-line-through' if c.ignoriert else ('text-danger' if c.note_15 < rot_schwelle else '') }}">{{ c.note_15 }}</span>
+          <span class="{{ 'text-muted text-decoration-line-through' if c.ignoriert else ('text-danger' if c.note_15 < rot_schwelle else '') }}">{{ c.note_15 }}</span>{% if c.nt %}<sup class="text-muted" title="Note aus dem Nachtermin">NT</sup>{% endif %}
         {% endif %}
       </td>
       {% endfor %}

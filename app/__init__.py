@@ -140,6 +140,8 @@ def create_app(config_name: str | None = None) -> Flask:
     db.init_app(app)
     login_manager.init_app(app)
     sess.init_app(app)
+    from app import session_guard
+    session_guard.install(app)
     csrf.init_app(app)
     limiter.init_app(app)
 

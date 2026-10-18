@@ -190,4 +190,99 @@ elif name == "links_b":
     pfad = links["einladung"].split("://", 1)[1].split("/", 1)[1]
     out["einladung_b"] = "Konto einrichten" in c.get("/" + pfad).get_data(as_text=True)
 
+elif name == "nachtermin":
+    # Nachtermine: Auswahl, mehrere pro LN, Haupttermin hat Vorrang, Export/Import
+    from app.excel.reader import load_gradebook
+    from app.grades import berechnung as B
+    app = _app()
+    c = app.test_client()
+    _login(c)
+    c.get("/demo-beispielklasse")
+
+    def book():
+        with c.session_transaction() as s:
+            return s["gradebooks"][s.get("active_gradebook_idx", 0)]
+
+    d = book()
+    idx = next(i for i, ln in enumerate(d["leistungsnachweise"]) if ln["ln_typ"] == "KLN")
+    parent = d["leistungsnachweise"][idx]
+    ohne = [s["name"] for s in parent["schueler"] if s.get("note_15") is None]
+    mit = next(s["name"] for s in parent["schueler"] if s.get("note_15") is not None)
+    note_mit = next(s["note_15"] for s in parent["schueler"] if s["name"] == mit)
+    out["kandidaten_seite"] = all(n in c.get(f"/ln/{idx}").get_data(as_text=True) for n in ohne)
+
+    # Nachtermin 1 nur für den ersten Fehlenden; der benotete Schüler wird abgewiesen
+    c.post(f"/ln/{idx}/nachtermin/anlegen", data={"student": [ohne[0], mit]})
+    d = book()
+    nts = B.nachtermine_for(d["leistungsnachweise"][idx], d["leistungsnachweise"])
+    out["nt1_schueler"] = [s["name"] for s in nts[0]["schueler"]]
+    nt1_idx = d["leistungsnachweise"].index(nts[0])
+    max_p = [a["max_punkte"] for a in nts[0]["aufgaben"]]
+    c.post(f"/ln/{nt1_idx}/noten", json={"schueler": [{"name": ohne[0], "punkte": max_p},
+                                                      {"name": mit, "punkte": [0] * len(max_p)}]})
+    d = book()
+    lns = d["leistungsnachweise"]
+    out["eff_nt"] = B.effective_entry(ohne[0], lns[idx], lns)
+    out["eff_mit"] = B.effective_entry(mit, lns[idx], lns)[0] == note_mit
+
+    # Nachtermin 2: der in NT 1 Benotete steht nicht mehr zur Auswahl
+    c.post(f"/ln/{idx}/nachtermin/anlegen", data={"student": ohne})
+    d = book()
+    nts = B.nachtermine_for(d["leistungsnachweise"][idx], d["leistungsnachweise"])
+    out["nt_anzahl"] = len(nts)
+    out["nt2_schueler"] = [s["name"] for s in nts[1]["schueler"]]
+    out["sheets"] = [nt["sheet_name"] for nt in nts]
+
+    seiten = [f"/ln/{idx}", f"/ln/{idx}/nachtermin/1", f"/ln/{idx}/nachtermin/2", "/ln",
+              "/uebersicht/hj1", "/uebersicht/hj2", "/uebersicht/schuljahr", "/sl/SL3", "/sl/SL4",
+              "/uebersicht/hj2/drucken", "/uebersicht/schuljahr/drucken"]
+    out["status"] = {p: c.get(p).status_code for p in seiten}
+    out["nt_als_ln_umgeleitet"] = c.get(f"/ln/{nt1_idx}").status_code == 302
+    out["ln_liste_karten"] = c.get("/ln").get_data(as_text=True).count("bi-pencil")
+
+    # Export und wieder laden: Nachtermin-Note zählt weiter
+    r = c.post("/export/excel", data={"password": ""})
+    d2 = load_gradebook(r.data, None)
+    lns2 = d2["leistungsnachweise"]
+    p2 = next(ln for ln in lns2 if ln["sheet_name"] == parent["sheet_name"])
+    out["reload_eff"] = B.effective_entry(ohne[0], p2, lns2)
+    out["reload_nt"] = len(B.nachtermine_for(p2, lns2))
+
+    # Zu früh angelegter Nachtermin (Altbestand): Benotete werden beim Öffnen entfernt
+    with c.session_transaction() as s:
+        b = s["gradebooks"][s.get("active_gradebook_idx", 0)]
+        nt = B.nachtermine_for(b["leistungsnachweise"][idx], b["leistungsnachweise"])[1]
+        nt["schueler"].append({"name": mit, "punkte": [], "note_15": None, "note_6": None})
+    c.get(f"/ln/{idx}")
+    d = book()
+    nt = B.nachtermine_for(d["leistungsnachweise"][idx], d["leistungsnachweise"])[1]
+    out["bereinigt"] = mit not in [s["name"] for s in nt["schueler"]]
+
+    # Löschen: einzelner Nachtermin, dann LN samt Nachterminen
+    c.post(f"/ln/{idx}/nachtermin/1/loeschen")
+    d = book()
+    out["nach_nt_loeschen"] = len(B.nachtermine_for(d["leistungsnachweise"][idx], d["leistungsnachweise"]))
+    c.post(f"/ln/{idx}/loeschen")
+    d = book()
+    out["verwaist"] = sum(1 for ln in d["leistungsnachweise"]
+                          if ln.get("nachtermin_von") == parent["sheet_name"])
+
+elif name == "session":
+    # Unveränderte Session wird nicht zurückgeschrieben (sonst überschreibt ein
+    # paralleler Seitenaufruf gerade gespeicherte Noten)
+    app = _app()
+    c = app.test_client()
+    _login(c)
+    c.get("/demo-beispielklasse")
+    c.get("/")  # consumes the flash message (a real change)
+    iface = app.session_interface
+    writes = []
+    orig = iface._upsert_session
+    iface._upsert_session = lambda *a, **k: (writes.append(1), orig(*a, **k))
+    c.get("/ln")
+    c.get("/uebersicht/schuljahr")
+    out["writes_lesend"] = len(writes)
+    c.post("/ln/1/noten", json={"schueler": []})
+    out["writes_schreibend"] = len(writes)
+
 print(json.dumps(out))

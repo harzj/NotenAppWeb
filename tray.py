@@ -100,6 +100,19 @@ _log_handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(nam
 logging.getLogger().addHandler(_log_handler)
 logging.getLogger().setLevel(logging.INFO)
 
+# Fehler (z.B. "Internal Server Error" mit Traceback) zusätzlich dauerhaft im
+# Datenordner ablegen, damit sie sich auch nach einem Neustart nachvollziehen lassen.
+try:
+    from logging.handlers import RotatingFileHandler
+    os.makedirs(paths.instance_dir(), exist_ok=True)
+    _file_handler = RotatingFileHandler(os.path.join(paths.instance_dir(), "fehler.log"),
+                                        maxBytes=2_000_000, backupCount=2, encoding="utf-8")
+    _file_handler.setLevel(logging.WARNING)
+    _file_handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s: %(message)s"))
+    logging.getLogger().addHandler(_file_handler)
+except OSError:
+    pass
+
 APP_VERSION = format_version(load_version_data())
 
 
