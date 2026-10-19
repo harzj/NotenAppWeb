@@ -15,21 +15,6 @@ SHEET_NOTEN_ZUSATZ = "Noten_Zusatz"    # hidden: mdl/sl/hj/sj actual notes
 SHEET_EINSTELLUNGEN = "Einstellungen"  # hidden: sl_gewichtung
 
 LN_SHEET_PREFIX = "LN_"
-SHEET_NAME_MAX = 31                     # Excel limit for sheet names
-SHEET_NAME_INVALID = set("[]:*?/\\")   # characters Excel does not allow
-
-
-def safe_sheet_name(name: str, taken: set[str]) -> str:
-    """Return a valid, unused Excel sheet name based on *name* and add it to
-    *taken* (lower-case, Excel compares case-insensitively)."""
-    base = "".join("_" if c in SHEET_NAME_INVALID else c for c in name).strip("'")[:SHEET_NAME_MAX]
-    candidate, nr = base, 2
-    while candidate.lower() in taken:
-        suffix = f"~{nr}"
-        candidate = base[:SHEET_NAME_MAX - len(suffix)] + suffix
-        nr += 1
-    taken.add(candidate.lower())
-    return candidate
 LN_TYP_ABT = "ABT"  # Abiturprüfung
 LN_TYP_MDL = "MDL"  # mündliche Teilnote (Note direkt, ohne Aufgaben)
 
@@ -188,7 +173,6 @@ ES_GEWICHTUNG_INFO = {
 }
 # Per-LN weights: key "gewicht|<TYP>|<SLOT>|<sheet_name>"  (TYP = KLN/MDL/GLN,
 # SLOT = SL1..SL4 for KLN/MDL, HJ1/HJ2 for GLN)
-ES_ZUGANG_KEY = "zugang"   # signed access token for "Anmelden mit Notendatei"
 ES_LN_WEIGHT_PREFIX = "gewicht"
 ES_LN_WEIGHT_STORES = {"KLN": "kln_weights", "MDL": "mdl_weights", "GLN": "gln_weights"}
 ES_KURS_KEYS = ["modus", "kurs_typ", "kurs_stunden", "kurs_gln_pct", "kurs_mdl_pct"]

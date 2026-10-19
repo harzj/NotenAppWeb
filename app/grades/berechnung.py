@@ -73,43 +73,31 @@ def get_gln_weights(data: dict, hj_key: str) -> dict:
 
 # ── KLN / GLN note extraction ─────────────────────────────────────────────────
 
-def nachtermine_for(ln: dict, lns: list) -> list[dict]:
-    """Return the Nachtermine (NT LNs) of a parent LN, in creation order."""
-    sheet = ln.get("sheet_name")
-    return [nt for nt in lns if sheet and nt.get("nachtermin_von") == sheet]
-
-
-def student_row(ln: dict, student_name: str) -> dict | None:
-    for s in ln.get("schueler", []):
-        if s["name"] == student_name:
-            return s
-    return None
-
-
-def effective_entry(student_name: str, ln: dict, all_lns: list) -> tuple[float | None, bool, int | None]:
-    """Return (note, ignoriert, nt_nr) of a student for a (parent) LN.
-
-    A student takes part either in the Haupttermin or in one Nachtermin: a grade
-    from the Haupttermin always wins; otherwise the first Nachtermin with a grade
-    counts (nt_nr = its 1-based number). A student ignored in the Haupttermin
-    still counts if graded in a Nachtermin.
-    """
-    s = student_row(ln, student_name)
-    if s is None:
-        return None, False, None
-    ignoriert = bool(s.get("ignoriert"))
-    if s.get("note_15") is not None and not ignoriert:
-        return float(s["note_15"]), False, None
-    for nr, nt in enumerate(nachtermine_for(ln, all_lns), start=1):
-        ns = student_row(nt, student_name)
-        if ns and not ns.get("ignoriert") and ns.get("note_15") is not None:
-            return float(ns["note_15"]), False, nr
-    return None, ignoriert, None
-
-
 def _effective_note(student_name: str, ln: dict, all_lns: list) -> float | None:
-    """Effective note of a student in a parent LN (Haupttermin or Nachtermin)."""
-    return effective_entry(student_name, ln, all_lns)[0]
+    """Return the effective note for a student in a (parent) LN.
+
+    If the student has no grade in the parent, check if there is a linked
+    Nachtermin (NT) LN – and return the NT grade instead.
+    Ignores students marked as ignored in either.
+    """
+    # Look for student in parent LN
+    for s in ln.get("schueler", []):
+        if s["name"] != student_name:
+            continue
+        if s.get("ignoriert"):
+            return None
+        if s.get("note_15") is not None:
+            return float(s["note_15"])
+        # Student in parent but no grade – check NT
+        nt_sheet = ln["sheet_name"] + "_NT"
+        for nt in all_lns:
+            if nt.get("sheet_name") == nt_sheet:
+                for ns in nt.get("schueler", []):
+                    if ns["name"] == student_name and not ns.get("ignoriert"):
+                        if ns.get("note_15") is not None:
+                            return float(ns["note_15"])
+        return None
+    return None
 
 
 def kln_notes_for_sl(student_name: str, sl_key: str, lns: list) -> list[float]:

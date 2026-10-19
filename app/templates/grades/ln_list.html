@@ -24,7 +24,6 @@
 {% if lns %}
 <div class="row g-3">
   {% for ln in lns %}
-  {% if not ln.nachtermin_von %}
   <div class="col-md-4">
     <div class="card shadow-sm h-100">
       <div class="card-body">
@@ -53,11 +52,6 @@
         <ul class="list-unstyled small text-muted mb-3 mt-2">
           {% if ln.datum %}<li><i class="bi bi-calendar-event me-1"></i>{{ ln.datum | datum_kurz }}</li>{% endif %}
           <li><i class="bi bi-people me-1"></i>{{ ln.schueler | length }} Schüler</li>
-          {% if nt_count.get(ln.sheet_name) %}
-          <li><i class="bi bi-calendar2-plus me-1"></i>
-            {{ nt_count[ln.sheet_name] }} Nachtermin{{ 'e' if nt_count[ln.sheet_name] > 1 else '' }}
-          </li>
-          {% endif %}
           {% if ln.ln_typ == 'MDL' %}
           <li><i class="bi bi-chat-dots me-1"></i>
             {{ ln.schueler | rejectattr('note_15', 'none') | list | length }} Noten vergeben
@@ -74,7 +68,7 @@
             <i class="bi bi-pencil"></i> Bearbeiten
           </a>
           <form method="post" action="{{ url_for('grades.ln_loeschen', ln_idx=loop.index0) }}"
-                onsubmit="return confirm('Leistungsnachweis{{ ' samt Nachterminen' if nt_count.get(ln.sheet_name) else '' }} wirklich löschen?')">
+                onsubmit="return confirm('Leistungsnachweis wirklich löschen?')">
             {{ csrf_field() }}
             <button class="btn btn-sm btn-outline-danger">
               <i class="bi bi-trash"></i>
@@ -84,7 +78,6 @@
       </div>
     </div>
   </div>
-  {% endif %}
   {% endfor %}
 </div>
 {% else %}

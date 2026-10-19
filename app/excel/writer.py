@@ -4,7 +4,6 @@ Formulas are written as formula strings so Excel recalculates on open.
 """
 from __future__ import annotations
 
-import copy
 import io
 from typing import Any
 
@@ -33,7 +32,6 @@ def build_gradebook(data: dict, password: str | None = None) -> bytes:
     If *password* is given the file is encrypted with Excel workbook protection.
     Returns raw bytes suitable for a file download.
     """
-    data = _with_valid_sheet_names(data)
     wb = Workbook()
     wb.remove(wb.active)  # remove default sheet
 
@@ -66,34 +64,6 @@ def build_gradebook(data: dict, password: str | None = None) -> bytes:
     if password:
         return _encrypt(raw, password)
     return raw.getvalue()
-
-
-def _with_valid_sheet_names(data: dict) -> dict:
-    """Excel rejects sheet names > 31 characters or with []:*?/\ (openpyxl even
-    raises on the latter). Return *data* unchanged if all LN sheet names are
-    valid, else a copy with renamed sheets and all references updated."""
-    lns = data.get("leistungsnachweise", [])
-    taken = {n.lower() for n in (S.SHEET_STAMMDATEN, S.SHEET_NOTENTABELLE, S.SHEET_UEBERSICHT_HJ1,
-                                 S.SHEET_UEBERSICHT_HJ2, S.SHEET_UEBERSICHT_HJ3, S.SHEET_UEBERSICHT_HJ4,
-                                 S.SHEET_UEBERSICHT_JAHR, S.SHEET_NOTEN_ZUSATZ, S.SHEET_EINSTELLUNGEN)}
-    rename = {}
-    for ln in lns:
-        old = ln["sheet_name"]
-        new = S.safe_sheet_name(old, taken)
-        if new != old:
-            rename[old] = new
-    if not rename:
-        return data
-    data = copy.deepcopy(data)
-    for ln in data["leistungsnachweise"]:
-        ln["sheet_name"] = rename.get(ln["sheet_name"], ln["sheet_name"])
-        if ln.get("nachtermin_von"):
-            ln["nachtermin_von"] = rename.get(ln["nachtermin_von"], ln["nachtermin_von"])
-    for store in S.ES_LN_WEIGHT_STORES.values():
-        for slot, weights in (data.get(store) or {}).items():
-            if weights:
-                data[store][slot] = {rename.get(k, k): v for k, v in weights.items()}
-    return data
 
 
 # ── Stammdaten ────────────────────────────────────────────────────────────────
@@ -235,8 +205,7 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
         if n_tasks > 0:
             ws.cell(row, col_note15,
                 _note15_formula(gesamt_letter, row_letter,
-                                gesamt_letter, str(S.LN_ROW_MAX), nt_sheet,
-                                points_range=f"{task_start_letter}{row_letter}:{task_end_letter}{row_letter}"))
+                                gesamt_letter, str(S.LN_ROW_MAX), nt_sheet))
             ws.cell(row, col_note6,
                 _note6_formula(get_column_letter(col_note15), row_letter))
         elif s.get("note_15") is not None:
@@ -259,8 +228,7 @@ def _write_ln_sheet(wb: Workbook, ln: dict, name_to_sd_row: dict | None = None) 
     _autofit(ws)
 
 
-def _note15_formula(gesamt_col: str, row: str, max_col: str, max_row: str, nt_sheet: str = "",
-                    points_range: str = "") -> str:
+def _note15_formula(gesamt_col: str, row: str, max_col: str, max_row: str, nt_sheet: str = "") -> str:
     """
     Self-contained nested-IF mapping achieved/max → note 0-15.
     Does not require the Notentabelle sheet (works in all Excel versions).
@@ -275,9 +243,6 @@ def _note15_formula(gesamt_col: str, row: str, max_col: str, max_row: str, nt_sh
     result = "0"
     for threshold, note in reversed(S.GRADE_SCALE[:-1]):
         result = f"IF({pct}>={threshold},{note},{result})"
-    if points_range:
-        # Nothing entered (e.g. absent, Nachtermin): empty instead of 0 points
-        return f'=IF(COUNT({points_range})=0,"",IF({maximum}=0,0,{result}))'
     return f"=IF({maximum}=0,0,{result})"
 
 
@@ -285,12 +250,11 @@ def _note6_formula(note15_col: str, row: str) -> str:
     """Map note 0-15 to note 1-6 using nested IFs."""
     c = f"{note15_col}{row}"
     return (
-        f'=IF({c}="","",'
-        f"IF({c}>=13,1,"
+        f"=IF({c}>=13,1,"
         f"IF({c}>=10,2,"
         f"IF({c}>=7,3,"
         f"IF({c}>=4,4,"
-        f"IF({c}>=1,5,6))))))"
+        f"IF({c}>=1,5,6)))))"
     )
 
 
@@ -399,24 +363,15 @@ def _build_uebersicht_from_ln(wb: Workbook, ws, data: dict, sheet_name: str) -> 
 
         for ln_idx, ln in enumerate(lns):
             col = ln_idx + 2
+            ln_ws_name = ln["sheet_name"]
             # Find student row in LN sheet
-            refs = []
-            for src in [ln] + berechnung.nachtermine_for(ln, all_lns):
-                src_row = _find_student_row_in_ln(src, full_name)
-                if src_row is not None:
-                    n_tasks = len(src.get("aufgaben", []))
-                    note15_col = get_column_letter(S.LN_COL_TASKS_START + n_tasks + 1)
-                    refs.append(f"'{src['sheet_name']}'!{note15_col}{src_row}")
-            if not refs:
-                ws.cell(row, col, "")
-            elif len(refs) == 1:
-                ws.cell(row, col, f"={refs[0]}")
+            ln_student_row = _find_student_row_in_ln(ln, full_name)
+            if ln_student_row is not None:
+                n_tasks = len(ln.get("aufgaben", []))
+                note15_col = get_column_letter(S.LN_COL_TASKS_START + n_tasks + 1)
+                ws.cell(row, col, f"='{ln_ws_name}'!{note15_col}{ln_student_row}")
             else:
-                # Haupttermin, else the first Nachtermin with a grade
-                expr = '""'
-                for ref in reversed(refs):
-                    expr = f'IF({ref}<>"",{ref},{expr})'
-                ws.cell(row, col, f"={expr}")
+                ws.cell(row, col, "")
 
         # Weighted average (simple mean here; weights can be extended)
         if lns:
@@ -530,11 +485,6 @@ def _write_einstellungen(wb: Workbook, data: dict) -> None:
     for key in S.ES_KURS_KEYS:
         ws.cell(row, S.ES_COL_KEY,   key)
         ws.cell(row, S.ES_COL_VALUE, kurs_vals.get(key))
-        row += 1
-    if data.get("_zugang"):
-        ws.cell(row, S.ES_COL_KEY,   S.ES_ZUGANG_KEY)
-        ws.cell(row, S.ES_COL_VALUE, data["_zugang"])
-        ws.cell(row, S.ES_COL_INFO,  "Zugriffsschlüssel für die Anmeldung mit dieser Datei – nicht verändern")
         row += 1
 
 
