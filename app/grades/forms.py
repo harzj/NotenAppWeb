@@ -50,10 +50,6 @@ LN_TYP_CHOICES = [
     ("KLN", "KLN – Kleiner Leistungsnachweis"),
     ("ABT", "ABT – Abiturprüfung"),
 ]
-# Only for manually created LNs: a mündliche Note has no points to import
-NEW_LN_TYP_CHOICES = LN_TYP_CHOICES[:2] + [
-    ("MDL", "Mündliche Note – direkt vergebene Teilnote"),
-] + LN_TYP_CHOICES[2:]
 HJ_CHOICES = [("HJ1", "Halbjahr 1"), ("HJ2", "Halbjahr 2")]
 SL_CHOICES = [
     ("SL1", "SL1 (HJ1 – Note 1)"),
@@ -70,12 +66,12 @@ GLN_SLOT_CHOICES = [
 
 
 class NewLNForm(FlaskForm):
-    name = StringField("Bezeichnung", validators=[DataRequired(message="Bitte eine Bezeichnung eingeben."), Length(max=80)])
+    name = StringField("Bezeichnung (z.B. Klausur 1)", validators=[DataRequired(), Length(max=80)])
     thema = StringField("Thema (optional)", validators=[Optional(), Length(max=200)])
-    datum = StringField("Datum (optional)", validators=[Optional(), Length(max=20)])  # <input type=date>: YYYY-MM-DD
-    ln_typ = SelectField("Typ", choices=NEW_LN_TYP_CHOICES, default="GLN")
+    datum = StringField("Datum (optional, z.B. 2025-05-25)", validators=[Optional(), Length(max=20)])
+    ln_typ = SelectField("Typ", choices=LN_TYP_CHOICES, default="GLN")
     hj = SelectField("Halbjahr (für GLN)", choices=HJ_CHOICES, default="HJ1")
-    sl_zuordnung = SelectField("SL-Zuordnung", choices=SL_CHOICES, default="SL1")
+    sl_zuordnung = SelectField("SL-Zuordnung (für KLN)", choices=SL_CHOICES, default="SL1")
     gln_slot = SelectField("GLN-Slot (Kurs)", choices=GLN_SLOT_CHOICES, default="GLN1")
     submit = SubmitField("Leistungsnachweis anlegen")
 
@@ -120,6 +116,33 @@ class KlassenEinstellungenForm(FlaskForm):
     )
     kurs_typ = SelectField("Kurstyp", choices=[("LK", "Leistungskurs (LK)"), ("GK", "Grundkurs (GK)")], default="GK")
     kurs_stunden = SelectField("Wochenstunden", choices=[("2", "2 Stunden"), ("3", "3 Stunden"), ("4", "4 Stunden")], default="4")
+    # SL-Note weights (Klasse mode)
+    sl_mdl_pct = FloatField(
+        "Gewicht mündl. Note in SL-Note (%)",
+        validators=[Optional(), NumberRange(0, 100)],
+        default=70.0,
+    )
+    sl_kln_pct = FloatField(
+        "Gewicht KLN-Mittel in SL-Note (%)",
+        validators=[Optional(), NumberRange(0, 100)],
+        default=30.0,
+    )
+    # HJ-Note weights (Klasse mode, relative, normalized internally)
+    hj_gln_w = FloatField(
+        "Gewicht GLN in HJ-Note",
+        validators=[Optional(), NumberRange(0)],
+        default=1.0,
+    )
+    hj_sl1_w = FloatField(
+        "Gewicht SL1/3 in HJ-Note",
+        validators=[Optional(), NumberRange(0)],
+        default=1.0,
+    )
+    hj_sl2_w = FloatField(
+        "Gewicht SL2/4 in HJ-Note",
+        validators=[Optional(), NumberRange(0)],
+        default=1.0,
+    )
     # Kurs mode weights
     kurs_gln_pct = FloatField(
         "Gewicht GLN-Mittel in HJ-Note (%)",

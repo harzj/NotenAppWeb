@@ -22,7 +22,6 @@ from app.grades.forms import (
 )
 from app.grades import moodle as moodle_parser
 from app.grades import berechnung
-from app.grades import gewichtung as gewichtung_ui
 from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
 from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_zettel_pdf
 
@@ -267,7 +266,7 @@ def _sl_key_to_hj(sl_key: str | None) -> str | None:
 def _ln_target_hj(ln: dict) -> str | None:
     if ln.get("ln_typ") == "GLN":
         return ln.get("hj")
-    if ln.get("ln_typ") in ("KLN", S.LN_TYP_MDL):
+    if ln.get("ln_typ") == "KLN":
         return _sl_key_to_hj(ln.get("sl_zuordnung"))
     return None
 
@@ -756,10 +755,10 @@ def _korn_classes_summary(students: list[dict], modus: str = "klasse") -> list[d
 
 
 def _wizard_filter_lns(lns: list[dict]) -> list[dict]:
-    """Strip KLN/MDL and student grade data from LNs for wizard import."""
+    """Strip KLN and student grade data from LNs for wizard import."""
     filtered = []
     for ln in lns:
-        if ln.get("ln_typ") in ("KLN", S.LN_TYP_MDL):
+        if ln.get("ln_typ") == "KLN":
             continue
         ln_clean = {k: v for k, v in ln.items() if k != "schueler"}
         ln_clean["schueler"] = []
@@ -1513,17 +1512,8 @@ def aufnahme_vorherige_note_speichern():
 @login_required
 def ln_list():
     data = _require_gradebook()
-    new_form = NewLNForm()
-    # Preselect via ?typ=MDL&sl=SL2 (e.g. link "Mehrere mündliche Noten vergeben?")
-    preset_typ = request.args.get("typ")
-    if preset_typ in dict(new_form.ln_typ.choices):
-        new_form.ln_typ.data = preset_typ
-    if request.args.get("sl") in berechnung.SL_KEYS:
-        new_form.sl_zuordnung.data = request.args.get("sl")
     return render_template("grades/ln_list.html", lns=data["leistungsnachweise"],
-                           new_form=new_form, open_new_modal=bool(preset_typ),
-                           ln_meta=[{k: ln.get(k) for k in ("ln_typ", "hj", "sl_zuordnung", "gln_slot")}
-                                    for ln in data["leistungsnachweise"] if not ln.get("nachtermin_von")],
+                           new_form=NewLNForm(),
                            modus=data.get("modus", "klasse"),
                            gln_slot_choices=GLN_SLOT_CHOICES)
 
@@ -1548,12 +1538,9 @@ def ln_neu():
     form = NewLNForm()
     if form.validate_on_submit():
         name = form.name.data.strip()
-        ln_typ = form.ln_typ.data          # 'GLN', 'KLN', 'MDL' or 'ABT'
+        ln_typ = form.ln_typ.data          # 'GLN' or 'KLN'
         modus = data.get("modus", "klasse")
 
-        if ln_typ == S.LN_TYP_MDL and modus == "kurs":
-            flash("Mündliche Teilnoten gibt es nur im Klassen-Modus.", "warning")
-            return redirect(url_for("grades.ln_list"))
         if ln_typ == "ABT":
             gln_slot = None
             hj = None
@@ -1565,7 +1552,7 @@ def ln_neu():
         else:
             gln_slot = None
             hj = form.hj.data if ln_typ == "GLN" else None
-            sl_zuordnung = form.sl_zuordnung.data if ln_typ in ("KLN", S.LN_TYP_MDL) else None
+            sl_zuordnung = form.sl_zuordnung.data if ln_typ == "KLN" else None
 
         sheet_name = S.LN_SHEET_PREFIX + name
         existing = [ln["sheet_name"] for ln in data["leistungsnachweise"]]
@@ -1596,7 +1583,7 @@ def ln_neu():
             "gln_slot": gln_slot,
             "sl_zuordnung": sl_zuordnung,
             "nachtermin_von": None,
-            "noten_runden": False if ln_typ in ("ABT", S.LN_TYP_MDL) else True,
+            "noten_runden": False if ln_typ == "ABT" else True,
             "thema": form.thema.data.strip() if form.thema.data else "",
             "datum": form.datum.data.strip() if form.datum.data else "",
             "aufgaben": [],
@@ -1604,9 +1591,6 @@ def ln_neu():
             "schueler": schueler,
         })
         _save_gradebook(data)
-        if ln_typ == S.LN_TYP_MDL:
-            flash(f'Mündliche Note "{name}" für {sl_zuordnung} angelegt – die Noten trägst du direkt hier ein.', "success")
-            return redirect(url_for("grades.sl_muendlich", sl_key=sl_zuordnung))
         flash(f'Leistungsnachweis "{name}" erstellt.', "success")
         return redirect(url_for("grades.ln_detail", ln_idx=len(data["leistungsnachweise"]) - 1))
     return redirect(url_for("grades.ln_list"))
@@ -1619,9 +1603,6 @@ def ln_detail(ln_idx):
     if ln_idx >= len(data["leistungsnachweise"]):
         abort(404)
     ln = data["leistungsnachweise"][ln_idx]
-    if ln.get("ln_typ") == S.LN_TYP_MDL and ln.get("sl_zuordnung") in berechnung.SL_KEYS:
-        # Mündliche Teilnoten are graded together in the SL view
-        return redirect(url_for("grades.sl_muendlich", sl_key=ln["sl_zuordnung"]))
     # Ensure aufgaben_tree exists (migrate legacy data on-the-fly)
     if "aufgaben_tree" not in ln:
         ln["aufgaben_tree"] = flat_to_tree(ln.get("aufgaben", []))
@@ -2039,7 +2020,6 @@ def sl_detail(sl_key):
     mdl_noten = data.get("mdl_noten") or {}
     gw = berechnung.get_gewichtung(data)
     kln_weights = berechnung.get_kln_weights(data, sl_key)
-    mdl_lns = berechnung.mdl_lns_for_sl(lns, sl_key)
 
     sl_noten_actual = data.get("sl_noten_actual") or {}
     kln_list = [ln for ln in lns
@@ -2062,12 +2042,8 @@ def sl_detail(sl_key):
         kln_mean = berechnung.kln_mean_for_sl(name, sl_key, lns, kln_weights)
 
         mdl = mdl_noten.get(name, {}).get(sl_key)
-        mdl_eff, mdl_status = berechnung.mdl_for(data, name, sl_key)
-        prev_mdl = None
-        if prev_sl_key:
-            prev_val, _ = berechnung.mdl_for(data, name, prev_sl_key)
-            prev_mdl = berechnung.round_note15(prev_val)
-        sl_raw = berechnung.sl_note_for(data, name, sl_key)
+        prev_mdl = mdl_noten.get(name, {}).get(prev_sl_key) if prev_sl_key else None
+        sl_raw = berechnung.compute_sl_note(name, sl_key, lns, mdl_noten, gw, kln_weights)
         sl_note_15 = berechnung.round_note15(sl_raw)
         sl_actual = sl_noten_actual.get(name, {}).get(sl_key)
 
@@ -2075,10 +2051,7 @@ def sl_detail(sl_key):
             "name": name,
             "kln_cols": kln_cols,
             "kln_mean": round(kln_mean, 2) if kln_mean is not None else None,
-            "kln_mean_raw": kln_mean,
             "mdl": mdl,
-            "mdl_eff": mdl_eff,
-            "mdl_status": mdl_status,
             "prev_mdl": prev_mdl,
             "sl_raw": sl_raw,
             "sl_note_15": sl_note_15,
@@ -2089,105 +2062,58 @@ def sl_detail(sl_key):
         "grades/sl_detail.html",
         sl_key=sl_key,
         kln_list=kln_list,
-        mdl_lns=mdl_lns,
         rows=rows,
         gewichtung=gw,
-        gw_model=gewichtung_ui.build_model(data),
+        kln_weights=kln_weights,
         note15_to6=S.NOTE_15_TO_6,
         rot_schwelle=_rot_schwelle(data.get("klasse")),
     )
 
 
-# ── Mündliche Teilnoten pro SL ────────────────────────────────────────────────
-
-@grades_bp.route("/sl/<sl_key>/muendlich")
+@grades_bp.route("/api/kln-gewichte/speichern", methods=["POST"])
 @login_required
-def sl_muendlich(sl_key):
-    if sl_key not in berechnung.SL_KEYS:
-        abort(404)
-    data = _require_gradebook()
-    lns = data.get("leistungsnachweise", [])
-    mdl_noten = data.get("mdl_noten") or {}
-    mdl_lns = berechnung.mdl_lns_for_sl(lns, sl_key)
-    mdl_weights = berechnung.get_mdl_weights(data, sl_key)
-    students = _students_active_in_hj(data.get("stammdaten", []), _sl_key_to_hj(sl_key))
-
-    rows = []
-    for s in students:
-        name = f"{s['nachname']}, {s['vorname']}"
-        cols = []
-        for ln in mdl_lns:
-            note_15, ignoriert = _get_student_note(ln, name)
-            in_ln = any(x["name"] == name for x in ln.get("schueler", []))
-            cols.append({"note_15": note_15, "ignoriert": ignoriert, "in_ln": in_ln})
-        mean = berechnung.mdl_mean_for_sl(name, sl_key, lns, mdl_weights)
-        rows.append({
-            "name": name,
-            "cols": cols,
-            "mean": mean,
-            "final": mdl_noten.get(name, {}).get(sl_key),
-        })
-
-    gw_model = gewichtung_ui.build_model(data)
-    mdl_formel = " + ".join(f"{it['pct']:g} % {it['name']}" for it in gw_model["sl"][sl_key]["mdl"])
-    return render_template(
-        "grades/sl_muendlich.html",
-        sl_key=sl_key,
-        mdl_lns=mdl_lns,
-        mdl_weights=mdl_weights,
-        rows=rows,
-        gw_model=gw_model,
-        mdl_formel=mdl_formel,
-        rot_schwelle=_rot_schwelle(data.get("klasse")),
-    )
-
-
-def _int_note(v, lo=0, hi=15):
-    """Parse a grade from JSON; None for empty. Raises ValueError when out of range."""
-    if v is None or v == "":
-        return None
-    n = int(v)
-    if not lo <= n <= hi:
-        raise ValueError(f"Note {n} liegt nicht zwischen {lo} und {hi}.")
-    return n
-
-
-@grades_bp.route("/api/mdl-teilnoten/speichern", methods=["POST"])
-@login_required
-def mdl_teilnoten_speichern():
-    """Save mündliche Teilnoten (MDL LNs) and the final mündliche Note of one SL."""
+def kln_gewichte_speichern():
+    """Save KLN weights and MDL/KLN-Mittel weighting for one SL slot."""
     data = _require_gradebook()
     payload = request.get_json(force=True, silent=True)
-    if not isinstance(payload, dict):
+    if not payload:
         return {"ok": False, "error": "Invalid payload"}, 400
     sl_key = payload.get("sl_key")
-    if sl_key not in berechnung.SL_KEYS:
+    if sl_key not in ("SL1", "SL2", "SL3", "SL4"):
         return {"ok": False, "error": "Invalid sl_key"}, 400
-    lns_by_sheet = {ln["sheet_name"]: ln for ln in
-                    berechnung.mdl_lns_for_sl(data.get("leistungsnachweise", []), sl_key)}
-    mdl_noten = data.setdefault("mdl_noten", {})
-    try:
-        for item in payload.get("schueler", []):
-            name = item.get("name")
-            if not name:
-                continue
-            for sheet, val in (item.get("teilnoten") or {}).items():
-                ln = lns_by_sheet.get(sheet)
-                if ln is None:
-                    return {"ok": False, "error": f"Unbekannte mündliche Note: {sheet}"}, 400
-                note = _int_note(val)
-                entry = next((x for x in ln["schueler"] if x["name"] == name), None)
-                if entry is None:
-                    if note is None:
-                        continue
-                    entry = {"name": name, "punkte": [], "note_15": None, "note_6": None}
-                    ln["schueler"].append(entry)
-                entry["note_15"] = note
-                entry["note_6"] = S.note15_to_note6(note) if note is not None else None
-            if "final" in item:
-                mdl_noten.setdefault(name, {})[sl_key] = _int_note(item.get("final"))
-    except (TypeError, ValueError) as exc:
-        return {"ok": False, "error": str(exc)}, 400
+
+    # Save per-KLN weights
+    kln_w = payload.get("kln_weights", {})
+    data.setdefault("kln_weights", {})[sl_key] = {
+        k: float(v) for k, v in kln_w.items() if v not in (None, "")
+    }
+
+    # Save sl_kln_pct / sl_mdl_pct overrides if provided
+    sl_gw = data.setdefault("sl_gewichtung", {})
+    if payload.get("sl_kln_pct") not in (None, ""):
+        sl_gw["sl_kln_pct"] = float(payload["sl_kln_pct"])
+    if payload.get("sl_mdl_pct") not in (None, ""):
+        sl_gw["sl_mdl_pct"] = float(payload["sl_mdl_pct"])
+
+    _save_gradebook(data)
+    return {"ok": True}
+
+
+@grades_bp.route("/api/gln-gewichte/speichern", methods=["POST"])
+@login_required
+def gln_gewichte_speichern():
+    """Save individual GLN weights for one HJ."""
+    data = _require_gradebook()
+    payload = request.get_json(force=True, silent=True)
+    if not payload:
+        return {"ok": False, "error": "Invalid payload"}, 400
+    hj_key = payload.get("hj")
+    if hj_key not in ("HJ1", "HJ2"):
+        return {"ok": False, "error": "Invalid hj"}, 400
+    gln_w = payload.get("gln_weights", {})
+    data.setdefault("gln_weights", {})[hj_key] = {
+        k: float(v) for k, v in gln_w.items() if v not in (None, "")
+    }
     _save_gradebook(data)
     return {"ok": True}
 
@@ -2204,18 +2130,17 @@ def mdl_noten_speichern():
         return {"ok": False, "error": "Invalid sl_key"}, 400
     mdl_noten = data.setdefault("mdl_noten", {})
     sl_noten_actual = data.setdefault("sl_noten_actual", {})
-    try:
-        for item in payload.get("schueler", []):
-            name = item.get("name")
-            if not name:
-                continue
-            # "note" is omitted when the mündliche Note is managed via Teilnoten
-            if "note" in item:
-                mdl_noten.setdefault(name, {})[sl_key] = _int_note(item.get("note"))
-            if "sl_actual" in item:
-                sl_noten_actual.setdefault(name, {})[sl_key] = _int_note(item.get("sl_actual"))
-    except (TypeError, ValueError) as exc:
-        return {"ok": False, "error": str(exc)}, 400
+    for item in payload.get("schueler", []):
+        name = item.get("name")
+        note = item.get("note")
+        sl_act = item.get("sl_actual")
+        if name:
+            mdl_noten.setdefault(name, {})[sl_key] = (
+                int(note) if note is not None else None
+            )
+            sl_noten_actual.setdefault(name, {})[sl_key] = (
+                int(sl_act) if sl_act is not None else None
+            )
     _save_gradebook(data)
     return {"ok": True}
 
@@ -2264,8 +2189,8 @@ def sl_druck(sl_key):
                 "ignoriert": ignoriert,
             })
 
-        mdl_note = berechnung.round_note15(berechnung.mdl_for(data, name, sl_key)[0])
-        sl_raw = berechnung.sl_note_for(data, name, sl_key)
+        mdl_note = mdl_noten.get(name, {}).get(sl_key)
+        sl_raw = berechnung.compute_sl_note(name, sl_key, lns, mdl_noten, gw)
         sl_note_15 = berechnung.round_note15(sl_raw)
         sl_actual = sl_noten_actual.get(name, {}).get(sl_key)
 
@@ -2443,11 +2368,11 @@ def uebersicht(hj):
         kln_mean_sl1 = berechnung.kln_mean_for_sl(name, sl1_key, lns, kln_weights_sl1)
         kln_mean_sl2 = berechnung.kln_mean_for_sl(name, sl2_key, lns, kln_weights_sl2)
 
-        mdl1, mdl1_status = berechnung.mdl_for(data, name, sl1_key)
-        mdl2, mdl2_status = berechnung.mdl_for(data, name, sl2_key)
+        mdl1 = mdl_noten.get(name, {}).get(sl1_key)
+        mdl2 = mdl_noten.get(name, {}).get(sl2_key)
 
-        sl1_note_raw = berechnung.sl_note_for(data, name, sl1_key)
-        sl2_note_raw = berechnung.sl_note_for(data, name, sl2_key)
+        sl1_note_raw = berechnung.compute_sl_note(name, sl1_key, lns, mdl_noten, gw, kln_weights_sl1)
+        sl2_note_raw = berechnung.compute_sl_note(name, sl2_key, lns, mdl_noten, gw, kln_weights_sl2)
 
         # Prefer manually confirmed SL note (sl_noten_actual) over computed
         sl1_actual = sl_noten_actual.get(name, {}).get(sl1_key)
@@ -2459,14 +2384,14 @@ def uebersicht(hj):
         sl1_eff = sl1_actual if sl1_actual is not None else berechnung.round_note15(sl1_note_raw)
         sl2_eff = sl2_actual if sl2_actual is not None else berechnung.round_note15(sl2_note_raw)
 
-        # SL-Mittel as used in the HJ-Vorschlag: confirmed SL note, else unrounded proposal
-        sl_mittel_raw = berechnung.compute_sl_mittel(
-            sl1_actual if sl1_actual is not None else sl1_note_raw,
-            sl2_actual if sl2_actual is not None else sl2_note_raw)
+        # Use effective notes for downstream: SL-Mittel and HJ-Vorschlag
+        sl_mittel_raw = berechnung.compute_sl_mittel(sl1_eff, sl2_eff)
         sl_mittel_15 = berechnung.round_note15(sl_mittel_raw)
         sl_mittel = round(sl_mittel_raw, 1) if sl_mittel_raw is not None else None
 
-        hj_vorschlag_raw = berechnung.hj_vorschlag_for(data, name, hj_key)
+        hj_vorschlag_raw = berechnung.compute_hj_vorschlag(
+            name, hj_key, lns, mdl_noten, gw,
+            {**kln_weights_sl1, **kln_weights_sl2})
         hj_vorschlag = berechnung.round_note15(hj_vorschlag_raw)
         hj_actual = hj_noten.get(name, {}).get(hj_key)
 
@@ -2490,8 +2415,6 @@ def uebersicht(hj):
             "kln_mean_sl2": round(kln_mean_sl2, 2) if kln_mean_sl2 is not None else None,
             "mdl1": mdl1,
             "mdl2": mdl2,
-            "mdl1_status": mdl1_status,
-            "mdl2_status": mdl2_status,
             "sl1_actual": sl1_actual,
             "sl2_actual": sl2_actual,
             "sl1_eff": sl1_eff,
@@ -2520,7 +2443,8 @@ def uebersicht(hj):
         sl2_list=sl2_list,
         rows=rows,
         gewichtung=gw,
-        gw_model=gewichtung_ui.build_model(data),
+        kln_weights_sl1=kln_weights_sl1,
+        kln_weights_sl2=kln_weights_sl2,
         note15_to6=S.NOTE_15_TO_6,
         rot_schwelle=_rot_schwelle(data.get("klasse")),
     )
@@ -2529,10 +2453,7 @@ def uebersicht(hj):
 @grades_bp.route("/api/hj-speichern", methods=["POST"])
 @login_required
 def hj_speichern():
-    """Save HJ data for all students (actual HJ note, behavior, participation).
-
-    Mündliche Noten are entered on the SL pages only, weights via /api/gewichtung/speichern.
-    """
+    """Save HJ data for all students (mdl, actual, behavior, participation, optional weight)."""
     data = _require_gradebook()
     payload = request.get_json(force=True, silent=True)
     if not payload:
@@ -2541,20 +2462,37 @@ def hj_speichern():
     if hj_key not in ("HJ1", "HJ2"):
         return {"ok": False, "error": "Invalid hj"}, 400
 
+    sl1_key, sl2_key = ("SL1", "SL2") if hj_key == "HJ1" else ("SL3", "SL4")
+    mdl_noten = data.setdefault("mdl_noten", {})
     hj_noten = data.setdefault("hj_noten", {})
+
     verhalten_noten = data.setdefault("verhalten_noten", {})
     mitarbeit_noten = data.setdefault("mitarbeit_noten", {})
 
-    try:
-        for item in payload.get("schueler", []):
-            name = item.get("name")
-            if not name:
-                continue
-            hj_noten.setdefault(name, {})[hj_key] = _int_note(item.get("hj_actual"))
-            verhalten_noten.setdefault(name, {})[hj_key] = _int_note(item.get("verhalten"), 1, 6)
-            mitarbeit_noten.setdefault(name, {})[hj_key] = _int_note(item.get("mitarbeit"), 1, 6)
-    except (TypeError, ValueError) as exc:
-        return {"ok": False, "error": str(exc)}, 400
+    for item in payload.get("schueler", []):
+        name = item.get("name")
+        if not name:
+            continue
+        mdl_noten.setdefault(name, {})[sl1_key] = (
+            int(item["mdl1"]) if item.get("mdl1") is not None else None
+        )
+        mdl_noten.setdefault(name, {})[sl2_key] = (
+            int(item["mdl2"]) if item.get("mdl2") is not None else None
+        )
+        hj_noten.setdefault(name, {})[hj_key] = (
+            int(item["hj_actual"]) if item.get("hj_actual") is not None else None
+        )
+        verhalten_noten.setdefault(name, {})[hj_key] = (
+            int(item["verhalten"]) if item.get("verhalten") is not None else None
+        )
+        mitarbeit_noten.setdefault(name, {})[hj_key] = (
+            int(item["mitarbeit"]) if item.get("mitarbeit") is not None else None
+        )
+
+    # Optional: persist SL-Mittel weight in same request to avoid session update races.
+    sl_mittel_w = payload.get("sl_mittel_w")
+    if sl_mittel_w is not None:
+        data.setdefault("sl_gewichtung", {})["sl_mittel_w"] = float(sl_mittel_w)
 
     _save_gradebook(data)
     return {"ok": True}
@@ -2563,49 +2501,17 @@ def hj_speichern():
 @grades_bp.route("/api/gewichtung/speichern", methods=["POST"])
 @login_required
 def gewichtung_speichern():
-    """Merge any subset of weights (class weights and per-LN weights)."""
+    """Save global HJ weighting (sl_mittel_w)."""
     data = _require_gradebook()
     payload = request.get_json(force=True, silent=True)
-    if not isinstance(payload, dict):
+    if not payload:
         return {"ok": False, "error": "Invalid payload"}, 400
-    try:
-        gewichtung_ui.apply_payload(data, payload)
-    except ValueError as exc:
-        return {"ok": False, "error": str(exc)}, 400
+    sl_gw = data.setdefault("sl_gewichtung", {})
+    for key in ("sl_mittel_w",):
+        if payload.get(key) is not None:
+            sl_gw[key] = float(payload[key])
     _save_gradebook(data)
     return {"ok": True}
-
-
-@grades_bp.route("/api/kln-gewichte/speichern", methods=["POST"])
-@login_required
-def kln_gewichte_speichern_compat():
-    """Compatibility for pages opened before v1.2 (old SL page script)."""
-    data = _require_gradebook()
-    payload = request.get_json(force=True, silent=True)
-    if not isinstance(payload, dict) or payload.get("sl_key") not in berechnung.SL_KEYS:
-        return {"ok": False, "error": "Invalid payload"}, 400
-    try:
-        gewichtung_ui.apply_payload(data, {
-            "gewichtung": {k: payload.get(k) for k in ("sl_kln_pct", "sl_mdl_pct")},
-            "kln_weights": {payload["sl_key"]: payload.get("kln_weights") or {}},
-        })
-    except ValueError as exc:
-        return {"ok": False, "error": str(exc)}, 400
-    _save_gradebook(data)
-    return {"ok": True}
-
-
-# ── Notenberechnung (alle Gewichte auf einen Blick) ───────────────────────────
-
-@grades_bp.route("/notenberechnung")
-@login_required
-def notenberechnung():
-    data = _require_gradebook()
-    if data.get("modus") == "kurs":
-        flash("Im Kurs-Modus wird die Gewichtung in den Einstellungen festgelegt.", "info")
-        return redirect(url_for("grades.einstellungen"))
-    return render_template("grades/notenberechnung.html", data=data,
-                           model=gewichtung_ui.build_model(data))
 
 
 # ── HJ-Notenübersicht drucken ─────────────────────────────────────────────────
@@ -2645,8 +2551,8 @@ def hj_druck(hj):
 
         kln_mean_sl1 = berechnung.kln_mean_for_sl(name, sl1_key, lns, kln_weights_sl1)
         kln_mean_sl2 = berechnung.kln_mean_for_sl(name, sl2_key, lns, kln_weights_sl2)
-        mdl1 = berechnung.round_note15(berechnung.mdl_for(data, name, sl1_key)[0])
-        mdl2 = berechnung.round_note15(berechnung.mdl_for(data, name, sl2_key)[0])
+        mdl1 = mdl_noten.get(name, {}).get(sl1_key)
+        mdl2 = mdl_noten.get(name, {}).get(sl2_key)
 
         # Prefer saved actual SL note; fall back to computed
         sl1_act = sl_noten_actual.get(name, {}).get(sl1_key)
@@ -2709,7 +2615,9 @@ def schuljahr_uebersicht():
         act = sl_noten_actual.get(name, {}).get(sl_key)
         if act is not None:
             return act, True
-        computed = berechnung.round_note15(berechnung.sl_note_for(data, name, sl_key))
+        computed = berechnung.round_note15(
+            berechnung.compute_sl_note(name, sl_key, lns, mdl_noten, gw)
+        )
         return computed, False
 
     rows = []
@@ -2734,7 +2642,7 @@ def schuljahr_uebersicht():
         hj2 = hj_noten.get(name, {}).get("HJ2")
 
         sj_vorschlag_raw = berechnung.compute_schuljahr_note_klasse(
-            name, hj_noten, aufnahme_ab_hj, vorherige_noten, gw)
+            name, hj_noten, aufnahme_ab_hj, vorherige_noten)
         sj_vorschlag = berechnung.round_note15(sj_vorschlag_raw)
         sj_actual = sj_noten_actual.get(name)
 
@@ -2784,7 +2692,6 @@ def schuljahr_uebersicht():
 
     return render_template(
         "grades/schuljahr.html",
-        gw_model=gewichtung_ui.build_model(data),
         rows=rows,
         gln_hj1_list=gln_hj1_list,
         gln_hj2_list=gln_hj2_list,
@@ -2848,19 +2755,13 @@ def schuljahr_druck():
             act = sl_noten_actual.get(name, {}).get(sl_key)
             if act is not None:
                 return act
-            return berechnung.round_note15(berechnung.sl_note_for(data, name, sl_key))
+            return berechnung.round_note15(
+                berechnung.compute_sl_note(name, sl_key, lns, mdl_noten, gw))
 
-        def _kln_mean(sl_key):
-            return berechnung.kln_mean_for_sl(name, sl_key, lns,
-                                              berechnung.get_kln_weights(data, sl_key))
-
-        def _mdl(sl_key):
-            return berechnung.round_note15(berechnung.mdl_for(data, name, sl_key)[0])
-
-        kln_mean_sl1 = _kln_mean("SL1")
-        kln_mean_sl2 = _kln_mean("SL2")
-        kln_mean_sl3 = _kln_mean("SL3")
-        kln_mean_sl4 = _kln_mean("SL4")
+        kln_mean_sl1 = berechnung.kln_mean_for_sl(name, "SL1", lns)
+        kln_mean_sl2 = berechnung.kln_mean_for_sl(name, "SL2", lns)
+        kln_mean_sl3 = berechnung.kln_mean_for_sl(name, "SL3", lns)
+        kln_mean_sl4 = berechnung.kln_mean_for_sl(name, "SL4", lns)
 
         gln_hj1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj1_list]
         gln_hj2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj2_list]
@@ -2871,10 +2772,10 @@ def schuljahr_druck():
             "kln_mean_sl2": round(kln_mean_sl2, 1) if kln_mean_sl2 is not None else None,
             "kln_mean_sl3": round(kln_mean_sl3, 1) if kln_mean_sl3 is not None else None,
             "kln_mean_sl4": round(kln_mean_sl4, 1) if kln_mean_sl4 is not None else None,
-            "mdl1": _mdl("SL1"),
-            "mdl2": _mdl("SL2"),
-            "mdl3": _mdl("SL3"),
-            "mdl4": _mdl("SL4"),
+            "mdl1": mdl_noten.get(name, {}).get("SL1"),
+            "mdl2": mdl_noten.get(name, {}).get("SL2"),
+            "mdl3": mdl_noten.get(name, {}).get("SL3"),
+            "mdl4": mdl_noten.get(name, {}).get("SL4"),
             "sl1": _sl_act("SL1"), "sl2": _sl_act("SL2"),
             "sl3": _sl_act("SL3"), "sl4": _sl_act("SL4"),
             "gln_hj1_cols": gln_hj1_cols,
@@ -2883,9 +2784,7 @@ def schuljahr_druck():
             "hj2": hj_noten.get(name, {}).get("HJ2"),
             "sj_actual": sj_noten_actual.get(name),
             "sj_vorschlag": berechnung.round_note15(
-                berechnung.compute_schuljahr_note_klasse(
-                    name, hj_noten, s.get("aufnahme_ab_hj"),
-                    s.get("aufnahme_vorherige_noten") or {}, gw)),
+                berechnung.compute_schuljahr_note(name, hj_noten)),
         })
 
     return render_template(
@@ -2975,6 +2874,7 @@ def export_excel():
 @login_required
 def einstellungen():
     data = _require_gradebook()
+    gw = berechnung.get_gewichtung(data)
     kgw = berechnung.get_kurs_gewichtung(data)
     modus = data.get("modus", "klasse")
     kurs_typ = data.get("kurs_typ", "GK")
@@ -2988,6 +2888,11 @@ def einstellungen():
         schuljahr=_schuljahr_start_input(data.get("schuljahr", schuljahr_from_date())),
         kurs_typ=kurs_typ,
         kurs_stunden=stunden_display,
+        sl_mdl_pct=gw["sl_mdl_pct"],
+        sl_kln_pct=gw["sl_kln_pct"],
+        hj_gln_w=gw["hj_gln_w"],
+        hj_sl1_w=gw["hj_sl1_w"],
+        hj_sl2_w=gw["hj_sl2_w"],
         kurs_gln_pct=kgw["hj_gln_pct"],
         kurs_mdl_pct=kgw["hj_mdl_pct"],
     )
@@ -3007,6 +2912,13 @@ def einstellungen():
         data["kurs_typ"] = new_kurs_typ
         data["kurs_stunden"] = new_stunden
 
+        data["sl_gewichtung"] = {
+            "sl_mdl_pct": form.sl_mdl_pct.data if form.sl_mdl_pct.data is not None else 70.0,
+            "sl_kln_pct": form.sl_kln_pct.data if form.sl_kln_pct.data is not None else 30.0,
+            "hj_gln_w": form.hj_gln_w.data if form.hj_gln_w.data is not None else 1.0,
+            "hj_sl1_w": form.hj_sl1_w.data if form.hj_sl1_w.data is not None else 1.0,
+            "hj_sl2_w": form.hj_sl2_w.data if form.hj_sl2_w.data is not None else 1.0,
+        }
         data["kurs_gewichtung"] = {
             "hj_gln_pct": form.kurs_gln_pct.data if form.kurs_gln_pct.data is not None else 70.0,
             "hj_mdl_pct": form.kurs_mdl_pct.data if form.kurs_mdl_pct.data is not None else 30.0,

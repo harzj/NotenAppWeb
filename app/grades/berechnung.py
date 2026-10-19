@@ -1,27 +1,20 @@
 """Grade computation helpers for SL-, HJ- and Schuljahr-notes."""
 from __future__ import annotations
 
-LN_TYP_MDL = "MDL"   # mündliche Teilnote (direkt vergebene Note mit SL-Zuordnung)
-
 DEFAULT_GEWICHTUNG: dict = {
     "sl_mdl_pct":   80.0,  # % weight of mündliche note in SL note
     "sl_kln_pct":   20.0,  # % weight of KLN mean in SL note
     "sl_mittel_w":   1.0,  # weight of SL-Mittel vs each GLN in HJ note
-    "sj_hj1_w":      1.0,  # weight of HJ1 in Ganzjahresnote
-    "sj_hj2_w":      2.0,  # weight of HJ2 in Ganzjahresnote
     # kept for backward compatibility – no longer used in formula:
     "hj_gln_w":      1.0,
     "hj_sl1_w":      1.0,
     "hj_sl2_w":      1.0,
 }
 
-SL_KEYS = ("SL1", "SL2", "SL3", "SL4")
-HJ_SL_KEYS = {"HJ1": ("SL1", "SL2"), "HJ2": ("SL3", "SL4")}
-
 
 def get_gewichtung(data: dict) -> dict:
     g = dict(DEFAULT_GEWICHTUNG)
-    g.update({k: v for k, v in (data.get("sl_gewichtung") or {}).items() if v is not None})
+    g.update(data.get("sl_gewichtung") or {})
     return g
 
 
@@ -38,22 +31,6 @@ def get_kln_weights(data: dict, sl_key: str) -> dict:
             continue
         result[ln["sheet_name"]] = float(stored.get(ln["sheet_name"], 1.0))
     return result
-
-
-def mdl_lns_for_sl(lns: list, sl_key: str) -> list:
-    """Return the MDL LNs (mündliche Teilnoten) assigned to the SL slot."""
-    return [ln for ln in lns
-            if ln.get("ln_typ") == LN_TYP_MDL and ln.get("sl_zuordnung") == sl_key
-            and not ln.get("nachtermin_von")]
-
-
-def get_mdl_weights(data: dict, sl_key: str) -> dict:
-    """Return {sheet_name: weight} for MDL LNs of the given SL slot (default 1.0)."""
-    stored: dict = (data.get("mdl_weights") or {}).get(sl_key, {})
-    return {
-        ln["sheet_name"]: float(stored.get(ln["sheet_name"], 1.0))
-        for ln in mdl_lns_for_sl(data.get("leistungsnachweise", []), sl_key)
-    }
 
 
 def get_gln_weights(data: dict, hj_key: str) -> dict:
@@ -116,29 +93,6 @@ def kln_notes_for_sl(student_name: str, sl_key: str, lns: list) -> list[float]:
     return notes
 
 
-def _weighted_mean_for_sl(
-    student_name: str,
-    ln_typ: str,
-    sl_key: str,
-    lns: list,
-    weights: dict | None,
-) -> float | None:
-    pairs: list[tuple[float, float]] = []
-    for ln in lns:
-        if ln.get("ln_typ") != ln_typ or ln.get("sl_zuordnung") != sl_key:
-            continue
-        if ln.get("nachtermin_von"):
-            continue
-        effective = _effective_note(student_name, ln, lns)
-        if effective is not None:
-            w = float((weights or {}).get(ln["sheet_name"], 1.0))
-            pairs.append((effective, w))
-    if not pairs:
-        return None
-    total_w = sum(w for _, w in pairs)
-    return sum(n * w for n, w in pairs) / total_w if total_w > 0 else None
-
-
 def kln_mean_for_sl(
     student_name: str,
     sl_key: str,
@@ -149,40 +103,20 @@ def kln_mean_for_sl(
 
     *kln_weights* maps sheet_name → float weight (default 1.0 for each).
     """
-    return _weighted_mean_for_sl(student_name, "KLN", sl_key, lns, kln_weights)
-
-
-def mdl_mean_for_sl(
-    student_name: str,
-    sl_key: str,
-    lns: list,
-    mdl_weights: dict | None = None,
-) -> float | None:
-    """Return weighted mean of the mündliche Teilnoten (MDL LNs) for student + SL slot."""
-    return _weighted_mean_for_sl(student_name, LN_TYP_MDL, sl_key, lns, mdl_weights)
-
-
-def effective_mdl(
-    student_name: str,
-    sl_key: str,
-    lns: list,
-    mdl_noten: dict,
-    mdl_weights: dict | None = None,
-) -> tuple[float | None, str | None]:
-    """Return (mündliche Note, status) that feeds the SL note.
-
-    Without MDL LNs for this SL the directly entered note is used (status "direkt").
-    With MDL LNs the manually fixed final note wins (status "fest"); otherwise the
-    weighted mean of the Teilnoten is used provisionally (status "vorlaeufig").
-    """
-    final = mdl_noten.get(student_name, {}).get(sl_key)
-    final = float(final) if final is not None else None
-    if not mdl_lns_for_sl(lns, sl_key):
-        return final, ("direkt" if final is not None else None)
-    if final is not None:
-        return final, "fest"
-    mean = mdl_mean_for_sl(student_name, sl_key, lns, mdl_weights)
-    return mean, ("vorlaeufig" if mean is not None else None)
+    pairs: list[tuple[float, float]] = []
+    for ln in lns:
+        if ln.get("ln_typ") != "KLN" or ln.get("sl_zuordnung") != sl_key:
+            continue
+        if ln.get("nachtermin_von"):
+            continue
+        effective = _effective_note(student_name, ln, lns)
+        if effective is not None:
+            w = float((kln_weights or {}).get(ln["sheet_name"], 1.0))
+            pairs.append((effective, w))
+    if not pairs:
+        return None
+    total_w = sum(w for _, w in pairs)
+    return sum(n * w for n, w in pairs) / total_w if total_w > 0 else None
 
 
 def gln_notes_for_hj(student_name: str, hj: str, lns: list) -> list[float]:
@@ -205,22 +139,6 @@ def gln_mean_for_hj(student_name: str, hj: str, lns: list) -> float | None:
     return sum(notes) / len(notes) if notes else None
 
 
-def gln_pairs_for_hj(
-    student_name: str, hj: str, lns: list, gln_weights: dict | None = None,
-) -> list[tuple[float, float]]:
-    """Return [(note, weight)] for the non-ignored GLN of student + HJ."""
-    pairs = []
-    for ln in lns:
-        if ln.get("ln_typ") != "GLN" or ln.get("hj") != hj:
-            continue
-        if ln.get("nachtermin_von"):
-            continue
-        effective = _effective_note(student_name, ln, lns)
-        if effective is not None:
-            pairs.append((effective, float((gln_weights or {}).get(ln["sheet_name"], 1.0))))
-    return pairs
-
-
 # ── SL note ───────────────────────────────────────────────────────────────────
 
 def compute_sl_note(
@@ -230,11 +148,12 @@ def compute_sl_note(
     mdl_noten: dict,
     gewichtung: dict,
     kln_weights: dict | None = None,
-    mdl_weights: dict | None = None,
 ) -> float | None:
     """Compute SL note (float, 0-15 scale) – unrounded."""
     kln_mean = kln_mean_for_sl(student_name, sl_key, lns, kln_weights)
-    mdl, _ = effective_mdl(student_name, sl_key, lns, mdl_noten, mdl_weights)
+    mdl = mdl_noten.get(student_name, {}).get(sl_key)
+    if mdl is not None:
+        mdl = float(mdl)
 
     if mdl is None and kln_mean is None:
         return None
@@ -243,11 +162,9 @@ def compute_sl_note(
     if kln_mean is None:
         return mdl
 
-    mf = float(gewichtung.get("sl_mdl_pct", DEFAULT_GEWICHTUNG["sl_mdl_pct"]))
-    kf = float(gewichtung.get("sl_kln_pct", DEFAULT_GEWICHTUNG["sl_kln_pct"]))
+    mf = float(gewichtung.get("sl_mdl_pct", 70))
+    kf = float(gewichtung.get("sl_kln_pct", 30))
     total = mf + kf
-    if total <= 0:
-        return None
     return (mdl * mf + kln_mean * kf) / total
 
 
@@ -269,30 +186,30 @@ def compute_hj_vorschlag(
     mdl_noten: dict,
     gewichtung: dict,
     kln_weights: dict | None = None,
-    mdl_weights: dict | None = None,
-    gln_weights: dict | None = None,
-    sl_noten_actual: dict | None = None,
 ) -> float | None:
     """Compute suggested HJ note (float, 0-15 scale) – unrounded.
 
     Erlassvorgabe: SL1+SL2 → sl_mittel (one component, weight sl_mittel_w).
-    Each GLN is one component with its weight (default 1.0).
-    Formula: (w1·gln1 + w2·gln2 + ... + sl_mittel * sl_mittel_w) / (Σw + sl_mittel_w)
-    A confirmed SL note (sl_noten_actual) replaces the computed one.
+    Each GLN is one component with weight 1.0.
+    Formula: (gln1 + gln2 + ... + sl_mittel * sl_mittel_w) / (N_gln + sl_mittel_w)
     """
     sl1_key, sl2_key = ("SL1", "SL2") if hj == "HJ1" else ("SL3", "SL4")
 
-    components: list[tuple[float, float]] = gln_pairs_for_hj(student_name, hj, lns, gln_weights)
-
-    def _sl(sl_key):
-        act = (sl_noten_actual or {}).get(student_name, {}).get(sl_key)
-        if act is not None:
-            return float(act)
-        return compute_sl_note(student_name, sl_key, lns, mdl_noten, gewichtung,
-                               kln_weights, mdl_weights)
+    # Each GLN is one component with weight 1.0
+    components: list[tuple[float, float]] = []
+    for ln in lns:
+        if ln.get("ln_typ") != "GLN" or ln.get("hj") != hj:
+            continue
+        if ln.get("nachtermin_von"):
+            continue
+        effective = _effective_note(student_name, ln, lns)
+        if effective is not None:
+            components.append((effective, 1.0))
 
     # SL-Mittel = mean(SL1, SL2) as one combined component
-    sl_mittel = compute_sl_mittel(_sl(sl1_key), _sl(sl2_key))
+    sl1_note = compute_sl_note(student_name, sl1_key, lns, mdl_noten, gewichtung, kln_weights)
+    sl2_note = compute_sl_note(student_name, sl2_key, lns, mdl_noten, gewichtung, kln_weights)
+    sl_mittel = compute_sl_mittel(sl1_note, sl2_note)
     sl_mittel_w = float(gewichtung.get("sl_mittel_w", 1.0))
     if sl_mittel is not None:
         components.append((sl_mittel, sl_mittel_w))
@@ -307,19 +224,8 @@ def compute_hj_vorschlag(
 
 # ── Schuljahr note ────────────────────────────────────────────────────────────
 
-def _sj_mix(hj1: float, hj2: float, gewichtung: dict | None) -> float:
-    g = gewichtung or DEFAULT_GEWICHTUNG
-    w1 = float(g.get("sj_hj1_w", DEFAULT_GEWICHTUNG["sj_hj1_w"]))
-    w2 = float(g.get("sj_hj2_w", DEFAULT_GEWICHTUNG["sj_hj2_w"]))
-    if w1 + w2 <= 0:
-        w1, w2 = DEFAULT_GEWICHTUNG["sj_hj1_w"], DEFAULT_GEWICHTUNG["sj_hj2_w"]
-    return (w1 * float(hj1) + w2 * float(hj2)) / (w1 + w2)
-
-
-def compute_schuljahr_note(
-    student_name: str, hj_noten: dict, gewichtung: dict | None = None,
-) -> float | None:
-    """w1·HJ1 + w2·HJ2 (default 1:2, i.e. 1/3 HJ1 + 2/3 HJ2), float, unrounded."""
+def compute_schuljahr_note(student_name: str, hj_noten: dict) -> float | None:
+    """1/3 HJ1 + 2/3 HJ2 (float, unrounded)."""
     hj1 = hj_noten.get(student_name, {}).get("HJ1")
     hj2 = hj_noten.get(student_name, {}).get("HJ2")
     if hj1 is None and hj2 is None:
@@ -328,7 +234,7 @@ def compute_schuljahr_note(
         return float(hj2)
     if hj2 is None:
         return float(hj1)
-    return _sj_mix(hj1, hj2, gewichtung)
+    return (1.0 / 3) * float(hj1) + (2.0 / 3) * float(hj2)
 
 
 def compute_schuljahr_note_klasse(
@@ -336,7 +242,6 @@ def compute_schuljahr_note_klasse(
     hj_noten: dict,
     aufnahme_ab_hj: str | None,
     vorherige_noten: dict | None,
-    gewichtung: dict | None = None,
 ) -> float | None:
     """Schuljahrnote for Klasse mode, respecting mid-year enrollment.
 
@@ -352,44 +257,9 @@ def compute_schuljahr_note_klasse(
             return None
         vorherige_hj1 = (vorherige_noten or {}).get("HJ1")
         if vorherige_hj1 is not None:
-            return _sj_mix(vorherige_hj1, hj2, gewichtung)
+            return (1.0 / 3) * float(vorherige_hj1) + (2.0 / 3) * float(hj2)
         return float(hj2)
-    return compute_schuljahr_note(student_name, hj_noten, gewichtung)
-
-
-# ── Data-level helpers (one place that knows which weights belong where) ──────
-
-def _all_weights(data: dict, getter, keys) -> dict:
-    merged: dict = {}
-    for k in keys:
-        merged.update(getter(data, k))
-    return merged
-
-
-def sl_note_for(data: dict, name: str, sl_key: str) -> float | None:
-    """Computed (unrounded) SL note with all weights of the class."""
-    return compute_sl_note(
-        name, sl_key, data.get("leistungsnachweise", []), data.get("mdl_noten") or {},
-        get_gewichtung(data), get_kln_weights(data, sl_key), get_mdl_weights(data, sl_key))
-
-
-def mdl_for(data: dict, name: str, sl_key: str) -> tuple[float | None, str | None]:
-    """Effective mündliche Note + status for the SL (see effective_mdl)."""
-    return effective_mdl(name, sl_key, data.get("leistungsnachweise", []),
-                         data.get("mdl_noten") or {}, get_mdl_weights(data, sl_key))
-
-
-def hj_vorschlag_for(data: dict, name: str, hj: str) -> float | None:
-    """Suggested (unrounded) HJ note with all weights and confirmed SL notes."""
-    sl_keys = HJ_SL_KEYS.get(hj, ())
-    return compute_hj_vorschlag(
-        name, hj, data.get("leistungsnachweise", []), data.get("mdl_noten") or {},
-        get_gewichtung(data),
-        kln_weights=_all_weights(data, get_kln_weights, sl_keys),
-        mdl_weights=_all_weights(data, get_mdl_weights, sl_keys),
-        gln_weights=get_gln_weights(data, hj),
-        sl_noten_actual=data.get("sl_noten_actual") or {},
-    )
+    return compute_schuljahr_note(student_name, hj_noten)
 
 
 # ── Utility ───────────────────────────────────────────────────────────────────

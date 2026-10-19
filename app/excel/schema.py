@@ -16,7 +16,6 @@ SHEET_EINSTELLUNGEN = "Einstellungen"  # hidden: sl_gewichtung
 
 LN_SHEET_PREFIX = "LN_"
 LN_TYP_ABT = "ABT"  # Abiturprüfung
-LN_TYP_MDL = "MDL"  # mündliche Teilnote (Note direkt, ohne Aufgaben)
 
 # ── Stammdaten sheet rows and columns (1-based) ───────────────────────────────
 # Row 1:  class name metadata  ("Klasse:" | "7p")
@@ -76,13 +75,6 @@ LN_META_NT_VAL      = 10
 LN_META_RUNDEN_LABEL = "NOTEN_RUNDEN"
 LN_META_RUNDEN_COL   = 11
 LN_META_RUNDEN_VAL   = 12
-# Added later; older files simply don't have these cells
-LN_META_THEMA_LABEL  = "THEMA"
-LN_META_THEMA_COL    = 13
-LN_META_THEMA_VAL    = 14
-LN_META_DATUM_LABEL  = "DATUM"            # ISO date YYYY-MM-DD
-LN_META_DATUM_COL    = 15
-LN_META_DATUM_VAL    = 16
 
 # Column offsets inside an LN sheet (relative to col 1)
 LN_COL_NAME = 1          # "Mustermann, Max"
@@ -161,20 +153,7 @@ ES_HEADER_ROW = 1
 ES_DATA_START = 2
 ES_COL_KEY   = 1
 ES_COL_VALUE = 2
-ES_COL_INFO  = 3   # human-readable description (ignored when reading)
-ES_GEWICHTUNG_KEYS = ["sl_mdl_pct", "sl_kln_pct", "hj_gln_w", "hj_sl1_w", "hj_sl2_w",
-                      "sl_mittel_w", "sj_hj1_w", "sj_hj2_w"]
-ES_GEWICHTUNG_INFO = {
-    "sl_mdl_pct":  "SL-Note: Anteil mündliche Note (%)",
-    "sl_kln_pct":  "SL-Note: Anteil KLN-Mittel (%)",
-    "sl_mittel_w": "HJ-Note: SL-Mittel zählt wie x GLN",
-    "sj_hj1_w":    "Ganzjahresnote: Gewicht Halbjahr 1",
-    "sj_hj2_w":    "Ganzjahresnote: Gewicht Halbjahr 2",
-}
-# Per-LN weights: key "gewicht|<TYP>|<SLOT>|<sheet_name>"  (TYP = KLN/MDL/GLN,
-# SLOT = SL1..SL4 for KLN/MDL, HJ1/HJ2 for GLN)
-ES_LN_WEIGHT_PREFIX = "gewicht"
-ES_LN_WEIGHT_STORES = {"KLN": "kln_weights", "MDL": "mdl_weights", "GLN": "gln_weights"}
+ES_GEWICHTUNG_KEYS = ["sl_mdl_pct", "sl_kln_pct", "hj_gln_w", "hj_sl1_w", "hj_sl2_w"]
 ES_KURS_KEYS = ["modus", "kurs_typ", "kurs_stunden", "kurs_gln_pct", "kurs_mdl_pct"]
 
 # ── Grade scale (percentage → points 0-15) ──────────────────────────────────

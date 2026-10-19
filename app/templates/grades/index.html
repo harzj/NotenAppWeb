@@ -1,23 +1,5 @@
 {% extends "base.html" %}
 {% from "macros.html" import csrf_field %}
-{% block tour %}{{ ({
-  "id": "start_klasse" if has_data else "start",
-  "steps": [
-    {"title": "Willkommen im Notenprogramm", "text": "Ein kurzer Überblick. Deine Noten liegen in einer passwortgeschützten Excel-Datei bei dir – hier bearbeitest du sie nur. Den Rundgang kannst du jederzeit über „Hilfe“ oben rechts wieder starten."},
-    {"el": "[data-tour=start-checklist]", "title": "Erste Schritte", "text": "Diese Checkliste zeigt, was beim Einstieg zu tun ist. Erledigtes wird abgehakt."},
-    {"el": "[data-tour=start-upload]", "title": "Datei laden", "text": "Deine Datei vom letzten Mal hochladen – eine Excel-Datei (eine Klasse) oder die ZIP-Datei (mehrere Klassen)."},
-    {"el": "[data-tour=start-new]", "title": "Neue Klasse", "text": "Eine neue Klasse anlegen. Weitere Klassen kommen in dieselbe Datei."},
-    {"el": "[data-tour=start-demo]", "title": "Ausprobieren", "text": "Die Beispielklasse zeigt mit erfundenen Daten, wie alles aussieht."},
-    {"el": "[data-tour=class-tabs]", "title": "Deine Klassen", "text": "Jede geöffnete Klasse ist ein Reiter. Alles, was du in der Seitenleiste öffnest, bezieht sich auf die aktive Klasse."},
-    {"el": "[data-tour=side-new]", "title": "Noch eine Klasse", "text": "Hier kommen weitere Klassen dazu – sie landen alle in derselben Datei.", "side": "right"},
-    {"el": "[data-tour=side-ln]", "title": "Leistungsnachweise", "text": "Arbeiten (GLN), Tests (KLN) und mündliche Teilnoten anlegen und benoten.", "side": "right"},
-    {"el": "[data-tour=side-sl]", "title": "SL-Noten", "text": "Pro Halbjahr zwei SL-Noten aus mündlicher Note und KLN.", "side": "right"},
-    {"el": "[data-tour=side-berechnung]", "title": "Notenberechnung", "text": "Alle Gewichtungen dieser Klasse an einem Ort.", "side": "right"},
-    {"el": "[data-tour=side-einst]", "title": "Einstellungen pro Klasse", "text": "Bezeichnung, Fach, Schuljahr – jeweils für die aktive Klasse.", "side": "right"},
-    {"el": "[data-tour=side-export]", "title": "Ganz wichtig: Exportieren", "text": "Bevor du gehst: Datei herunterladen! Auf dem Server bleibt nichts gespeichert.", "side": "right"},
-    {"el": "[data-tour=nav-profil]", "title": "Profil", "text": "Trage hier einmal deinen Namen ein – er erscheint auf den Notenzetteln.", "side": "left"}
-  ]
-}) | tojson }}{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4">
   <h4 class="mb-0">
@@ -33,63 +15,10 @@
   {% endif %}
 </div>
 
-
-{# ── Erste Schritte (Fortschritt nur im Browser, siehe static/js/onboarding.js) ── #}
-{% set n_open = open_classes | length if open_classes else 0 %}
-{% macro step(key, done, title, optional=False, check_key=None) -%}
-<li class="list-group-item d-flex gap-2 align-items-start" data-step="{{ key }}"
-    data-done="{{ '1' if done else '0' }}"{% if check_key %} data-check-key="{{ check_key }}"{% endif %}{% if optional %} data-optional{% endif %}>
-  <i class="step-icon bi bi-circle text-muted mt-1"></i>
-  <div class="flex-grow-1">
-    <div class="fw-semibold">{{ title }}{% if optional %} <span class="badge bg-light text-muted border fw-normal">optional</span>{% endif %}</div>
-    <div class="small text-muted">{{ caller() }}</div>
-  </div>
-</li>
-{%- endmacro %}
-<a id="erste-schritte"></a>
-<div class="card shadow-sm mb-4 d-none" id="ersteSchritte" data-tour="start-checklist">
-  <div class="card-header bg-white d-flex align-items-center gap-2">
-    <i class="bi bi-signpost-split text-primary"></i>
-    <span class="fw-semibold">Erste Schritte</span>
-    <span class="small text-muted steps-count ms-2"></span>
-    <div class="progress flex-grow-1 mx-2" style="height:6px; max-width:200px"><div class="progress-bar bg-success" style="width:0"></div></div>
-    <button type="button" class="btn btn-sm btn-link text-muted ms-auto" data-act="hide">Ausblenden</button>
-  </div>
-  <ul class="list-group list-group-flush">
-    {% call step('profil', current_user.lehrer_nachname, 'Deinen Namen im Profil eintragen') %}
-      Oben rechts unter <a href="{{ url_for('auth.profil') }}">Profil</a>. Der Name steht auf allen Notenzetteln, die du druckst.
-    {% endcall %}
-    {% call step('klasse', has_data, 'Klasse anlegen oder Datei hochladen') %}
-      Neu: <a href="{{ url_for('grades.new_wizard', modus='klasse') }}">Neue Klasse</a>.
-      Schon eine Datei vom letzten Mal? <a href="{{ url_for('grades.upload') }}">Daten laden</a> (Excel- oder ZIP-Datei).
-    {% endcall %}
-    {% call step('mehrere', n_open > 1, 'Weitere Klassen hinzufügen', optional=True) %}
-      Einfach nochmal „Neue Klasse“ wählen – jede Klasse erscheint oben als Reiter. <strong>Alle Klassen kommen in dieselbe Datei:</strong>
-      beim Export eine ZIP-Datei mit einer Excel-Datei pro Klasse.
-    {% endcall %}
-    {% call step('einstellungen', False, 'Einstellungen & Gewichtung pro Klasse prüfen', check_key='einstellungen') %}
-      Unter <a href="{{ url_for('grades.einstellungen') if has_data else '#' }}">Klasse &amp; Schuljahr</a> und
-      <a href="{{ url_for('grades.notenberechnung') if has_data else '#' }}">Notenberechnung</a> – jede Klasse hat ihre eigenen Einstellungen.
-      Gewählt wird die Klasse über den Reiter oben.
-    {% endcall %}
-    {% call step('ln', has_data and data.leistungsnachweise, 'Leistungsnachweise anlegen') %}
-      Unter <a href="{{ url_for('grades.ln_list') if has_data else '#' }}">Leistungsnachweise</a>: GLN (Arbeiten), KLN (Tests) und
-      auf Wunsch einzelne mündliche Noten.
-    {% endcall %}
-    {% call step('export', False, 'Zum Schluss: Datei herunterladen!', check_key='export') %}
-      <strong>Auf dem Server wird nichts gespeichert.</strong> Lade deine Datei über
-      <a href="{{ url_for('grades.export_excel') if has_data else '#' }}">Exportieren</a> herunter und lege sie sicher ab –
-      beim nächsten Mal lädst du sie wieder hoch.
-    {% endcall %}
-  </ul>
-</div>
-<div class="mb-3 d-none" id="ersteSchritteZeigen"><a href="#" class="small text-muted"><i class="bi bi-signpost-split me-1"></i>Erste Schritte anzeigen</a></div>
-<style>#ersteSchritte .erledigt .fw-semibold { text-decoration: line-through; color: #6c757d; }</style>
-
 {% if not has_data %}
 <div class="row g-3">
   <div class="col-lg-4 col-md-6">
-    <div class="card border-primary h-100" data-tour="start-upload">
+    <div class="card border-primary h-100">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-upload text-primary me-2"></i>Datei laden</h5>
         <p class="card-text text-muted">Lade eine bestehende Excel-Notendatei aus deiner Cloud hoch.</p>
@@ -98,7 +27,7 @@
     </div>
   </div>
   <div class="col-lg-4 col-md-6">
-    <div class="card border-success h-100" data-tour="start-new">
+    <div class="card border-success h-100">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-file-earmark-plus text-success me-2"></i>Neue Datei</h5>
         <p class="card-text text-muted">Erstelle eine neue leere Notendatei für eine Klasse oder einen Kurs.</p>
@@ -114,7 +43,7 @@
     </div>
   </div>
   <div class="col-lg-4 col-md-12">
-    <div class="card border-warning h-100" data-tour="start-demo">
+    <div class="card border-warning h-100">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-easel text-warning me-2"></i>Demo Modus</h5>
         <p class="card-text text-muted">Lädt eine anonymisierte Beispielklasse mit vertauschten Punktzahlen zum Ausprobieren.</p>
@@ -165,11 +94,7 @@
       <div class="card-body py-3">
         <div class="d-flex justify-content-between align-items-start">
           <h6 class="mb-1">{{ ln.name }}</h6>
-          {% if ln.ln_typ == 'MDL' %}
-          <span class="badge bg-info text-dark">Mündlich {{ ln.sl_zuordnung or '' }}</span>
-          {% else %}
           <span class="badge bg-secondary">{{ ln.aufgaben | length }} Aufgaben</span>
-          {% endif %}
         </div>
         <div class="text-muted small">{{ ln.schueler | length }} Schüler</div>
         <a href="{{ url_for('grades.ln_detail', ln_idx=loop.index0) }}"

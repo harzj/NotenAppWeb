@@ -1,13 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Excel exportieren{% endblock %}
-{% block tour %}{{ {
-  "id": "export",
-  "steps": [
-    {"title": "Wichtig: Nichts bleibt auf dem Server", "text": "Die Notenprogramm-Seite speichert deine Noten nicht dauerhaft. Wenn du fertig bist, musst du hier die Datei herunterladen und sicher ablegen (z.B. in deiner Cloud). Beim nächsten Mal lädst du sie wieder hoch."},
-    {"el": "#exportPasswordField", "title": "Passwort", "text": "Die Excel-Dateien werden mit diesem Passwort verschlüsselt. Merke es dir gut – ohne Passwort lässt sich die Datei nicht mehr öffnen."},
-    {"el": "[data-tour=export-submit]", "title": "Herunterladen", "text": "Bei mehreren Klassen bekommst du eine ZIP-Datei mit allen Klassen. Die Excel-Dateien sind auch ohne Notenprogramm in Excel lesbar.", "side": "top"}
-  ]
-} | tojson }}{% endblock %}
 {% block content %}
 <div class="row justify-content-center mt-3">
   <div class="col-md-6">
@@ -40,7 +32,7 @@
               wird es hier automatisch vorausgefüllt (maskiert).
             </div>
           </div>
-          {{ form.submit(class="btn btn-success", **{"data-tour": "export-submit", "data-check-click": "export"}) }}
+          {{ form.submit(class="btn btn-success") }}
           <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
         </form>
       </div>
