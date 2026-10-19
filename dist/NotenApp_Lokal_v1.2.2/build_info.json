@@ -1,0 +1,8 @@
+{
+  "version": "1.2.2",
+  "release_type": "minor-update",
+  "emergency_mode": false,
+  "source_commit": "abddbc3 (release-1.2)",
+  "timestamp": "20261019_125500",
+  "python": "3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]"
+}
