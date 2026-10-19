@@ -76,6 +76,8 @@ def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
             result["sl_gewichtung"] = sl_gw
         for store, weights in (settings.get("_ln_weights") or {}).items():
             result[store] = weights
+        if settings.get("_zugang"):
+            result["_zugang"] = settings["_zugang"]
         # Kurs settings
         modus = settings.get("modus", "klasse")
         result["modus"] = modus if modus in ("klasse", "kurs") else "klasse"
@@ -565,6 +567,8 @@ def _read_einstellungen(wb: Workbook) -> dict | None:
                        .setdefault(parts[2], {}))[parts[3]] = val
         elif key in S.ES_KURS_KEYS:
             result[key] = str(val_raw).strip() if val_raw is not None else ""
+        elif key == S.ES_ZUGANG_KEY and val_raw:
+            result["_zugang"] = str(val_raw).strip()
     return result if result else None
 
 

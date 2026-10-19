@@ -1,4 +1,5 @@
 from flask_wtf import FlaskForm
+from flask_wtf.file import FileAllowed, FileField, FileRequired
 from wtforms import StringField, PasswordField, BooleanField, SubmitField, EmailField, SelectField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional, ValidationError
 from app.models import User
@@ -34,6 +35,18 @@ class RegistrationForm(FlaskForm):
     def validate_email(self, field):
         if User.query.filter_by(email=field.data).first():
             raise ValidationError("E-Mail-Adresse bereits registriert.")
+
+
+class NeuesPasswortForm(FlaskForm):
+    password = PasswordField(
+        "Neues Passwort",
+        validators=[DataRequired(), Length(min=10, message="Mindestens 10 Zeichen")],
+    )
+    password2 = PasswordField(
+        "Passwort wiederholen",
+        validators=[DataRequired(), EqualTo("password", message="Passwörter stimmen nicht überein")],
+    )
+    submit = SubmitField("Passwort speichern und anmelden")
 
 
 class ChangePasswordForm(FlaskForm):
@@ -85,6 +98,15 @@ ANREDEN = [
     ("Herr", "Herr"),
     ("Frau", "Frau"),
 ]
+
+
+class DateiLoginForm(FlaskForm):
+    datei = FileField("Notendatei (.xlsx oder .zip)", validators=[
+        FileRequired("Bitte eine Notendatei auswählen."),
+        FileAllowed(["xlsx", "zip"], "Nur .xlsx- oder .zip-Dateien."),
+    ])
+    datei_passwort = PasswordField("Passwort der Notendatei", validators=[DataRequired("Bitte das Passwort der Datei eingeben.")])
+    submit = SubmitField("Mit Notendatei anmelden")
 
 
 class LehrerProfilForm(FlaskForm):

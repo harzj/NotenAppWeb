@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "macros.html" import csrf_field %}
-{% block title %}{{ ln.name }} (NT) – Nachtermin{% endblock %}
+{% set nt_titel = 'Nachtermin' ~ (' ' ~ nt_nr if nt_count > 1 else '') %}
+{% block title %}{{ parent_ln.name }} – {{ nt_titel }}{% endblock %}
 {% block extra_head %}
 <style>
   .points-input { width: 4.5rem; text-align: center; padding: 2px 2px;
@@ -30,10 +31,13 @@
       <i class="bi bi-arrow-left"></i>
     </a>
     <h4 class="d-inline-block mb-0">
-      {{ ln.name }}
-      <span class="badge bg-warning text-dark ms-1">Nachtermin</span>
-      <span class="text-muted small ms-2">für {{ parent_ln.name }}</span>
+      {{ parent_ln.name }}
+      <span class="badge bg-warning text-dark ms-1">{{ nt_titel }}</span>
+      {% if ln.datum %}<span class="text-muted small ms-2">{{ ln.datum | datum_kurz }}</span>{% endif %}
     </h4>
+    <div class="small text-muted mt-1">
+      Die Note zählt beim Leistungsnachweis „{{ parent_ln.name }}“ – jede/r schreibt entweder den Haupttermin oder einen Nachtermin.
+    </div>
   </div>
   <div class="d-flex gap-2">
     <button class="btn btn-sm btn-success" id="btnSaveAll">
@@ -43,6 +47,10 @@
             data-bs-target="#taskEditor">
       <i class="bi bi-gear me-1"></i>Aufgaben bearbeiten
     </button>
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+            data-bs-target="#ntSchuelerModal">
+      <i class="bi bi-people me-1"></i>Teilnehmer
+    </button>
     <button class="btn btn-sm btn-outline-info" data-bs-toggle="collapse"
             data-bs-target="#statistikPanel">
       <i class="bi bi-bar-chart me-1"></i>Statistik
@@ -51,9 +59,9 @@
             data-bs-target="#druckModal">
       <i class="bi bi-printer me-1"></i>Zettel drucken
     </button>
-    <form method="post" action="{{ url_for('grades.nachtermin_loeschen', ln_idx=parent_ln_idx) }}"
+    <form method="post" action="{{ url_for('grades.nachtermin_loeschen', ln_idx=parent_ln_idx, nr=nt_nr) }}"
           style="display:inline"
-          onsubmit="return confirm('Nachtermin wirklich löschen? Alle NT-Noten gehen verloren.')">
+          onsubmit="return confirm('{{ nt_titel }} wirklich löschen? Alle Noten dieses Nachtermins gehen verloren.')">
       {{ csrf_field() }}
       <button type="submit" class="btn btn-sm btn-outline-danger">
         <i class="bi bi-trash me-1"></i>Nachtermin löschen
@@ -121,6 +129,14 @@
     </thead>
     <tbody>
       {% for s in ln.schueler %}
+      {% if s.name in gesperrt %}
+      <tr class="table-secondary">
+        <td class="sticky-col">{{ s.name }}</td>
+        <td colspan="{{ ln.aufgaben | length + 4 }}" class="text-muted fst-italic small">
+          {{ gesperrt[s.name] }} – zählt dort, hier nicht bearbeitbar
+        </td>
+      </tr>
+      {% else %}
       <tr data-sname="{{ s.name }}" data-ignoriert="{{ 'true' if s.ignoriert else 'false' }}"
           class="{{ 'ln-row-ignored table-secondary' if s.ignoriert else '' }}">
         <td class="sticky-col">{{ s.name }}</td>
@@ -165,9 +181,10 @@
           {% else %}–{% endif %}
         </td>
       </tr>
+      {% endif %}
       {% else %}
       <tr><td colspan="{{ ln.aufgaben | length + 5 }}" class="text-center text-muted">
-        Keine Schüler vorhanden.
+        Keine Schüler vorhanden – über „Teilnehmer“ auswählen.
       </td></tr>
       {% endfor %}
     </tbody>
@@ -192,6 +209,46 @@
         <h6>Anforderungsbereiche (Ø Punkte)</h6>
         <canvas id="chartAfb"></canvas>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Teilnehmer ──────────────────────────────────────────────────────── -->
+<div class="modal fade" id="ntSchuelerModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('grades.nachtermin_schueler', ln_idx=parent_ln_idx, nr=nt_nr) }}"
+            id="ntSchuelerForm">
+        {{ csrf_field() }}
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-people me-2"></i>Teilnehmer – {{ nt_titel }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2">
+            Auswählbar sind alle Schüler ohne Note im Haupttermin und in anderen Nachterminen.
+            Wer abgewählt wird, verliert die hier eingetragenen Punkte.
+          </p>
+          <div class="border rounded p-2">
+            {% for k in kandidaten %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="student"
+                     value="{{ k.name }}" id="ntm_{{ loop.index }}" {{ 'checked' if k.im_nt else '' }}>
+              <label class="form-check-label" for="ntm_{{ loop.index }}">
+                {{ k.name }}
+                {% if k.ignoriert %}<span class="badge bg-secondary ms-1" style="font-size:.7rem">im Haupttermin ign.</span>{% endif %}
+              </label>
+            </div>
+            {% else %}
+            <div class="text-muted small">Alle Schüler haben bereits eine Note.</div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Übernehmen</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -348,9 +405,16 @@ document.getElementById('gradeTable').addEventListener('click', e => {
   inp.dispatchEvent(new Event('input'));
 });
 
+// ── Dirty-flag (for autosave) ─────────────────────────────────────────────────
+let _dirty = false;
+document.getElementById('gradeTable').addEventListener('input', e => {
+  if (e.target.classList.contains('student-points')) _dirty = true;
+});
+
 document.getElementById('gradeTable').addEventListener('change', e => {
   const cb = e.target.closest('.student-ignoriert');
   if (!cb) return;
+  _dirty = true;
   const row = cb.closest('tr');
   if (cb.checked) {
     row.classList.add('ln-row-ignored', 'table-secondary');
@@ -361,29 +425,69 @@ document.getElementById('gradeTable').addEventListener('change', e => {
   }
 });
 
-document.getElementById('btnSaveAll').addEventListener('click', async () => {
-  const rows = document.querySelectorAll('#gradeTable tbody tr[data-sname]');
+function _collectSchueler() {
   const schueler = [];
-  rows.forEach(row => {
+  document.querySelectorAll('#gradeTable tbody tr[data-sname]').forEach(row => {
     const name = row.getAttribute('data-sname');
     const ignoriert = row.dataset.ignoriert === 'true';
     const punkte = [];
     row.querySelectorAll('.student-points').forEach(inp => {
-      const v = inp.value === '' ? null : parseFloat(inp.value);
-      punkte.push(v);
+      punkte.push(inp.value === '' ? null : parseFloat(inp.value));
     });
     schueler.push({ name, punkte, ignoriert });
   });
+  return schueler;
+}
 
-  const resp = await fetch(`/ln/${LN_IDX}/noten`, {
+async function _doSave(silent) {
+  let data;
+  try {
+    const resp = await fetch(`/ln/${LN_IDX}/noten`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                  'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+      body: JSON.stringify({ schueler: _collectSchueler() }),
+      keepalive: true,
+    });
+    data = await resp.json();
+  } catch (err) {
+    showToast('Speichern fehlgeschlagen (Netzwerk oder Server).', 'danger');
+    return;
+  }
+  if (data.ok) {
+    _dirty = false;
+    showToast(silent ? 'Automatisch gespeichert.' : 'Noten gespeichert.', 'success', silent ? 2000 : undefined);
+  } else {
+    showToast('Fehler beim Speichern: ' + (data.error || '?'), 'danger');
+  }
+}
+
+document.getElementById('btnSaveAll').addEventListener('click', () => _doSave(false));
+
+// Save pending points before changing the participants
+document.getElementById('ntSchuelerForm')?.addEventListener('submit', async e => {
+  if (!_dirty) return;
+  e.preventDefault();
+  await _doSave(true);
+  e.target.submit();
+});
+
+// ── Autosave every 15 seconds / on page leave ─────────────────────────────────
+setInterval(() => { if (_dirty) _doSave(true); }, 15_000);
+function _saveBeforeLeave() {
+  if (!_dirty) return;
+  fetch(`/ln/${LN_IDX}/noten`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
-    body: JSON.stringify({ schueler })
+               'X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content || '' },
+    body: JSON.stringify({ schueler: _collectSchueler() }),
+    keepalive: true,
   });
-  const data = await resp.json();
-  if (data.ok) showToast('Noten gespeichert.', 'success');
-  else showToast('Fehler beim Speichern: ' + (data.error || '?'), 'danger');
+  _dirty = false;
+}
+window.addEventListener('pagehide', _saveBeforeLeave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') _saveBeforeLeave();
 });
 
 // ── Task tree ────────────────────────────────────────────────────────────────

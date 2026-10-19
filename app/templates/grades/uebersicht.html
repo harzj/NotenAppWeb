@@ -159,7 +159,7 @@
       {% for c in row.sl1_cols %}
       <td class="text-center">
         {% if c.note_15 is not none %}
-          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>
+          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>{% if c.nt %}<sup class="text-muted" title="Note aus dem Nachtermin">NT</sup>{% endif %}
         {% endif %}
       </td>
       {% endfor %}
@@ -178,7 +178,7 @@
       {% for c in row.sl2_cols %}
       <td class="text-center">
         {% if c.note_15 is not none %}
-          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>
+          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>{% if c.nt %}<sup class="text-muted" title="Note aus dem Nachtermin">NT</sup>{% endif %}
         {% endif %}
       </td>
       {% endfor %}
@@ -200,7 +200,7 @@
       {% for c in row.gln_cols %}
       <td class="text-center">
         {% if c.note_15 is not none %}
-          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>
+          <span class="{{ 'ignored-note' if c.ignoriert else ('text-danger note-cell' if c.note_15 < rot_schwelle else 'note-cell') }}">{{ c.note_15 }}</span>{% if c.nt %}<sup class="text-muted" title="Note aus dem Nachtermin">NT</sup>{% endif %}
         {% endif %}
       </td>
       {% endfor %}

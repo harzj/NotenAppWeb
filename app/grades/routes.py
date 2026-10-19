@@ -8,7 +8,7 @@ import zipfile
 from datetime import date, datetime
 from flask import (
     Blueprint, render_template, redirect, url_for,
-    flash, request, session, send_file, abort, jsonify,
+    flash, request, session, send_file, abort, jsonify, current_app,
 )
 from flask_login import login_required, current_user
 from app.excel.reader import load_gradebook, ExcelReadError, schuljahr_from_date, parse_korn_csv, korn_class_sort_key
@@ -23,6 +23,7 @@ from app.grades.forms import (
 from app.grades import moodle as moodle_parser
 from app.grades import berechnung
 from app.grades import gewichtung as gewichtung_ui
+from app.auth import dateilogin
 from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
 from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_zettel_pdf
 
@@ -76,6 +77,7 @@ def _save_gradebook(data: dict) -> None:
 
 def _add_gradebook(data: dict) -> int:
     """Append a new class/course to the open collection and make it the active one."""
+    data.pop("_zugang", None)
     _sort_stammdaten(data)
     books = _get_gradebooks()
     books.append(data)
@@ -88,6 +90,7 @@ def _add_gradebook(data: dict) -> int:
 def _replace_all_gradebooks(data_list: list[dict]) -> None:
     """Discard all open classes and replace them with a new set (e.g. from a .zip import)."""
     for d in data_list:
+        d.pop("_zugang", None)
         _sort_stammdaten(d)
     session[GRADEBOOKS_KEY] = data_list
     session[ACTIVE_IDX_KEY] = 0
@@ -1520,7 +1523,12 @@ def ln_list():
         new_form.ln_typ.data = preset_typ
     if request.args.get("sl") in berechnung.SL_KEYS:
         new_form.sl_zuordnung.data = request.args.get("sl")
-    return render_template("grades/ln_list.html", lns=data["leistungsnachweise"],
+    lns = data["leistungsnachweise"]
+    nt_count = {}
+    for ln in lns:
+        if ln.get("nachtermin_von"):
+            nt_count[ln["nachtermin_von"]] = nt_count.get(ln["nachtermin_von"], 0) + 1
+    return render_template("grades/ln_list.html", lns=lns, nt_count=nt_count,
                            new_form=new_form, open_new_modal=bool(preset_typ),
                            ln_meta=[{k: ln.get(k) for k in ("ln_typ", "hj", "sl_zuordnung", "gln_slot")}
                                     for ln in data["leistungsnachweise"] if not ln.get("nachtermin_von")],
@@ -1535,7 +1543,11 @@ def ln_loeschen(ln_idx):
     data = _require_gradebook()
     lns = data["leistungsnachweise"]
     if ln_idx < len(lns):
-        lns.pop(ln_idx)
+        ln = lns[ln_idx]
+        if ln.get("nachtermin_von"):
+            abort(400)  # Nachtermine are deleted on their own page
+        data["leistungsnachweise"] = [x for x in lns
+                                      if x is not ln and x.get("nachtermin_von") != ln["sheet_name"]]
         _save_gradebook(data)
         flash("Leistungsnachweis gelöscht.", "success")
     return redirect(url_for("grades.ln_list"))
@@ -1567,11 +1579,11 @@ def ln_neu():
             hj = form.hj.data if ln_typ == "GLN" else None
             sl_zuordnung = form.sl_zuordnung.data if ln_typ in ("KLN", S.LN_TYP_MDL) else None
 
-        sheet_name = S.LN_SHEET_PREFIX + name
-        existing = [ln["sheet_name"] for ln in data["leistungsnachweise"]]
-        if sheet_name in existing:
+        taken = {ln["sheet_name"].lower() for ln in data["leistungsnachweise"]}
+        if (S.LN_SHEET_PREFIX + name).lower() in taken:
             flash("Ein Leistungsnachweis mit diesem Namen existiert bereits.", "warning")
             return redirect(url_for("grades.ln_list"))
+        sheet_name = S.safe_sheet_name(S.LN_SHEET_PREFIX + name, taken)  # Excel: ≤ 31 chars
 
         schueler = []
         ln_target_hj = _ln_target_hj({"ln_typ": ln_typ, "hj": hj, "sl_zuordnung": sl_zuordnung})
@@ -1622,12 +1634,31 @@ def ln_detail(ln_idx):
     if ln.get("ln_typ") == S.LN_TYP_MDL and ln.get("sl_zuordnung") in berechnung.SL_KEYS:
         # Mündliche Teilnoten are graded together in the SL view
         return redirect(url_for("grades.sl_muendlich", sl_key=ln["sl_zuordnung"]))
+    if ln.get("nachtermin_von"):
+        # Nachtermine are opened via their parent LN
+        parent_idx, parent = _nt_parent(data, ln)
+        if parent is None:
+            abort(404)
+        nr = next(i for i, (_, nt) in enumerate(_nachtermine(data, parent), start=1) if nt is ln)
+        return redirect(url_for("grades.nachtermin_detail", ln_idx=parent_idx, nr=nr))
+    changed = _bereinige_nachtermine(data, ln)
     # Ensure aufgaben_tree exists (migrate legacy data on-the-fly)
     if "aufgaben_tree" not in ln:
         ln["aufgaben_tree"] = flat_to_tree(ln.get("aufgaben", []))
+        changed = True
+    if changed:
         _save_gradebook(data)
-    nt_sheet = _nt_sheet_name(ln["sheet_name"])
-    _, nt_ln = _find_ln_by_sheet(data, nt_sheet)
+    nachtermine = [nt for _, nt in _nachtermine(data, ln)]
+    # Students without Haupttermin grade who are assigned to a Nachtermin:
+    # name → {nr, note_15, note_6} (the Nachtermin with a grade, else the latest one)
+    nt_info = {}
+    for nr, nt in enumerate(nachtermine, start=1):
+        for ns in nt.get("schueler", []):
+            if _has_note(berechnung.student_row(ln, ns["name"])):
+                continue
+            if ns["name"] in nt_info and nt_info[ns["name"]]["note_15"] is not None:
+                continue
+            nt_info[ns["name"]] = {"nr": nr, "note_15": ns.get("note_15"), "note_6": ns.get("note_6")}
     # For ABT LNs, compute per-student HJ-Schnitt
     abt_hj_schnitt = {}
     if ln.get("ln_typ") == S.LN_TYP_ABT:
@@ -1638,7 +1669,8 @@ def ln_detail(ln_idx):
             if schnitt is not None:
                 abt_hj_schnitt[sname] = round(schnitt, 2)
     return render_template("grades/ln_detail.html", ln=ln, ln_idx=ln_idx,
-                           nachtermin_ln=nt_ln,
+                           nachtermine=nachtermine, nt_info=nt_info,
+                           nt_kandidaten=_nt_kandidaten(data, ln),
                            afb_values=S.AFB_VALUES,
                            grade_scale=S.GRADE_SCALE,
                            note15_to6=S.NOTE_15_TO_6,
@@ -1707,8 +1739,20 @@ def ln_noten_speichern(ln_idx):
 
     ln = data["leistungsnachweise"][ln_idx]
     runden = ln.get("noten_runden", True)
+    gesperrt = set()
+    if ln.get("nachtermin_von"):
+        _, parent = _nt_parent(data, ln)
+        if parent is not None:
+            for s in parent.get("schueler", []):
+                if _has_note(s) and not s.get("ignoriert"):
+                    gesperrt.add(s["name"])
+            for _, other in _nachtermine(data, parent):
+                if other is not ln:
+                    gesperrt |= {ns["name"] for ns in other.get("schueler", []) if _has_note(ns)}
     for incoming in payload["schueler"]:
         name = incoming.get("name")
+        if name in gesperrt:
+            continue
         for s in ln["schueler"]:
             if s["name"] == name:
                 raw = incoming.get("punkte", [])
@@ -1755,10 +1799,25 @@ def ln_runden_speichern(ln_idx):
 
 
 # ── Nachtermin ────────────────────────────────────────────────────────────────
+#
+# A Leistungsnachweis can have several Nachtermine. Each is stored as its own
+# entry in data["leistungsnachweise"] (and its own Excel sheet) with
+# nachtermin_von = sheet name of the parent; it is not an independent LN. Every
+# student takes part in exactly one date: a grade in the Haupttermin always wins
+# (see berechnung.effective_entry), and students graded there never join a
+# Nachtermin.
 
-def _nt_sheet_name(parent_sheet: str) -> str:
-    """Return the Nachtermin sheet name for a given parent LN sheet."""
-    return parent_sheet + "_NT"
+def _nt_sheet_name(data: dict, parent_sheet: str) -> str:
+    """Return a free sheet name for a new Nachtermin of *parent_sheet* (Excel: ≤ 31 chars)."""
+    taken = {ln["sheet_name"].lower() for ln in data["leistungsnachweise"]}
+    nr = 1
+    while True:
+        suffix = "_NT" if nr == 1 else f"_NT{nr}"
+        candidate = "".join("_" if c in S.SHEET_NAME_INVALID else c
+                            for c in parent_sheet[:S.SHEET_NAME_MAX - len(suffix)]) + suffix
+        if candidate.lower() not in taken:
+            return candidate
+        nr += 1
 
 
 def _find_ln_by_sheet(data: dict, sheet_name: str) -> tuple[int, dict] | tuple[None, None]:
@@ -1768,30 +1827,116 @@ def _find_ln_by_sheet(data: dict, sheet_name: str) -> tuple[int, dict] | tuple[N
     return None, None
 
 
+def _nachtermine(data: dict, parent_ln: dict) -> list[tuple[int, dict]]:
+    """[(index in leistungsnachweise, NT ln)] of a parent LN, in creation order."""
+    sheet = parent_ln["sheet_name"]
+    return [(i, ln) for i, ln in enumerate(data["leistungsnachweise"])
+            if ln.get("nachtermin_von") == sheet]
+
+
+def _has_note(row: dict | None) -> bool:
+    return bool(row) and row.get("note_15") is not None
+
+
+def _bereinige_nachtermine(data: dict, parent_ln: dict) -> bool:
+    """Remove students from Nachtermin rosters who got a grade in the Haupttermin
+    and have nothing entered in the Nachtermin (e.g. Nachtermin created too early).
+    Returns True if something changed."""
+    changed = False
+    for _, nt in _nachtermine(data, parent_ln):
+        keep = []
+        for ns in nt.get("schueler", []):
+            in_parent = berechnung.student_row(parent_ln, ns["name"])
+            nt_empty = not any(p is not None for p in ns.get("punkte") or []) and ns.get("note_15") is None
+            if _has_note(in_parent) and not in_parent.get("ignoriert") and nt_empty:
+                changed = True
+                continue
+            keep.append(ns)
+        nt["schueler"] = keep
+    return changed
+
+
+def _nt_kandidaten(data: dict, parent_ln: dict, nt_ln: dict | None = None) -> list[dict]:
+    """Students who may take part in a (new or given) Nachtermin: no grade in the
+    Haupttermin and no grade in another Nachtermin of this LN."""
+    others = [nt for _, nt in _nachtermine(data, parent_ln) if nt is not nt_ln]
+    result = []
+    for s in parent_ln.get("schueler", []):
+        name = s["name"]
+        if _has_note(s) and not s.get("ignoriert"):
+            continue
+        if any(_has_note(berechnung.student_row(nt, name)) for nt in others):
+            continue
+        result.append({"name": name, "ignoriert": bool(s.get("ignoriert"))})
+    return result
+
+
+def _nt_row(name: str, n_tasks: int) -> dict:
+    return {"name": name, "punkte": [None] * n_tasks, "note_15": None, "note_6": None, "ignoriert": False}
+
+
+def _nt_parent(data: dict, nt_ln: dict) -> tuple[int, dict] | tuple[None, None]:
+    return _find_ln_by_sheet(data, nt_ln.get("nachtermin_von") or "")
+
+
+def _get_nachtermin(data: dict, ln_idx: int, nr: int):
+    """(parent_ln, nt_idx, nt_ln) for the nr-th (1-based) Nachtermin, or abort 404."""
+    if ln_idx >= len(data["leistungsnachweise"]):
+        abort(404)
+    parent_ln = data["leistungsnachweise"][ln_idx]
+    nts = _nachtermine(data, parent_ln)
+    if nr < 1 or nr > len(nts):
+        abort(404)
+    nt_idx, nt_ln = nts[nr - 1]
+    return parent_ln, nt_idx, nt_ln
+
+
 @grades_bp.route("/ln/<int:ln_idx>/nachtermin", methods=["GET"])
 @login_required
-def nachtermin_detail(ln_idx):
-    """View/edit the Nachtermin for a given parent LN."""
+def nachtermin_erster(ln_idx):
+    """Old link target: first Nachtermin of the LN."""
+    return redirect(url_for("grades.nachtermin_detail", ln_idx=ln_idx, nr=1))
+
+
+@grades_bp.route("/ln/<int:ln_idx>/nachtermin/<int:nr>", methods=["GET"])
+@login_required
+def nachtermin_detail(ln_idx, nr):
+    """View/edit the nr-th Nachtermin of a parent LN."""
     data = _require_gradebook()
     if ln_idx >= len(data["leistungsnachweise"]):
         abort(404)
     parent_ln = data["leistungsnachweise"][ln_idx]
-    nt_sheet = _nt_sheet_name(parent_ln["sheet_name"])
-    nt_idx, nt_ln = _find_ln_by_sheet(data, nt_sheet)
-
-    if nt_ln is None:
-        flash("Kein Nachtermin vorhanden.", "warning")
+    nts = _nachtermine(data, parent_ln)
+    if not nts or nr < 1 or nr > len(nts):
+        flash("Diesen Nachtermin gibt es nicht.", "warning")
         return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
+    nt_idx, nt_ln = nts[nr - 1]
 
-    # Ensure aufgaben_tree exists
+    changed = _bereinige_nachtermine(data, parent_ln)
     if "aufgaben_tree" not in nt_ln:
         nt_ln["aufgaben_tree"] = flat_to_tree(nt_ln.get("aufgaben", []))
+        changed = True
+    if changed:
         _save_gradebook(data)
 
+    # Students graded in another Nachtermin of this LN are locked here
+    gesperrt = {}
+    for other_nr, (_, other) in enumerate(nts, start=1):
+        if other is nt_ln:
+            continue
+        for ns in other.get("schueler", []):
+            if _has_note(ns):
+                gesperrt.setdefault(ns["name"], f"hat Note im Nachtermin {other_nr}")
+
+    members = {s["name"] for s in nt_ln.get("schueler", [])}
+    kandidaten = [k for k in _nt_kandidaten(data, parent_ln, nt_ln)]
+    for k in kandidaten:
+        k["im_nt"] = k["name"] in members
     return render_template(
         "grades/nachtermin_detail.html",
-        ln=nt_ln, ln_idx=nt_idx,
+        ln=nt_ln, ln_idx=nt_idx, nt_nr=nr, nt_count=len(nts),
         parent_ln=parent_ln, parent_ln_idx=ln_idx,
+        gesperrt=gesperrt, kandidaten=kandidaten,
         afb_values=S.AFB_VALUES,
         grade_scale=S.GRADE_SCALE,
         note15_to6=S.NOTE_15_TO_6,
@@ -1802,88 +1947,79 @@ def nachtermin_detail(ln_idx):
 @grades_bp.route("/ln/<int:ln_idx>/nachtermin/anlegen", methods=["POST"])
 @login_required
 def nachtermin_anlegen(ln_idx):
-    """Create a Nachtermin for the given parent LN."""
+    """Create a further Nachtermin for the given parent LN with the selected students."""
     data = _require_gradebook()
     if ln_idx >= len(data["leistungsnachweise"]):
         abort(404)
     parent_ln = data["leistungsnachweise"][ln_idx]
-    nt_sheet = _nt_sheet_name(parent_ln["sheet_name"])
+    if parent_ln.get("nachtermin_von") or parent_ln.get("ln_typ") in (S.LN_TYP_ABT, S.LN_TYP_MDL):
+        abort(400)
+    _bereinige_nachtermine(data, parent_ln)
 
-    # Check not already exists
-    _, existing = _find_ln_by_sheet(data, nt_sheet)
-    if existing is not None:
-        return redirect(url_for("grades.nachtermin_detail", ln_idx=ln_idx))
+    erlaubt = {k["name"] for k in _nt_kandidaten(data, parent_ln)}
+    gewaehlt = [n for n in request.form.getlist("student") if n in erlaubt]
+    if not gewaehlt:
+        flash("Bitte mindestens eine Schülerin / einen Schüler ohne Note für den Nachtermin auswählen.", "warning")
+        return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
 
-    # Students who have NO grade in the parent LN (no punkte entered)
-    nt_schueler = []
-    for s in parent_ln["schueler"]:
-        has_grade = (
-            s.get("punkte") and
-            any(p is not None for p in s["punkte"]) and
-            not s.get("ignoriert")
-        )
-        if not has_grade:
-            nt_schueler.append({
-                "name": s["name"],
-                "punkte": [],
-                "note_15": None,
-                "note_6": None,
-                "ignoriert": False,
-            })
-
-    # Copy aufgaben_tree from parent as template
-    import copy
-    parent_tree = copy.deepcopy(parent_ln.get("aufgaben_tree") or [])
     parent_aufgaben = copy.deepcopy(parent_ln.get("aufgaben") or [])
-
-    # Adjust punkte arrays for NT students
     n = len(parent_aufgaben)
-    for s in nt_schueler:
-        s["punkte"] = [None] * n
+    # Keep the order of the parent roster
+    nt_schueler = [_nt_row(s["name"], n) for s in parent_ln["schueler"] if s["name"] in gewaehlt]
 
+    nr = len(_nachtermine(data, parent_ln)) + 1
     nt_ln = {
-        "name": parent_ln["name"] + " (NT)",
-        "sheet_name": nt_sheet,
+        "name": parent_ln["name"] + (" (NT)" if nr == 1 else f" (NT{nr})"),
+        "sheet_name": _nt_sheet_name(data, parent_ln["sheet_name"]),
         "ln_typ": parent_ln.get("ln_typ", "GLN"),
         "hj": parent_ln.get("hj"),
         "sl_zuordnung": parent_ln.get("sl_zuordnung"),
         "gln_slot": parent_ln.get("gln_slot"),
         "nachtermin_von": parent_ln["sheet_name"],
         "noten_runden": parent_ln.get("noten_runden", True),
-        "aufgaben_tree": parent_tree,
+        "datum": (request.form.get("datum") or "").strip()[:20],
+        "thema": parent_ln.get("thema", ""),
+        "aufgaben_tree": copy.deepcopy(parent_ln.get("aufgaben_tree") or []),
         "aufgaben": parent_aufgaben,
         "schueler": nt_schueler,
     }
     data["leistungsnachweise"].append(nt_ln)
     _save_gradebook(data)
 
-    nt_idx = len(data["leistungsnachweise"]) - 1
-    flash(f"Nachtermin für '{parent_ln['name']}' angelegt ({len(nt_schueler)} Schüler).", "success")
-    return redirect(url_for("grades.nachtermin_detail", ln_idx=ln_idx))
+    flash(f"Nachtermin {nr} für '{parent_ln['name']}' angelegt ({len(nt_schueler)} Schüler).", "success")
+    return redirect(url_for("grades.nachtermin_detail", ln_idx=ln_idx, nr=nr))
 
 
-@grades_bp.route("/ln/<int:ln_idx>/nachtermin/loeschen", methods=["POST"])
+@grades_bp.route("/ln/<int:ln_idx>/nachtermin/<int:nr>/schueler", methods=["POST"])
 @login_required
-def nachtermin_loeschen(ln_idx):
-    """Delete the Nachtermin of the given parent LN."""
+def nachtermin_schueler(ln_idx, nr):
+    """Change which students take part in a Nachtermin."""
     data = _require_gradebook()
-    if ln_idx >= len(data["leistungsnachweise"]):
-        abort(404)
-    parent_ln = data["leistungsnachweise"][ln_idx]
-    nt_sheet = _nt_sheet_name(parent_ln["sheet_name"])
-    nt_idx, _ = _find_ln_by_sheet(data, nt_sheet)
-    if nt_idx is not None:
-        data["leistungsnachweise"].pop(nt_idx)
-        _save_gradebook(data)
-        flash("Nachtermin gelöscht.", "info")
-    return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
+    parent_ln, _, nt_ln = _get_nachtermin(data, ln_idx, nr)
+    _bereinige_nachtermine(data, parent_ln)
+
+    erlaubt = {k["name"] for k in _nt_kandidaten(data, parent_ln, nt_ln)}
+    gewaehlt = {n for n in request.form.getlist("student") if n in erlaubt}
+    bisher = {s["name"]: s for s in nt_ln.get("schueler", [])}
+    n = len(nt_ln.get("aufgaben", []))
+    nt_ln["schueler"] = [bisher.get(s["name"]) or _nt_row(s["name"], n)
+                         for s in parent_ln["schueler"] if s["name"] in gewaehlt]
+    _save_gradebook(data)
+    flash(f"Teilnehmer des Nachtermins aktualisiert ({len(nt_ln['schueler'])} Schüler).", "success")
+    return redirect(url_for("grades.nachtermin_detail", ln_idx=ln_idx, nr=nr))
+
+
+@grades_bp.route("/ln/<int:ln_idx>/nachtermin/<int:nr>/loeschen", methods=["POST"])
+@login_required
+def nachtermin_loeschen(ln_idx, nr):
+    """Delete the nr-th Nachtermin of the given parent LN."""
     data = _require_gradebook()
-    if ln_idx < len(data["leistungsnachweise"]):
-        name = data["leistungsnachweise"][ln_idx]["name"]
-        data["leistungsnachweise"].pop(ln_idx)
-        _save_gradebook(data)
-        flash(f'Leistungsnachweis "{name}" gelöscht.', "success")
-    return redirect(url_for("grades.ln_list"))
+    parent_ln, nt_idx, _ = _get_nachtermin(data, ln_idx, nr)
+    data["leistungsnachweise"].pop(nt_idx)
+    _save_gradebook(data)
+    flash(f"Nachtermin {nr} gelöscht.", "info")
+    parent_idx, _ = _find_ln_by_sheet(data, parent_ln["sheet_name"])
+    return redirect(url_for("grades.ln_detail", ln_idx=parent_idx))
 
 
 # ── Moodle-Import ─────────────────────────────────────────────────────────────
@@ -1930,11 +2066,11 @@ def moodle_import_ln():
         hj = form.hj.data if ln_typ == "GLN" else None
         sl_zuordnung = form.sl_zuordnung.data if ln_typ == "KLN" else None
 
-        sheet_name = S.LN_SHEET_PREFIX + name
-        existing = [ln["sheet_name"] for ln in data["leistungsnachweise"]]
-        if sheet_name in existing:
+        taken = {ln["sheet_name"].lower() for ln in data["leistungsnachweise"]}
+        if (S.LN_SHEET_PREFIX + name).lower() in taken:
             flash("Ein Leistungsnachweis mit diesem Namen existiert bereits.", "warning")
             return render_template("grades/moodle_import.html", form=form)
+        sheet_name = S.safe_sheet_name(S.LN_SHEET_PREFIX + name, taken)  # Excel: ≤ 31 chars
 
         # Build Aufgaben from parsed tasks
         task_list = merged.get("tasks", [])
@@ -2019,12 +2155,38 @@ def moodle_import_ln():
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
-def _get_student_note(ln: dict, student_name: str) -> tuple:
-    """Return (note_15, ignoriert) for a student in an LN."""
-    for s in ln.get("schueler", []):
-        if s["name"] == student_name:
-            return s.get("note_15"), bool(s.get("ignoriert", False))
-    return None, False
+def _as_int(note):
+    return int(note) if note is not None and note == int(note) else note
+
+
+def _effective_note15(ln: dict, student_name: str, lns: list):
+    """Counting grade of a student for an LN (Haupttermin or Nachtermin; None if ignored)."""
+    return _as_int(berechnung.effective_entry(student_name, ln, lns)[0])
+
+
+def _get_student_note(ln: dict, student_name: str, lns: list) -> tuple:
+    """Return (note_15, ignoriert) for display – a grade from a Nachtermin
+    included; an ignored grade is returned with ignoriert=True."""
+    return tuple(_note_col(ln, student_name, lns)[k] for k in ("note_15", "ignoriert"))
+
+
+def _kurs_slot_note(lns: list, slot: str, student_name: str):
+    """Kurs: grade of a student for a GLN slot (Haupttermin or Nachtermin)."""
+    result = None
+    for ln in lns:
+        if ln.get("gln_slot") == slot and not ln.get("nachtermin_von"):
+            note = _effective_note15(ln, student_name, lns)
+            if note is not None:
+                result = note
+    return result
+
+
+def _note_col(ln: dict, student_name: str, lns: list) -> dict:
+    """Overview cell: {note_15, ignoriert, nt} – nt is the Nachtermin number if the grade comes from one."""
+    note, ignoriert, nt_nr = berechnung.effective_entry(student_name, ln, lns)
+    if note is None and ignoriert:
+        note = (berechnung.student_row(ln, student_name) or {}).get("note_15")  # shown struck through
+    return {"note_15": _as_int(note), "ignoriert": ignoriert, "nt": nt_nr}
 
 
 # ── SL-Detailseite ────────────────────────────────────────────────────────────
@@ -2055,7 +2217,7 @@ def sl_detail(sl_key):
         name = f"{s['nachname']}, {s['vorname']}"
         kln_cols = []
         for ln in kln_list:
-            note_15, ignoriert = _get_student_note(ln, name)
+            note_15, ignoriert = _get_student_note(ln, name, lns)
             kln_cols.append({"ln_name": ln["name"], "note_15": note_15, "ignoriert": ignoriert})
 
         # Weighted KLN mean using kln_weights
@@ -2117,7 +2279,7 @@ def sl_muendlich(sl_key):
         name = f"{s['nachname']}, {s['vorname']}"
         cols = []
         for ln in mdl_lns:
-            note_15, ignoriert = _get_student_note(ln, name)
+            note_15, ignoriert = _get_student_note(ln, name, lns)
             in_ln = any(x["name"] == name for x in ln.get("schueler", []))
             cols.append({"note_15": note_15, "ignoriert": ignoriert, "in_ln": in_ln})
         mean = berechnung.mdl_mean_for_sl(name, sl_key, lns, mdl_weights)
@@ -2257,7 +2419,7 @@ def sl_druck(sl_key):
         name = f"{s['nachname']}, {s['vorname']}"
         kln_noten = []
         for ln in kln_list:
-            note_15, ignoriert = _get_student_note(ln, name)
+            note_15, ignoriert = _get_student_note(ln, name, lns)
             kln_noten.append({
                 "name": ln["name"],
                 "note_15": note_15,
@@ -2372,11 +2534,7 @@ def klasse_korn_export(mode):
 
         gln_notes = []
         for ln in gln_list[:3]:
-            gln_note = None
-            for sc in ln.get("schueler", []):
-                if sc["name"] == name and not sc.get("ignoriert"):
-                    gln_note = sc.get("note_15")
-            gln_notes.append(gln_note)
+            gln_notes.append(_effective_note15(ln, name, lns))
         while len(gln_notes) < 3:
             gln_notes.append(None)
 
@@ -2416,7 +2574,8 @@ def uebersicht(hj):
     hj_key = "HJ1" if hj == "hj1" else "HJ2"
     sl1_key, sl2_key = ("SL1", "SL2") if hj_key == "HJ1" else ("SL3", "SL4")
 
-    gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key]
+    gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key
+                and not ln.get("nachtermin_von")]
     sl1_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl1_key
                 and not ln.get("nachtermin_von")]
     sl2_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl2_key
@@ -2436,9 +2595,9 @@ def uebersicht(hj):
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
 
-        gln_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_list]
-        sl1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in sl1_list]
-        sl2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in sl2_list]
+        gln_cols = [_note_col(ln, name, lns) for ln in gln_list]
+        sl1_cols = [_note_col(ln, name, lns) for ln in sl1_list]
+        sl2_cols = [_note_col(ln, name, lns) for ln in sl2_list]
 
         kln_mean_sl1 = berechnung.kln_mean_for_sl(name, sl1_key, lns, kln_weights_sl1)
         kln_mean_sl2 = berechnung.kln_mean_for_sl(name, sl2_key, lns, kln_weights_sl2)
@@ -2626,7 +2785,8 @@ def hj_druck(hj):
     sl1_key, sl2_key = ("SL1", "SL2") if hj_key == "HJ1" else ("SL3", "SL4")
     hj_label = "Halbjahr 1" if hj == "hj1" else "Halbjahr 2"
 
-    gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key]
+    gln_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key
+                and not ln.get("nachtermin_von")]
     sl1_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl1_key
                 and not ln.get("nachtermin_von")]
     sl2_list = [ln for ln in lns if ln.get("ln_typ") == "KLN" and ln.get("sl_zuordnung") == sl2_key
@@ -2639,9 +2799,9 @@ def hj_druck(hj):
     rows = []
     for s in students:
         name = f"{s['nachname']}, {s['vorname']}"
-        sl1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in sl1_list]
-        sl2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in sl2_list]
-        gln_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_list]
+        sl1_cols = [_note_col(ln, name, lns) for ln in sl1_list]
+        sl2_cols = [_note_col(ln, name, lns) for ln in sl2_list]
+        gln_cols = [_note_col(ln, name, lns) for ln in gln_list]
 
         kln_mean_sl1 = berechnung.kln_mean_for_sl(name, sl1_key, lns, kln_weights_sl1)
         kln_mean_sl2 = berechnung.kln_mean_for_sl(name, sl2_key, lns, kln_weights_sl2)
@@ -2697,8 +2857,10 @@ def schuljahr_uebersicht():
     sl_noten_actual = data.get("sl_noten_actual") or {}
     sj_noten_actual = data.get("schuljahr_noten_actual") or {}
     gw = berechnung.get_gewichtung(data)
-    gln_hj1_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == "HJ1"]
-    gln_hj2_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == "HJ2"]
+    gln_hj1_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == "HJ1"
+                    and not ln.get("nachtermin_von")]
+    gln_hj2_list = [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == "HJ2"
+                    and not ln.get("nachtermin_von")]
     students = [
         s for s in data.get("stammdaten", [])
         if berechnung.student_active_in_hj(s, "HJ1") or berechnung.student_active_in_hj(s, "HJ2")
@@ -2723,12 +2885,12 @@ def schuljahr_uebersicht():
             and not berechnung.student_active_in_hj(s, "HJ2")
         )
 
-        gln_hj1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj1_list]
+        gln_hj1_cols = [_note_col(ln, name, lns) for ln in gln_hj1_list]
         sl1, sl1_actual = _sl_display(name, "SL1")
         sl2, sl2_actual = _sl_display(name, "SL2")
         hj1 = hj_noten.get(name, {}).get("HJ1")
 
-        gln_hj2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj2_list]
+        gln_hj2_cols = [_note_col(ln, name, lns) for ln in gln_hj2_list]
         sl3, sl3_actual = _sl_display(name, "SL3")
         sl4, sl4_actual = _sl_display(name, "SL4")
         hj2 = hj_noten.get(name, {}).get("HJ2")
@@ -2829,7 +2991,8 @@ def schuljahr_druck():
                 and not ln.get("nachtermin_von")]
 
     def _gln_list(hj_key):
-        return [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key]
+        return [ln for ln in lns if ln.get("ln_typ") == "GLN" and ln.get("hj") == hj_key
+                and not ln.get("nachtermin_von")]
 
     sl1_list = _sl_list("SL1"); sl2_list = _sl_list("SL2")
     sl3_list = _sl_list("SL3"); sl4_list = _sl_list("SL4")
@@ -2862,8 +3025,8 @@ def schuljahr_druck():
         kln_mean_sl3 = _kln_mean("SL3")
         kln_mean_sl4 = _kln_mean("SL4")
 
-        gln_hj1_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj1_list]
-        gln_hj2_cols = [dict(zip(("note_15", "ignoriert"), _get_student_note(ln, name))) for ln in gln_hj2_list]
+        gln_hj1_cols = [_note_col(ln, name, lns) for ln in gln_hj1_list]
+        gln_hj2_cols = [_note_col(ln, name, lns) for ln in gln_hj2_list]
 
         rows.append({
             "name": name,
@@ -2936,29 +3099,45 @@ def _build_zip_export(books: list[dict], password: str | None) -> bytes:
     return buf.getvalue()
 
 
+def _with_zugang(books: list[dict], password: str | None) -> list[dict]:
+    """Copies of *books* carrying the access token for "Anmelden mit Notendatei".
+
+    Only for password-protected exports: in an unencrypted file the token could
+    be used by anyone who gets hold of the file.
+    """
+    key = current_app.config.get("FILE_LOGIN_KEY")
+    if not key or not password or not current_user.is_approved:
+        return books
+    token = dateilogin.make_token(current_user, key)
+    return [{**b, "_zugang": token} for b in books]
+
+
 @grades_bp.route("/export/excel", methods=["GET", "POST"])
 @login_required
 def export_excel():
     _require_gradebook()  # ensures at least one class is open
     books = _get_gradebooks()
+    zugang_aktiv = bool(current_app.config.get("FILE_LOGIN_KEY"))
     form = ExportForm()
     if request.method == "GET":
         # Pre-fill with the password the active file was loaded/exported with.
         form.password.data = session.get(_SOURCE_PW_KEY) or ""
     if form.validate_on_submit():
         password = form.password.data or None
+        export_books = _with_zugang(books, password)
         try:
             if len(books) > 1:
-                file_bytes = _build_zip_export(books, password)
+                file_bytes = _build_zip_export(export_books, password)
                 filename = f"Noten_Sammlung_{datetime.now().strftime('%Y%m%d')}.zip"
                 mimetype = "application/zip"
             else:
-                file_bytes = build_gradebook(books[0], password=password)
+                file_bytes = build_gradebook(export_books[0], password=password)
                 filename = _gradebook_export_filename(books[0])
                 mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         except Exception as e:
             flash(f"Fehler beim Export: {e}", "danger")
-            return render_template("grades/export.html", form=form, n_classes=len(books))
+            return render_template("grades/export.html", form=form, n_classes=len(books),
+                                   zugang_aktiv=zugang_aktiv)
         _set_source_password(password)
         return send_file(
             io.BytesIO(file_bytes),
@@ -2966,7 +3145,8 @@ def export_excel():
             as_attachment=True,
             mimetype=mimetype,
         )
-    return render_template("grades/export.html", form=form, n_classes=len(books))
+    return render_template("grades/export.html", form=form, n_classes=len(books),
+                           zugang_aktiv=zugang_aktiv)
 
 
 # ── Klasseneinstellungen ──────────────────────────────────────────────────────
@@ -3279,11 +3459,7 @@ def kurs_uebersicht(hj):
             slot_hj = berechnung.gln_slot_to_hj(slot)
             if slot_hj != hj:
                 continue
-            for ln in lns:
-                if ln.get("gln_slot") == slot:
-                    for sc in ln.get("schueler", []):
-                        if sc["name"] == name and not sc.get("ignoriert"):
-                            gln_notes[slot] = sc.get("note_15")
+            gln_notes[slot] = _kurs_slot_note(lns, slot, name)
         kn = mdl_noten_kurs.get(name, {})
         _to_int = lambda v: int(v) if v is not None else None
         mdl1 = _to_int(kn.get(f"{hj}_mdl1"))
@@ -3412,13 +3588,7 @@ def kurs_korn_export(hj):
         fs_u = int(kn.get(f"{hj}_fs_u") or 0)
         row  = [name, note, fs_e, fs_u]
         for slot in hj_slots[:2]:
-            gln_note = None
-            for ln in lns:
-                if ln.get("gln_slot") == slot:
-                    for sc in ln.get("schueler", []):
-                        if sc["name"] == name and not sc.get("ignoriert"):
-                            gln_note = sc.get("note_15")
-            row.append(gln_note)
+            row.append(_kurs_slot_note(lns, slot, name))
         ws.append(row)
 
     buf = io.BytesIO()
@@ -3490,11 +3660,7 @@ def kurs_gesamt_uebersicht():
             else:
                 gln_notes = {}
                 for slot in slots:
-                    for ln in lns:
-                        if ln.get("gln_slot") == slot:
-                            for sc in ln.get("schueler", []):
-                                if sc["name"] == name and not sc.get("ignoriert"):
-                                    gln_notes[slot] = sc.get("note_15")
+                    gln_notes[slot] = _kurs_slot_note(lns, slot, name)
                 gln_vals = [v for v in gln_notes.values() if v is not None]
                 gln_mean = round(sum(gln_vals) / len(gln_vals), 1) if gln_vals else None
                 kn = mdl_noten_kurs.get(name, {})

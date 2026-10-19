@@ -1,8 +1,7 @@
 {% extends "base.html" %}
 {% from "macros.html" import csrf_field %}
 {% block title %}{{ ln.name }} – Leistungsnachweis{% endblock %}
-{% set nt_ln = nachtermin_ln %}
-{% set nt_students = nt_ln.schueler | map(attribute='name') | list if nt_ln else [] %}
+{% set nt_students = nt_info.keys() | list %}
 {% block extra_head %}
 <style>
   .points-input { width: 4.5rem; text-align: center; padding: 2px 2px;
@@ -64,20 +63,17 @@
       <i class="bi bi-printer me-1"></i>Zettel drucken
     </button>
     {% if ln.ln_typ != 'ABT' %}
-    {% if nt_ln %}
-    <a href="{{ url_for('grades.nachtermin_detail', ln_idx=ln_idx) }}"
-       class="btn btn-sm btn-outline-warning">
-      <i class="bi bi-calendar2-plus me-1"></i>Nachtermin bearbeiten
+    {% for nt in nachtermine %}
+    <a href="{{ url_for('grades.nachtermin_detail', ln_idx=ln_idx, nr=loop.index) }}"
+       class="btn btn-sm btn-outline-warning" title="{{ nt.schueler | length }} Schüler">
+      <i class="bi bi-calendar2-check me-1"></i>Nachtermin{{ ' ' ~ loop.index if nachtermine | length > 1 else '' }}
+      <span class="badge bg-warning text-dark ms-1">{{ nt.schueler | length }}</span>
     </a>
-    {% else %}
-    <form method="post" action="{{ url_for('grades.nachtermin_anlegen', ln_idx=ln_idx) }}"
-          style="display:inline">
-      {{ csrf_field() }}
-      <button type="submit" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-calendar2-plus me-1"></i>Nachtermin anlegen
-      </button>
-    </form>
-    {% endif %}
+    {% endfor %}
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+            data-bs-target="#ntAnlegenModal" {% if not nt_kandidaten %}disabled title="Alle Schüler haben eine Note"{% endif %}>
+      <i class="bi bi-calendar2-plus me-1"></i>{{ 'Weiteren Nachtermin' if nachtermine else 'Nachtermin' }} anlegen
+    </button>
     {% endif %}
   </div>
 </div>
@@ -176,7 +172,7 @@
         {% endif %}
         {% if in_nt %}
         <td colspan="{{ (ln.aufgaben | length) + 1 }}" class="text-center text-muted fst-italic small">
-          Nachtermin
+          <a href="{{ url_for('grades.nachtermin_detail', ln_idx=ln_idx, nr=nt_info[s.name].nr) }}" class="text-muted">Nachtermin{{ ' ' ~ nt_info[s.name].nr if nachtermine | length > 1 else '' }}</a>
         </td>
         {% else %}
         {% for t_idx in range(ln.aufgaben | length) %}
@@ -207,9 +203,9 @@
         {% endif %}
         <td class="text-center note-cell student-note15{% if s.note_15 is not none and s.note_15 < rot_schwelle %} text-danger{% endif %}">
           {% if in_nt %}
-            {% set nt_s = nt_ln.schueler | selectattr('name', 'eq', s.name) | first | default(none) %}
-            <span class="text-muted small" title="Nachtermin-Note">
-              {{ nt_s.note_15 if nt_s and nt_s.note_15 is not none else '–' }}
+            {% set nt_s = nt_info[s.name] %}
+            <span class="text-muted small" title="Note aus Nachtermin {{ nt_s.nr }}">
+              {{ nt_s.note_15 if nt_s.note_15 is not none else '–' }}
               <i class="bi bi-calendar2-plus text-muted ms-1" style="font-size:.7rem"></i>
             </span>
           {% else %}
@@ -219,8 +215,8 @@
         <td class="text-center">
           {% set display_note6 = none %}
           {% if in_nt %}
-            {% set nt_s = nt_ln.schueler | selectattr('name', 'eq', s.name) | first | default(none) %}
-            {% if nt_s and nt_s.note_6 is not none %}{% set display_note6 = nt_s.note_6 %}{% endif %}
+            {% set nt_s = nt_info[s.name] %}
+            {% if nt_s.note_6 is not none %}{% set display_note6 = nt_s.note_6 %}{% endif %}
           {% elif s.note_6 is not none %}
             {% set display_note6 = s.note_6 %}
           {% endif %}
@@ -382,6 +378,54 @@
     </div>
   </div>
 </div>
+
+{% if ln.ln_typ != 'ABT' and nt_kandidaten %}
+<!-- ── Nachtermin anlegen ─────────────────────────────────────────────── -->
+<div class="modal fade" id="ntAnlegenModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('grades.nachtermin_anlegen', ln_idx=ln_idx) }}" id="ntAnlegenForm">
+        {{ csrf_field() }}
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-calendar2-plus me-2"></i>{{ 'Weiteren Nachtermin' if nachtermine else 'Nachtermin' }} anlegen</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2">
+            Zur Auswahl stehen alle Schüler ohne Note im Haupttermin{{ ' und in den bisherigen Nachterminen' if nachtermine else '' }}.
+            Wer eine Note hat, kann nicht nachschreiben. Die Aufgaben werden vom Haupttermin übernommen und lassen sich danach anpassen.
+          </p>
+          <div class="mb-3">
+            <label class="form-label" for="ntDatum">Datum (optional)</label>
+            <input type="date" class="form-control form-control-sm" id="ntDatum" name="datum">
+          </div>
+          <div class="mb-2 d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.nt-kandidat').forEach(c => c.checked = true)">Alle</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.nt-kandidat').forEach(c => c.checked = false)">Keine</button>
+          </div>
+          <div class="border rounded p-2">
+            {% for k in nt_kandidaten %}
+            <div class="form-check">
+              <input class="form-check-input nt-kandidat" type="checkbox" name="student"
+                     value="{{ k.name }}" id="ntk_{{ loop.index }}" checked>
+              <label class="form-check-label" for="ntk_{{ loop.index }}">
+                {{ k.name }}
+                {% if k.ignoriert %}<span class="badge bg-secondary ms-1" style="font-size:.7rem">im Haupttermin ign.</span>{% endif %}
+                {% if k.name in nt_students %}<span class="badge bg-warning text-dark ms-1" style="font-size:.7rem">schon in NT {{ nt_info[k.name].nr }}</span>{% endif %}
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Anlegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% endblock %}
 {% block extra_scripts %}
@@ -617,6 +661,14 @@ document.querySelectorAll('a[href*="/export/"], a[href*="/pdf/"]').forEach(link 
     await _doSave(false);
     window.location.href = target;
   });
+});
+
+// ── Save pending points before creating a Nachtermin (avoids concurrent requests) ──
+document.getElementById('ntAnlegenForm')?.addEventListener('submit', async e => {
+  if (!_dirty) return;
+  e.preventDefault();
+  await _doSave(true);
+  e.target.submit();
 });
 
 // ── Autosave every 15 seconds ─────────────────────────────────────────────────
