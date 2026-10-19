@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Einstellungen{% endblock %}
+{% block tour %}{{ {
+  "id": "einstellungen",
+  "steps": [
+    {"el": "[data-tour=einst-pro-klasse]", "title": "Einstellungen pro Klasse", "text": "Alles auf dieser Seite gilt nur für die Klasse, deren Reiter oben gerade aktiv ist. Für eine andere Klasse wechselst du oben den Reiter."},
+    {"el": "[data-tour=einst-berechnung]", "title": "Gewichtung", "text": "Wie mündliche Noten, KLN, GLN und die Halbjahre gewichtet werden, stellst du auf der Seite „Notenberechnung“ ein.", "side": "top"}
+  ]
+} | tojson }}{% endblock %}
 {% block content %}
+<span class="d-none" data-check-visit="einstellungen"></span>
 <div class="row justify-content-center mt-3">
   <div class="col-md-7">
     <form method="post" novalidate>
@@ -9,7 +17,13 @@
     <!-- ── Modus ──────────────────────────────────────────────── -->
     <div class="card shadow-sm mb-3">
       <div class="card-body p-4">
-        <h4 class="card-title mb-3"><i class="bi bi-gear me-2"></i>Einstellungen</h4>
+        <h4 class="card-title mb-2"><i class="bi bi-gear me-2"></i>Einstellungen</h4>
+        <div class="alert alert-info py-2 small mb-3" data-tour="einst-pro-klasse">
+          <i class="bi bi-info-circle me-1"></i>
+          Diese Einstellungen gelten nur für
+          <strong>{{ ('Klasse ' ~ data.klasse) if data.klasse else 'die aktuell geöffnete Klasse' }}</strong>.
+          Jede Klasse in deiner Datei hat ihre eigenen Einstellungen.
+        </div>
         <div class="mb-0">
           <label class="form-label fw-semibold">Modus</label>
           <div class="d-flex gap-3">
@@ -64,33 +78,14 @@
     <div id="section-klasse-berechnung">
       <div class="card shadow-sm mb-4">
         <div class="card-body p-4">
-          <h5 class="mb-3"><i class="bi bi-calculator me-2"></i>Notenberechnung</h5>
-          <h6 class="text-muted mb-2">Gewichtung SL-Note <small class="fw-normal">(Summe = 100)</small></h6>
-          <div class="row g-2 mb-3">
-            <div class="col-sm-6">
-              {{ form.sl_mdl_pct.label(class="form-label") }}
-              {{ form.sl_mdl_pct(class="form-control") }}
-            </div>
-            <div class="col-sm-6">
-              {{ form.sl_kln_pct.label(class="form-label") }}
-              {{ form.sl_kln_pct(class="form-control") }}
-            </div>
-          </div>
-          <h6 class="text-muted mb-2">Gewichtung HJ-Note <small class="fw-normal">(relative Faktoren)</small></h6>
-          <div class="row g-2">
-            <div class="col-sm-4">
-              {{ form.hj_gln_w.label(class="form-label") }}
-              {{ form.hj_gln_w(class="form-control") }}
-            </div>
-            <div class="col-sm-4">
-              {{ form.hj_sl1_w.label(class="form-label") }}
-              {{ form.hj_sl1_w(class="form-control") }}
-            </div>
-            <div class="col-sm-4">
-              {{ form.hj_sl2_w.label(class="form-label") }}
-              {{ form.hj_sl2_w(class="form-control") }}
-            </div>
-          </div>
+          <h5 class="mb-2"><i class="bi bi-calculator me-2"></i>Notenberechnung</h5>
+          <p class="text-muted mb-3">
+            Wie mündliche Noten, KLN, GLN und Halbjahre gegeneinander gewichtet werden,
+            stellst du auf einer eigenen Seite ein – dort siehst du auch die komplette Rechnung.
+          </p>
+          <a href="{{ url_for('grades.notenberechnung') }}" class="btn btn-outline-primary" data-tour="einst-berechnung">
+            <i class="bi bi-diagram-3 me-1"></i>Notenberechnung &amp; Gewichtung öffnen
+          </a>
         </div>
       </div>
     </div>

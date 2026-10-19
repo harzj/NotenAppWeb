@@ -1,0 +1,128 @@
+{#
+  Gewichtungs-Bausteine. Werden auf der Seite „Notenberechnung“ (alle Abschnitte)
+  und in den Modals der Notenseiten (nur relevante Abschnitte) verwendet.
+
+  sections: Liste aus "sl_anteil", "kln:SL1", "mdl:SL1", "hj:HJ1", "sj"
+  Die Eingaben werden von static/js/gewichtung.js gesammelt und gespeichert.
+#}
+
+{% macro _field(label, value, attrs, hint='') -%}
+<div class="col-sm-6 col-lg-4 gw-item">
+  <label class="form-label small mb-1 text-truncate d-block" title="{{ label }}">{{ label }}</label>
+  <div class="input-group input-group-sm">
+    <input type="number" class="form-control gw-field" min="0" step="0.5"
+           value="{{ value | round(2) }}" {{ attrs | safe }}>
+    <span class="input-group-text gw-pct text-muted" style="min-width:4.2rem"></span>
+  </div>
+  {% if hint %}<div class="form-text">{{ hint }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro gw_sections(model, sections) %}
+{% for sec in sections %}
+  {% set kind, _, slot = sec.partition(':') %}
+
+  {% if kind == 'sl_anteil' %}
+  <div class="gw-group mb-3" data-tour="gw-sl-anteil">
+    <h6 class="mb-1">SL-Note: mündliche Note gegen KLN-Mittel</h6>
+    <div class="form-text mt-0 mb-2">Gilt für SL1–SL4. Gibt es in einem SL keine KLN (oder keine mündl. Note), zählt der andere Teil allein.</div>
+    <div class="row g-2">
+      {{ _field('Mündliche Note', model.gw.sl_mdl_pct, 'data-kind="g" data-key="sl_mdl_pct"') }}
+      {{ _field('KLN-Mittel', model.gw.sl_kln_pct, 'data-kind="g" data-key="sl_kln_pct"') }}
+    </div>
+  </div>
+
+  {% elif kind == 'kln' %}
+  {% set items = model.sl[slot].kln %}
+  <div class="gw-group mb-3">
+    <h6 class="mb-1">KLN in {{ slot }} untereinander</h6>
+    {% if items | length >= 2 %}
+    <div class="form-text mt-0 mb-2">Faktor je KLN, z.B. 2 = zählt doppelt.</div>
+    <div class="row g-2">
+      {% for it in items %}
+      {{ _field(it.name, it.w, 'data-kind="ln" data-store="kln_weights" data-slot="' ~ slot ~ '" data-sheet="' ~ (it.sheet | e) ~ '"') }}
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="form-text mt-0">{{ 'Nur ein KLN – keine Gewichtung nötig.' if items else 'Noch keine KLN angelegt.' }}</div>
+    {% endif %}
+  </div>
+
+  {% elif kind == 'mdl' %}
+  {% set items = model.sl[slot].mdl %}
+  <div class="gw-group mb-3">
+    <h6 class="mb-1">Mündliche Teilnoten in {{ slot }} untereinander</h6>
+    {% if items | length >= 2 %}
+    <div class="form-text mt-0 mb-2">Daraus entsteht der Vorschlag für die mündliche Note. Die endgültige mündliche Note legst du selbst fest.</div>
+    <div class="row g-2">
+      {% for it in items %}
+      {{ _field(it.name, it.w, 'data-kind="ln" data-store="mdl_weights" data-slot="' ~ slot ~ '" data-sheet="' ~ (it.sheet | e) ~ '"') }}
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="form-text mt-0">{{ 'Nur eine mündliche Teilnote – keine Gewichtung nötig.' if items else 'Keine mündlichen Teilnoten angelegt – die mündliche Note wird direkt eingetragen.' }}</div>
+    {% endif %}
+  </div>
+
+  {% elif kind == 'hj' %}
+  {% set h = model.hj[slot] %}
+  <div class="gw-group mb-3" data-tour="gw-hj">
+    <h6 class="mb-1">{{ slot }}-Note: GLN gegen SL-Mittel ({{ h.sl_keys[0] }}/{{ h.sl_keys[1] }})</h6>
+    <div class="form-text mt-0 mb-2">Faktoren: jede GLN zählt standardmäßig 1, das SL-Mittel zählt wie eine weitere GLN (1). Das SL-Mittel-Gewicht gilt für beide Halbjahre.</div>
+    <div class="row g-2">
+      {% for it in h.gln %}
+      {{ _field(it.name ~ ' (GLN)', it.w, 'data-kind="ln" data-store="gln_weights" data-slot="' ~ slot ~ '" data-sheet="' ~ (it.sheet | e) ~ '"') }}
+      {% endfor %}
+      {{ _field('SL-Mittel', model.gw.sl_mittel_w, 'data-kind="g" data-key="sl_mittel_w"') }}
+    </div>
+  </div>
+
+  {% elif kind == 'sj' %}
+  <div class="gw-group mb-3">
+    <h6 class="mb-1">Ganzjahresnote: Halbjahr 1 gegen Halbjahr 2</h6>
+    <div class="form-text mt-0 mb-2">Standard 1 : 2 (⅓ HJ1 + ⅔ HJ2). Gerechnet wird mit den festgelegten Halbjahresnoten.</div>
+    <div class="row g-2">
+      {{ _field('Halbjahr 1', model.gw.sj_hj1_w, 'data-kind="g" data-key="sj_hj1_w"') }}
+      {{ _field('Halbjahr 2', model.gw.sj_hj2_w, 'data-kind="g" data-key="sj_hj2_w"') }}
+    </div>
+  </div>
+  {% endif %}
+{% endfor %}
+{% endmacro %}
+
+{# Formelzeile über einer Tabelle + Button, der das Modal öffnet #}
+{% macro formel_bar(lines) %}
+<div class="d-flex flex-wrap align-items-center gap-2 small text-muted mt-1" data-tour="formel">
+  <i class="bi bi-calculator"></i>
+  <span>{% for l in lines %}{% if not loop.first %}<span class="mx-1">|</span>{% endif %}{{ l }}{% endfor %}</span>
+  <button type="button" class="btn btn-sm btn-link p-0 ms-1" data-bs-toggle="modal" data-bs-target="#gwModal" data-tour="gw-button">
+    <i class="bi bi-sliders me-1"></i>Gewichtung anpassen
+  </button>
+</div>
+{% endmacro %}
+
+{% macro gw_modal(model, sections, title='Gewichtung anpassen') %}
+<div class="modal fade" id="gwModal" tabindex="-1" aria-labelledby="gwModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="gwModalTitle"><i class="bi bi-sliders me-2"></i>{{ title }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+      </div>
+      <div class="modal-body gw-container">
+        {{ gw_sections(model, sections) }}
+        <div class="text-danger small gw-error"></div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <a href="{{ url_for('grades.notenberechnung') }}" class="small">
+          <i class="bi bi-diagram-3 me-1"></i>Gesamte Notenberechnung ansehen
+        </a>
+        <div>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="button" class="btn btn-primary gw-save">Übernehmen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}

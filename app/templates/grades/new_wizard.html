@@ -19,6 +19,16 @@
 </style>
 {% endblock %}
 
+{% block tour %}{{ {
+  "id": "wizard",
+  "steps": [
+    {"title": "Neue " ~ ('Klasse' if modus == 'klasse' else 'Kurs') ~ " anlegen", "text": "Hier legst du eine Klasse an. Nur der grüne Teil unten ist Pflicht – alles andere kannst du auch später erledigen."},
+    {"el": "[data-tour=wiz-mehrere]", "title": "Mehrere Klassen = eine Datei", "text": "Jede weitere Klasse landet in derselben Datei. Beim Export bekommst du eine ZIP-Datei mit einer Excel-Datei pro Klasse."},
+    {"el": "[data-tour=wiz-korn]", "title": "Schüler übernehmen (optional)", "text": "Aus einem Korn2-Export kannst du Schülerlisten übernehmen – auch nacheinander für mehrere Klassen aus derselben Korn2-Datei. Alternativ fügst du Schüler später unter „Stammdaten“ ein."},
+    {"el": "[data-tour=wiz-pflicht]", "title": "Klasse & Schuljahr", "text": "Bezeichnung, Fach und Schuljahr. Später änderbar unter „Klasse & Schuljahr“ in der Seitenleiste.", "side": "top"},
+    {"el": "[data-tour=wiz-submit]", "title": "Fertig", "text": "Danach findest du die Klasse oben als Reiter. Für die nächste Klasse einfach wieder „Neue Klasse“ wählen.", "side": "top"}
+  ]
+} | tojson }}{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center mb-4">
   <h4 class="mb-0">
@@ -29,6 +39,18 @@
     <i class="bi bi-x-lg me-1"></i>Abbrechen
   </a>
 </div>
+
+{% if open_classes %}
+<div class="alert alert-info d-flex gap-2" data-tour="wiz-mehrere">
+  <i class="bi bi-collection fs-5"></i>
+  <div>
+    <strong>Du hast schon {{ open_classes | length }} {{ 'Klasse' if open_classes | length == 1 else 'Klassen' }} geöffnet</strong>
+    ({{ open_classes | map(attribute='klasse') | join(', ') }}).
+    Diese neue {{ 'Klasse' if modus == 'klasse' else 'Kurs' }} kommt <strong>in dieselbe Datei</strong> dazu und erscheint oben als weiterer Reiter.
+    Beim Exportieren erhältst du eine ZIP-Datei mit einer Excel-Datei pro Klasse – die lädst du beim nächsten Mal einfach wieder hoch.
+  </div>
+</div>
+{% endif %}
 
 <form id="wizardForm" method="POST" action="{{ url_for('grades.new_wizard') }}" novalidate>
   {{ csrf_field() }}
@@ -43,7 +65,7 @@
   {# ────────────────────────────────────────────────────────────────── #}
   {# Card 0: Korn2 Import                                                #}
   {# ────────────────────────────────────────────────────────────────── #}
-  <div class="card wizard-card shadow-sm">
+  <div class="card wizard-card shadow-sm" data-tour="wiz-korn">
     <div class="card-header d-flex align-items-center gap-2" role="button"
          data-bs-toggle="collapse" data-bs-target="#kornCollapse"
          aria-expanded="{{ 'true' if korn_classes else 'false' }}" aria-controls="kornCollapse">
@@ -240,7 +262,7 @@
   {# ────────────────────────────────────────────────────────────────── #}
   {# Card 3: Class Settings (required)                                   #}
   {# ────────────────────────────────────────────────────────────────── #}
-  <div class="card wizard-card shadow-sm border-success">
+  <div class="card wizard-card shadow-sm border-success" data-tour="wiz-pflicht">
     <div class="card-header bg-success text-white d-flex align-items-center gap-2">
       <span class="step-badge bg-white text-success">4</span>
       <span class="fw-semibold">Klasse &amp; Schuljahr</span>
@@ -297,8 +319,8 @@
   </div>
 
   <div class="d-flex gap-2 mb-4">
-    <button type="submit" class="btn btn-success btn-lg">
-      <i class="bi bi-check-lg me-1"></i>Datei erstellen
+    <button type="submit" class="btn btn-success btn-lg" data-tour="wiz-submit">
+      <i class="bi bi-check-lg me-1"></i>{{ ('Klasse hinzufügen' if modus == 'klasse' else 'Kurs hinzufügen') if open_classes else 'Datei erstellen' }}
     </button>
     <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary btn-lg">Abbrechen</a>
   </div>

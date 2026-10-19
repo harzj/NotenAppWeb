@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% from "macros.html" import csrf_field %}
 {% block title %}Leistungsnachweise{% endblock %}
+{% block tour %}{{ {
+  "id": "ln_list",
+  "steps": [
+    {"el": "[data-tour=ln-neu]", "title": "Leistungsnachweis anlegen", "text": "<b>GLN</b> = Klassenarbeit (zählt fürs Halbjahr), <b>KLN</b> = Test o.ä. (gehört zu einer SL-Note), <b>Mündliche Note</b> = einzelne mündliche Teilnote (z.B. Referat), die du direkt benotest – ebenfalls einer SL-Note zugeordnet.", "side": "left"},
+    {"title": "Mündliche Noten: zwei Wege", "text": "Wer nur eine mündliche Note pro SL vergibt, trägt sie wie bisher direkt auf der SL-Seite ein. Wer mehrere vergeben will, legt hier „Mündliche Note“-Einträge an – die SL-Seite rechnet dann daraus einen Vorschlag."}
+  ]
+} | tojson }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="mb-0"><i class="bi bi-list-check me-2"></i>Leistungsnachweise</h4>
@@ -8,7 +15,7 @@
     <a href="{{ url_for('grades.moodle_import_ln') }}" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-cloud-upload me-1"></i>Moodle-Import
     </a>
-    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#newLNModal">
+    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#newLNModal" data-tour="ln-neu">
       <i class="bi bi-plus-lg me-1"></i>Neu anlegen
     </button>
   </div>
@@ -33,15 +40,27 @@
             {% elif ln.ln_typ == 'KLN' %}
               <span class="badge bg-warning text-dark">KLN</span>
               {% if ln.sl_zuordnung %}<span class="badge bg-secondary">{{ ln.sl_zuordnung }}</span>{% endif %}
+            {% elif ln.ln_typ == 'MDL' %}
+              <span class="badge bg-info text-dark">Mündlich</span>
+              {% if ln.sl_zuordnung %}<span class="badge bg-secondary">{{ ln.sl_zuordnung }}</span>{% endif %}
             {% endif %}
+            {% if ln.ln_typ != 'MDL' %}
             <span class="badge bg-light text-dark border">{{ ln.aufgaben | length }} Aufg.</span>
+            {% endif %}
           </div>
         </div>
         <ul class="list-unstyled small text-muted mb-3 mt-2">
+          {% if ln.datum %}<li><i class="bi bi-calendar-event me-1"></i>{{ ln.datum | datum_kurz }}</li>{% endif %}
           <li><i class="bi bi-people me-1"></i>{{ ln.schueler | length }} Schüler</li>
+          {% if ln.ln_typ == 'MDL' %}
+          <li><i class="bi bi-chat-dots me-1"></i>
+            {{ ln.schueler | rejectattr('note_15', 'none') | list | length }} Noten vergeben
+          </li>
+          {% else %}
           <li><i class="bi bi-calculator me-1"></i>
             Max. {{ ln.aufgaben | sum(attribute='max_punkte') | int }} Punkte
           </li>
+          {% endif %}
         </ul>
         <div class="d-flex gap-2">
           <a href="{{ url_for('grades.ln_detail', ln_idx=loop.index0) }}"
@@ -75,25 +94,9 @@
         <h5 class="modal-title">Neuer Leistungsnachweis</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="post" action="{{ url_for('grades.ln_neu') }}" novalidate>
+      <form method="post" action="{{ url_for('grades.ln_neu') }}" novalidate id="newLnForm">
         {{ new_form.hidden_tag() }}
         <div class="modal-body">
-          <div class="mb-3">
-            {{ new_form.name.label(class="form-label") }}
-            {{ new_form.name(class="form-control" + (" is-invalid" if new_form.name.errors else ""),
-                             placeholder="z.B. Klausur 1, Kurztest 2, Referat...") }}
-            {% for e in new_form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
-          </div>
-          <div class="row g-2 mb-3">
-            <div class="col-8">
-              {{ new_form.thema.label(class="form-label") }}
-              {{ new_form.thema(class="form-control", placeholder="optional") }}
-            </div>
-            <div class="col-4">
-              {{ new_form.datum.label(class="form-label") }}
-              {{ new_form.datum(class="form-control", placeholder="2025-05-25") }}
-            </div>
-          </div>
           <div class="mb-3">
             {{ new_form.ln_typ.label(class="form-label") }}
             {{ new_form.ln_typ(class="form-select", id="newLnTyp") }}
@@ -109,6 +112,38 @@
           <div class="mb-3 d-none" id="rowSL">
             {{ new_form.sl_zuordnung.label(class="form-label") }}
             {{ new_form.sl_zuordnung(class="form-select") }}
+          </div>
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <label class="form-label" for="{{ new_form.name.id }}">
+                Bezeichnung <span class="text-danger" title="Pflichtfeld">*</span>
+              </label>
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" role="switch" id="lnAutoName" checked>
+                <label class="form-check-label small" for="lnAutoName">Auto-Bezeichnung</label>
+              </div>
+            </div>
+            {{ new_form.name(class="form-control" + (" is-invalid" if new_form.name.errors else ""),
+                             placeholder="z.B. Klausur 1, Kurztest 2, Referat...", required=True,
+                             maxlength=80, readonly=True) }}
+            <div class="invalid-feedback">Bitte eine Bezeichnung eingeben.</div>
+            {% for e in new_form.name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-7">
+              {{ new_form.thema.label(class="form-label") }}
+              {{ new_form.thema(class="form-control", placeholder="optional") }}
+            </div>
+            <div class="col-5">
+              <label class="form-label" for="{{ new_form.datum.id }}">Datum <small class="text-muted">(optional)</small></label>
+              {{ new_form.datum(class="form-control", type="date") }}
+            </div>
+          </div>
+          <div class="alert alert-info small d-none mb-0" id="mdlHint">
+            <i class="bi bi-info-circle me-1"></i>
+            Eine <strong>mündliche Note</strong> (z.B. Referat, Abfrage, Mitarbeit im Mai) hat keine Aufgaben –
+            du trägst die Note direkt ein. Sobald es in einem SL mindestens eine gibt, wird die mündliche Note
+            dieses SL aus den Teilnoten vorgeschlagen; die endgültige mündliche Note legst du selbst fest.
           </div>
         </div>
         <div class="modal-footer">
@@ -127,14 +162,79 @@
   const rowHJ = document.getElementById('rowHJ');
   const rowSL = document.getElementById('rowSL');
   const rowGlnSlot = document.getElementById('rowGlnSlot');
+  const mdlHint = document.getElementById('mdlHint');
+  const form = document.getElementById('newLnForm');
+  const nameInp = form.querySelector('[name=name]');
+  const autoChk = document.getElementById('lnAutoName');
+  const hjSel = form.querySelector('[name=hj]');
+  const slSel = form.querySelector('[name=sl_zuordnung]');
+  const slotSel = form.querySelector('[name=gln_slot]');
+  // Existing LNs, for numbering ("GLN 2 HJ1" if "GLN 1 HJ1" exists) and uniqueness
+  const EXISTING = {{ lns | rejectattr('nachtermin_von') | map(attribute='name') | list | tojson }};
+  const LNS = {{ ln_meta | tojson }};
+  if (isKurs) typSel.querySelector('option[value="MDL"]')?.remove();
+
+  function autoName() {
+    const typ = typSel.value;
+    if (typ === 'ABT') return uniq('Abiturprüfung', null);
+    let prefix, slot, same;
+    if (typ === 'GLN' && isKurs) {
+      // Kurs: the slot already numbers the Klausur (GLN1..GLN8)
+      return uniq(slotSel.value.replace('GLN', 'GLN '), null);
+    } else if (typ === 'GLN') {
+      prefix = 'GLN '; slot = hjSel.value;
+      same = LNS.filter(l => l.ln_typ === 'GLN' && l.hj === slot).length;
+    } else {
+      // "M1 SL1" for mündliche Teilnoten (short column header), "KLN 1 SL1" for KLN
+      prefix = typ === 'MDL' ? 'M' : 'KLN '; slot = slSel.value;
+      same = LNS.filter(l => l.ln_typ === typ && l.sl_zuordnung === slot).length;
+    }
+    return uniq(prefix, slot, same + 1);
+  }
+  // First free "<prefix><n> <slot>"
+  function uniq(prefix, slot, start) {
+    if (start === undefined) {
+      let n = prefix, i = 2;
+      while (EXISTING.includes(n)) n = `${prefix} (${i++})`;
+      return n;
+    }
+    let i = start;
+    while (EXISTING.includes(`${prefix}${i} ${slot}`)) i++;
+    return `${prefix}${i} ${slot}`;
+  }
+  function applyAuto() {
+    nameInp.readOnly = autoChk.checked;
+    if (autoChk.checked) {
+      nameInp.value = autoName();
+      nameInp.classList.remove('is-invalid');
+    }
+  }
   function toggleFields() {
     const typ = typSel.value;
     rowHJ.classList.toggle('d-none', typ !== 'GLN' || isKurs);
     rowGlnSlot.classList.toggle('d-none', typ !== 'GLN' || !isKurs);
-    rowSL.classList.toggle('d-none', typ !== 'KLN' || isKurs);
+    rowSL.classList.toggle('d-none', (typ !== 'KLN' && typ !== 'MDL') || isKurs);
+    mdlHint.classList.toggle('d-none', typ !== 'MDL');
+    applyAuto();
   }
-  typSel.addEventListener('change', toggleFields);
+  [typSel, hjSel, slSel, slotSel].forEach(el => el?.addEventListener('change', toggleFields));
+  autoChk.addEventListener('change', () => {
+    applyAuto();
+    if (!autoChk.checked) { nameInp.focus(); nameInp.select(); }
+  });
+  nameInp.addEventListener('input', () => nameInp.classList.toggle('is-invalid', !nameInp.value.trim()));
+  form.addEventListener('submit', e => {
+    if (autoChk.checked) nameInp.value = autoName();
+    if (!nameInp.value.trim()) {
+      e.preventDefault();
+      nameInp.classList.add('is-invalid');
+      nameInp.focus();
+    }
+  });
   toggleFields();
+  {% if open_new_modal %}
+  document.addEventListener('DOMContentLoaded', () => new bootstrap.Modal('#newLNModal').show());
+  {% endif %}
 })();
 </script>
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "grades/_gewichtung.html" import formel_bar, gw_modal %}
 {% block title %}Übersicht {{ 'Halbjahr 1' if hj == 'hj1' else 'Halbjahr 2' }}{% endblock %}
 {% block extra_head %}
 <style>
@@ -32,9 +33,28 @@
   .verhalten-input, .mitarbeit-input { width: 48px; }
   .proposal-raw { font-size: .82em; color: #6c757d; font-weight: 400; }
   .proposal-arrow { font-size: .9em; color: #6c757d; padding: 0 .15rem; }
+  .mdl-cell a { color: inherit; text-decoration: none; }
+  .mdl-cell a:hover { text-decoration: underline; }
+  .mdl-vorl { font-style: italic; color: #6c757d; }
 </style>
 {% endblock %}
+{% block tour %}{{ {
+  "id": "uebersicht",
+  "steps": [
+    {"title": "Halbjahresübersicht", "text": "Alle Noten des Halbjahres auf einen Blick. Mündliche Noten und SL-Noten trägst du auf den SL-Seiten ein – hier werden sie nur angezeigt."},
+    {"el": "[data-tour=formel]", "title": "Halbjahresnote", "text": "GLN und das Mittel der beiden SL-Noten ergeben den Vorschlag. Über „Gewichtung anpassen“ legst du fest, wie stark das SL-Mittel zählt."},
+    {"el": "[data-tour=hj-actual]", "title": "Halbjahresnote festlegen", "text": "Die endgültige Halbjahresnote trägst du selbst ein – daraus wird später die Ganzjahresnote berechnet.", "side": "left"}
+  ]
+} | tojson }}{% endblock %}
 {% block content %}
+{% macro mdl_display(val, status, sl_key) -%}
+<a href="{{ url_for('grades.sl_detail', sl_key=sl_key) }}"
+   title="{{ 'Vorläufig: Mittel der mündlichen Teilnoten' if status == 'vorlaeufig' else 'Mündliche Note – eintragen auf der ' ~ sl_key ~ '-Seite' }}">
+  {%- if val is none -%}<span class="text-muted">–</span>
+  {%- elif status == 'vorlaeufig' -%}<span class="mdl-vorl">{{ "%.1f"|format(val)|replace('.', ',') }}</span>
+  {%- else -%}{{ val | int }}{%- endif -%}
+</a>
+{%- endmacro %}
 {% set hj_label = 'Halbjahr 1' if hj == 'hj1' else 'Halbjahr 2' %}
 {% set n_gln = gln_list | length %}
 {% set n_sl1 = sl1_list | length %}
@@ -44,14 +64,22 @@
 {% set span_sl1 = n_sl1 + 2 + (1 if show_kln1_mean else 0) %}
 {% set span_sl2 = n_sl2 + 2 + (1 if show_kln2_mean else 0) %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0"><i class="bi bi-table me-2"></i>{{ hj_label }}</h4>
-  <div class="d-flex gap-2 align-items-center">
-    <span class="text-muted small">
-      SL-Note: {{ gewichtung.sl_mdl_pct | int }}% mdl + {{ gewichtung.sl_kln_pct | int }}% KLN
-      (einstellbar auf SL-Seiten)
-      <a href="{{ url_for('grades.einstellungen') }}" class="ms-1"><i class="bi bi-gear-fill" title="Einstellungen"></i></a>
-    </span>
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0"><i class="bi bi-table me-2"></i>{{ hj_label }}</h4>
+    {{ formel_bar([hj_key ~ '-Note = ' ~ gw_model.hj[hj_key].formel]) }}
+  </div>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    {% if hj == 'hj2' %}
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="btnVerhaltenCopyAll"
+            title="Verhaltensnoten aus HJ1 für alle Schüler ohne Eintrag übernehmen">
+      <i class="bi bi-arrow-down-square me-1"></i>Verhalten aus HJ1
+    </button>
+    {% endif %}
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="btnMitarbeitAuto"
+            title="Mitarbeit für alle Schüler aus den mündlichen Noten vorschlagen">
+      <i class="bi bi-magic me-1"></i>Mitarbeit vorschlagen
+    </button>
     <a href="{{ url_for('grades.hj_druck', hj=hj) }}" target="_blank" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-printer me-1"></i>Drucken
     </a>
@@ -105,41 +133,7 @@
       <th class="text-center th-sub-sl2">{{ sl2_key }}<br>Note</th>
       {% for ln in gln_list %}<th class="text-center th-sub-gln">{{ ln.name }}</th>{% endfor %}
       <th class="text-center th-sub-hj">Vorschlag</th>
-      <th class="text-center th-sub-hj">Tatsächlich</th>
-    </tr>
-    {# Gewichtungszeile: nur SL-Mittel hat ein Gewicht-Input #}
-    <tr class="gw-row">
-      <td class="text-muted small fst-italic">Gewichtung</td>
-      {% for ln in sl1_list %}<td></td>{% endfor %}
-      {% if show_kln1_mean %}<td></td>{% endif %}
-      <td></td>{# mdl1 #}
-      <td></td>{# sl1 note #}
-      {% for ln in sl2_list %}<td></td>{% endfor %}
-      {% if show_kln2_mean %}<td></td>{% endif %}
-      <td></td>{# mdl2 #}
-      <td></td>{# sl2 note #}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm gw-input" id="wSlMittel"
-               min="0" step="0.1" title="Gewicht SL-Mittel in HJ-Note (Standard: 1, gleich wie jeder GLN)"
-               value="{{ gewichtung.sl_mittel_w | default(1) | round(1) }}">
-      </td>{# sl-mittel weight #}
-      {% for ln in gln_list %}<td></td>{% endfor %}
-      <td></td>{# hj vorschlag #}
-      <td></td>{# hj tatsächlich #}
-      <td class="text-center">
-        {% if hj == 'hj2' %}
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnVerhaltenCopyAll"
-                title="Verhaltensnoten aus HJ1 für alle Schüler übernehmen">
-          <i class="bi bi-arrow-down-square me-1"></i>HJ1 -> HJ2
-        </button>
-        {% endif %}
-      </td>{# verhalten #}
-      <td class="text-center">
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnMitarbeitAuto"
-                title="Mitarbeit für alle Schüler aus Mündl.-Noten automatisch vorschlagen">
-          <i class="bi bi-magic"></i>
-        </button>
-      </td>{# mitarbeit auto #}
+      <th class="text-center th-sub-hj" data-tour="hj-actual">Tatsächlich</th>
     </tr>
   </thead>
   <tbody>
@@ -158,7 +152,9 @@
         data-sl1-actual="{{ row.sl1_actual if row.sl1_actual is not none else '' }}"
         data-sl2-actual="{{ row.sl2_actual if row.sl2_actual is not none else '' }}"
         data-sl1-eff="{{ row.sl1_eff if row.sl1_eff is not none else '' }}"
-        data-sl2-eff="{{ row.sl2_eff if row.sl2_eff is not none else '' }}">
+        data-sl2-eff="{{ row.sl2_eff if row.sl2_eff is not none else '' }}"
+        data-mdl1="{{ row.mdl1 if row.mdl1 is not none else '' }}"
+        data-mdl2="{{ row.mdl2 if row.mdl2 is not none else '' }}">
       <td>{{ row.name }}</td>
       {% for c in row.sl1_cols %}
       <td class="text-center">
@@ -172,10 +168,7 @@
         {{ row.kln_mean_sl1 if row.kln_mean_sl1 is not none else '' }}
       </td>
       {% endif %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm mdl-input mdl1-input"
-               min="0" max="15" step="1" value="{{ row.mdl1 if row.mdl1 is not none else '' }}">
-      </td>
+      <td class="text-center mdl-cell">{{ mdl_display(row.mdl1, row.mdl1_status, sl1_key) }}</td>
       <td class="text-center sl1-note-display{% if row.sl1_note_15 is not none and row.sl1_note_15 < rot_schwelle %} text-danger{% endif %}">
         {% if row.sl1_note_15 is not none %}
           <strong>{{ row.sl1_note_15 }}</strong>
@@ -194,10 +187,7 @@
         {{ row.kln_mean_sl2 if row.kln_mean_sl2 is not none else '' }}
       </td>
       {% endif %}
-      <td class="text-center">
-        <input type="number" class="form-control form-control-sm mdl-input mdl2-input"
-               min="0" max="15" step="1" value="{{ row.mdl2 if row.mdl2 is not none else '' }}">
-      </td>
+      <td class="text-center mdl-cell">{{ mdl_display(row.mdl2, row.mdl2_status, sl2_key) }}</td>
       <td class="text-center sl2-note-display{% if row.sl2_note_15 is not none and row.sl2_note_15 < rot_schwelle %} text-danger{% endif %}">
         {% if row.sl2_note_15 is not none %}
           <strong>{{ row.sl2_note_15 }}</strong>
@@ -255,8 +245,18 @@
   </tbody>
 </table>
 </div>
+<div class="small text-muted">
+  <i class="bi bi-info-circle me-1"></i>
+  Mündliche Noten trägst du auf den Seiten
+  <a href="{{ url_for('grades.sl_detail', sl_key=sl1_key) }}">{{ sl1_key }}</a> und
+  <a href="{{ url_for('grades.sl_detail', sl_key=sl2_key) }}">{{ sl2_key }}</a> ein.
+  SL-Noten erscheinen hier, sobald sie dort als „tatsächlich“ festgelegt sind; bis dahin rechnet der Vorschlag mit dem berechneten Wert.
+</div>
+{{ gw_modal(gw_model, ['hj:' ~ hj_key, 'sl_anteil'], 'Gewichtung ' ~ hj_label) }}
 {% endblock %}
 {% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/notenberechnung.js') }}"></script>
+<script src="{{ url_for('static', filename='js/gewichtung.js') }}"></script>
 <script>
 const HJ_KEY       = {{ hj_key | tojson }};
 const SL1_KEY      = {{ sl1_key | tojson }};
@@ -265,122 +265,20 @@ const GW           = {{ gewichtung | tojson }};
 const ROT_SCHWELLE = {{ rot_schwelle }};
 const NOTE_15_TO_6 = {{ note15_to6 | tojson }};
 
-function roundNote15(x) {
-  if (x === null || x === undefined || isNaN(x)) return null;
-  return Math.max(0, Math.min(15, Math.round(x)));
-}
-function computeKlnMean(notes, ignoriert) {
-  // Arithmetic mean (all equal weight)
-  let sum = 0, count = 0;
-  for (let i = 0; i < notes.length; i++) {
-    if (ignoriert[i] || notes[i] === null) continue;
-    sum += notes[i]; count++;
-  }
-  return count > 0 ? sum / count : null;
-}
-function computeSlNote(mdl, km) {
-  if (mdl === null && km === null) return null;
-  if (mdl === null) return km;
-  if (km  === null) return mdl;
-  const mdlW = GW.sl_mdl_pct;
-  const klnW = GW.sl_kln_pct;
-  const t = mdlW + klnW;
-  return t > 0 ? (mdl * mdlW + km * klnW) / t : null;
-}
-function computeSlMittel(sl1, sl2) {
-  const vals = [sl1, sl2].filter(v => v !== null);
-  if (!vals.length) return null;
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
-}
-function computeHjVorschlag(glnNotes, glnIgn, slMittel) {
-  const slW = parseFloat(document.getElementById('wSlMittel')?.value);
-  const wSl = (!isNaN(slW) && slW >= 0) ? slW : (GW.sl_mittel_w ?? 1.0);
-  const p = [];
-  for (let i = 0; i < glnNotes.length; i++) {
-    if (glnIgn[i] || glnNotes[i] === null) continue;
-    p.push([glnNotes[i], 1.0]);
-  }
-  if (slMittel !== null) p.push([slMittel, wSl]);
-  if (!p.length) return null;
-  const tw = p.reduce((s, [, w]) => s + w, 0);
-  return tw > 0 ? p.reduce((s, [n, w]) => s + n * w, 0) / tw : null;
-}
 function computeMitarbeitProposal(m1, m2) {
   const vals = [m1, m2].filter(v => v !== null);
   if (!vals.length) return null;
   const mean15 = Math.max(0, Math.min(15, Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)));
   return NOTE_15_TO_6[mean15] ?? 6;
 }
-function slHtml(n15) {
-  if (n15 === null) return '';
-  const red = n15 < ROT_SCHWELLE ? ' text-danger' : '';
-  return `<strong class="${red}">${n15}</strong>`;
+function mdlOf(row) {
+  const p = v => (v !== '' && v != null) ? parseFloat(v) : null;
+  return [p(row.dataset.mdl1), p(row.dataset.mdl2)];
 }
-function hjHtml(n15) {
-  if (n15 === null) return '';
-  const red = n15 < ROT_SCHWELLE ? ' text-danger' : '';
-  return `<em class="${red}">${n15}</em>`;
-}
+// Only Verhalten/Mitarbeit hints depend on inputs of this page; all grade
+// proposals are computed on the server.
 function updateRow(row) {
-  const notes1 = JSON.parse(row.dataset.sl1Notes);
-  const ign1   = JSON.parse(row.dataset.sl1Ignoriert);
-  const notes2 = JSON.parse(row.dataset.sl2Notes);
-  const ign2   = JSON.parse(row.dataset.sl2Ignoriert);
-  const glnNotes = JSON.parse(row.dataset.glnNotes   || '[]');
-  const glnIgn   = JSON.parse(row.dataset.glnIgnoriert || '[]');
-
-  const km1 = computeKlnMean(notes1, ign1);
-  const km2 = computeKlnMean(notes2, ign2);
-  const km1Cell = row.querySelector('.kln1-mean-cell');
-  if (km1Cell) km1Cell.textContent = km1 !== null ? km1.toFixed(1) : '';
-  const km2Cell = row.querySelector('.kln2-mean-cell');
-  if (km2Cell) km2Cell.textContent = km2 !== null ? km2.toFixed(1) : '';
-
-  const m1v = row.querySelector('.mdl1-input')?.value;
-  const m2v = row.querySelector('.mdl2-input')?.value;
-  const m1  = m1v !== '' && m1v != null ? parseFloat(m1v) : null;
-  const m2  = m2v !== '' && m2v != null ? parseFloat(m2v) : null;
-
-  const sl1Actual = row.dataset.sl1Actual !== '' ? parseInt(row.dataset.sl1Actual, 10) : null;
-  const sl2Actual = row.dataset.sl2Actual !== '' ? parseInt(row.dataset.sl2Actual, 10) : null;
-
-  // Effective note for calculations: actual if confirmed, else computed
-  const sl1Raw = computeSlNote(m1, km1);
-  const sl2Raw = computeSlNote(m2, km2);
-  const sl1Eff = sl1Actual !== null ? sl1Actual : roundNote15(sl1Raw);
-  const sl2Eff = sl2Actual !== null ? sl2Actual : roundNote15(sl2Raw);
-  const sl1ForMittel = sl1Actual !== null ? sl1Actual : sl1Raw;
-  const sl2ForMittel = sl2Actual !== null ? sl2Actual : sl2Raw;
-
-  // Display: only show when manually confirmed; otherwise empty
-  if (sl1Actual === null) {
-    row.querySelector('.sl1-note-display').innerHTML = '';
-  } else {
-    row.querySelector('.sl1-note-display').innerHTML = slHtml(sl1Actual) +
-      ' <i class="bi bi-lock-fill text-muted" style="font-size:.7rem;" title="Tatsächliche SL-Note (manuell gesetzt)"></i>';
-  }
-  if (sl2Actual === null) {
-    row.querySelector('.sl2-note-display').innerHTML = '';
-  } else {
-    row.querySelector('.sl2-note-display').innerHTML = slHtml(sl2Actual) +
-      ' <i class="bi bi-lock-fill text-muted" style="font-size:.7rem;" title="Tatsächliche SL-Note (manuell gesetzt)"></i>';
-  }
-
-  const slMittel = computeSlMittel(sl1ForMittel, sl2ForMittel);
-  const slMittelDisp = row.querySelector('.sl-mittel-display');
-  if (slMittelDisp) {
-    if (slMittel !== null) {
-      const smDisp = Math.round(slMittel * 10) / 10;  // 1 decimal
-      slMittelDisp.className = 'text-center note-cell sl-mittel-display' + (slMittel < ROT_SCHWELLE ? ' text-danger' : '');
-      slMittelDisp.textContent = smDisp.toFixed(1);
-    } else {
-      slMittelDisp.textContent = '';
-    }
-  }
-
-  const hjV = roundNote15(computeHjVorschlag(glnNotes, glnIgn, slMittel));  row.querySelector('.hj-vorschlag-display').innerHTML = hjHtml(hjV);
-
-  // Mitarbeit proposal: mean(m1, m2) → 6-point scale
+  const [m1, m2] = mdlOf(row);
   const mitInput = row.querySelector('.mitarbeit-input');
   const mitSpan  = row.querySelector('.mitarbeit-proposal-span');
   if (mitSpan) {
@@ -391,8 +289,6 @@ function updateRow(row) {
       mitSpan.textContent = '';
     }
   }
-
-  // Verhalten proposal: shown when input empty (uses data attribute from server)
   const verhInput = row.querySelector('.verhalten-input');
   const verhSpan  = row.querySelector('.verhalten-proposal-span');
   if (verhSpan) {
@@ -400,12 +296,7 @@ function updateRow(row) {
     verhSpan.textContent = (!verhInput || verhInput.value === '') && proposal ? `(${proposal})` : '';
   }
 }
-function updateAllRows() {
-  document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => updateRow(row));
-}
 document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
-  row.querySelector('.mdl1-input')?.addEventListener('input', () => updateRow(row));
-  row.querySelector('.mdl2-input')?.addEventListener('input', () => updateRow(row));
   row.querySelector('.mitarbeit-input')?.addEventListener('input', () => updateRow(row));
   row.querySelector('.verhalten-input')?.addEventListener('input', () => updateRow(row));
   row.querySelector('.btn-verh-copy')?.addEventListener('click', () => {
@@ -413,23 +304,20 @@ document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
     const proposal = row.querySelector('.btn-verh-copy').dataset.proposal;
     if (inp && proposal !== '') {
       inp.value = proposal;
-      inp.dispatchEvent(new Event('input'));
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
     }
   });
 });
-document.getElementById('wSlMittel')?.addEventListener('input', updateAllRows);
 document.getElementById('btnMitarbeitAuto')?.addEventListener('click', () => {
   document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
     const mitInput = row.querySelector('.mitarbeit-input');
     const mitSpan  = row.querySelector('.mitarbeit-proposal-span');
     if (!mitInput) return;
-    const m1v = row.querySelector('.mdl1-input')?.value;
-    const m2v = row.querySelector('.mdl2-input')?.value;
-    const m1 = m1v !== '' && m1v != null ? parseFloat(m1v) : null;
-    const m2 = m2v !== '' && m2v != null ? parseFloat(m2v) : null;
+    const [m1, m2] = mdlOf(row);
     const p = computeMitarbeitProposal(m1, m2);
     if (p !== null) {
       mitInput.value = p;
+      mitInput.dispatchEvent(new Event('input', { bubbles: true }));
       if (mitSpan) mitSpan.textContent = '';
     }
   });
@@ -440,37 +328,35 @@ document.getElementById('btnVerhaltenCopyAll')?.addEventListener('click', () => 
     const proposal = row.dataset.verhaltensProposal || '';
     if (inp && proposal !== '') {
       inp.value = proposal;
-      inp.dispatchEvent(new Event('input'));
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
     }
   });
 });
-document.getElementById('btnSave')?.addEventListener('click', async () => {
+const dirty = window.Noten.trackDirty(document.getElementById('hjTable'));
+async function savePage() {
   const schueler = [];
   document.querySelectorAll('#hjTable tbody tr[data-name]').forEach(row => {
     const toInt = v => (v !== '' && v != null && !isNaN(parseInt(v, 10))) ? parseInt(v, 10) : null;
     schueler.push({
       name:      row.dataset.name,
-      mdl1:      toInt(row.querySelector('.mdl1-input')?.value),
-      mdl2:      toInt(row.querySelector('.mdl2-input')?.value),
       hj_actual: toInt(row.querySelector('.hj-actual-input')?.value),
       verhalten: toInt(row.querySelector('.verhalten-input')?.value),
       mitarbeit: toInt(row.querySelector('.mitarbeit-input')?.value),
     });
   });
-  const slMittelW = parseFloat(document.getElementById('wSlMittel')?.value);
   const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
   const r1 = await fetch('/api/hj-speichern', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-    body: JSON.stringify({
-      hj: HJ_KEY,
-      schueler,
-      sl_mittel_w: !isNaN(slMittelW) ? slMittelW : 1.0,
-    })
+    body: JSON.stringify({ hj: HJ_KEY, schueler })
   });
-  const d1 = await r1.json();
+  const d1 = await r1.json().catch(() => ({}));
   const ok = r1.ok && !!d1.ok;
-  showToast(ok ? 'Gespeichert.' : 'Fehler beim Speichern.', ok ? 'success' : 'danger');
-});
+  if (ok) dirty.clear();
+  showToast(ok ? 'Gespeichert.' : (d1.error || 'Fehler beim Speichern.'), ok ? 'success' : 'danger');
+  return ok;
+}
+window.notenPage = { isDirty: dirty.isDirty, save: savePage };
+document.getElementById('btnSave')?.addEventListener('click', savePage);
 function showToast(msg, type) {
   const d = document.createElement('div');
   d.className = `toast align-items-center text-bg-${type} border-0 position-fixed bottom-0 end-0 m-3`;
@@ -512,8 +398,8 @@ document.getElementById('btnKornClipboard')?.addEventListener('click', () => {
 });
 
 // ── Smart Paste ────────────────────────────────────────────────────────────
-const _HJ_INPUT_CLS = ['mdl1-input', 'mdl2-input', 'hj-actual-input', 'verhalten-input', 'mitarbeit-input'];
-const _HJ_INPUT_LABELS = ['Mündl. 1', 'Mündl. 2', 'HJ-Note', 'Verhalten', 'Mitarbeit'];
+const _HJ_INPUT_CLS = ['hj-actual-input', 'verhalten-input', 'mitarbeit-input'];
+const _HJ_INPUT_LABELS = ['HJ-Note', 'Verhalten', 'Mitarbeit'];
 smartPasteAttach({
   tableId: 'hjTable',
   inputSelector: 'input[type=number]',

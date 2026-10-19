@@ -74,6 +74,8 @@ def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
         sl_gw = {k: v for k, v in settings.items() if k in S.ES_GEWICHTUNG_KEYS}
         if sl_gw:
             result["sl_gewichtung"] = sl_gw
+        for store, weights in (settings.get("_ln_weights") or {}).items():
+            result[store] = weights
         # Kurs settings
         modus = settings.get("modus", "klasse")
         result["modus"] = modus if modus in ("klasse", "kurs") else "klasse"
@@ -228,6 +230,8 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
         nachtermin_von = _str(_meta_row, S.LN_META_NT_VAL - 1) or None
         runden_raw    = _str(_meta_row, S.LN_META_RUNDEN_VAL - 1)
         noten_runden  = (runden_raw != "0")  # default True unless explicitly "0"
+        thema         = _str(_meta_row, S.LN_META_THEMA_VAL - 1)
+        datum         = _iso_date(_meta_row, S.LN_META_DATUM_VAL - 1)
     else:
         # Old format: no meta row – rows are shifted by -1
         row_header    = 1
@@ -240,6 +244,8 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
         gln_slot      = None
         nachtermin_von = None
         noten_runden  = True
+        thema         = ""
+        datum         = ""
 
     header_row = list(ws.iter_rows(min_row=row_header, max_row=row_header, values_only=True))[0]
     afb_row    = list(ws.iter_rows(min_row=row_afb,    max_row=row_afb,    values_only=True))[0]
@@ -345,6 +351,8 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
         "gln_slot":      gln_slot,
         "nachtermin_von": nachtermin_von,
         "noten_runden":  noten_runden,
+        "thema":         thema,
+        "datum":         datum,
         "aufgaben":      task_cols,
         "aufgaben_tree": aufgaben_tree,
         "schueler":      students,
@@ -547,6 +555,14 @@ def _read_einstellungen(wb: Workbook) -> dict | None:
             val = _num(row, S.ES_COL_VALUE - 1)
             if val is not None:
                 result[key] = val
+        elif key.startswith(S.ES_LN_WEIGHT_PREFIX + "|"):
+            parts = key.split("|", 3)
+            val = _num(row, S.ES_COL_VALUE - 1)
+            store = S.ES_LN_WEIGHT_STORES.get(parts[1]) if len(parts) == 4 else None
+            if store and val is not None:
+                (result.setdefault("_ln_weights", {})
+                       .setdefault(store, {})
+                       .setdefault(parts[2], {}))[parts[3]] = val
         elif key in S.ES_KURS_KEYS:
             result[key] = str(val_raw).strip() if val_raw is not None else ""
     return result if result else None
@@ -586,6 +602,23 @@ def _num(row: tuple, idx: int) -> float | None:
         return float(v)
     except (IndexError, TypeError, ValueError):
         return None
+
+
+def _iso_date(row: tuple, idx: int) -> str:
+    """Return a date cell as 'YYYY-MM-DD' (also accepts Excel dates and 'TT.MM.JJJJ')."""
+    try:
+        v = row[idx]
+    except IndexError:
+        return ""
+    if v is None:
+        return ""
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+    s = str(v).strip()
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", s)
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    return s
 
 
 def _date_str(row: tuple, idx: int) -> str:
