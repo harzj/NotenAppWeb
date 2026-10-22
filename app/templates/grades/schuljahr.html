@@ -103,7 +103,7 @@
         {% if is_actual %}
           <strong class="{{ 'text-danger' if n15 < rot_schwelle else '' }}">{{ n15 }}</strong>
         {% else %}
-          <span class="vorschlag">{{ n15 }}</span>
+          <span class="vorschlag{{ ' text-danger' if n15 < rot_schwelle }}">{{ n15 }}</span>
         {% endif %}
       {% else %}–{% endif %}
     {% endmacro %}
@@ -145,7 +145,7 @@
         {% if row.is_aufnahme_hj2 %}
           <div class="d-flex flex-column align-items-center gap-1">
             <span class="badge bg-info text-dark small">Aufnahme</span>
-            <input type="number" class="form-control form-control-sm vorherige-note-input"
+            <input type="number" class="note15-input form-control form-control-sm vorherige-note-input"
                    min="0" max="15" step="1"
                    placeholder="Vorh."
                    title="Vorherige HJ1-Note (andere Schule)"
@@ -197,7 +197,7 @@
         {% if row.is_abgaenger_hj1 %}
           –
         {% else %}
-          <input type="number" class="form-control form-control-sm sj-actual-input"
+          <input type="number" class="note15-input form-control form-control-sm sj-actual-input"
                  min="0" max="15" step="1"
                  value="{{ row.sj_actual if row.sj_actual is not none else '' }}">
         {% endif %}

@@ -135,13 +135,13 @@
       </td>
       {% endfor %}
       {% if kln_list | length >= 2 %}
-      <td class="text-center text-muted small">
+      <td class="text-center small {{ 'text-danger' if row.kln_mean is not none and (row.kln_mean | round) < rot_schwelle else 'text-muted' }}">
         {{ row.kln_mean if row.kln_mean is not none else '' }}
       </td>
       {% endif %}
       <td class="text-center bg-info bg-opacity-10">
         {% if has_mdl_lns %}
-          <a class="mdl-link note-cell {{ 'mdl-vorl' if row.mdl_status == 'vorlaeufig' }}"
+          <a class="mdl-link note-cell {{ 'mdl-vorl' if row.mdl_status == 'vorlaeufig' }} {{ 'text-danger' if row.mdl_eff is not none and (row.mdl_eff | round) < rot_schwelle }}"
              href="{{ url_for('grades.sl_muendlich', sl_key=sl_key) }}"
              title="{{ 'Vorläufig: gewichtetes Mittel der Teilnoten' if row.mdl_status == 'vorlaeufig' else 'Festgelegte mündliche Note' }}">
             {% if row.mdl_eff is none %}–
@@ -151,7 +151,7 @@
           </a>
         {% else %}
         <div class="d-flex align-items-center justify-content-center gap-1">
-          <input type="number" class="form-control form-control-sm mdl-input"
+          <input type="number" class="note15-input form-control form-control-sm mdl-input"
                  min="0" max="15" step="1"
                  data-prev-mdl="{{ row.prev_mdl if row.prev_mdl is not none else '' }}"
                  value="{{ row.mdl if row.mdl is not none else '' }}">
@@ -184,7 +184,7 @@
         {% endif %}
       </td>
       <td class="text-center bg-success bg-opacity-10">
-        <input type="number" class="form-control form-control-sm sl-actual-input"
+        <input type="number" class="note15-input form-control form-control-sm sl-actual-input"
                min="0" max="15" step="1"
                value="{{ row.sl_actual if row.sl_actual is not none else '' }}">
       </td>

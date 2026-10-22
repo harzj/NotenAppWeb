@@ -371,6 +371,7 @@ function updateRowCalc(row) {
   if (allEmpty) {
     gestEl.textContent = '–';
     note15El.textContent = '–';
+    note15El.classList.remove('text-danger');
     return;
   }
 
@@ -379,6 +380,7 @@ function updateRowCalc(row) {
 
   gestEl.textContent = fmtNum(total);
   note15El.textContent = note15;
+  note15El.classList.toggle('text-danger', note15 < window.ROT_SCHWELLE);
 
   const tds = row.querySelectorAll('td');
   const lastTd = tds[tds.length - 1];

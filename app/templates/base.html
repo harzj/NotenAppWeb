@@ -21,6 +21,7 @@
     .sidebar .nav-link i { width: 1.4em; }
     .content-area { min-height: calc(100vh - 56px); }
     .grade-badge-15 { font-size: .85rem; min-width: 2rem; }
+    input.note15-input.text-danger { font-weight: 700; }
     .table th { background-color: #1f4e79; color: #fff; }
     .table-striped > tbody > tr:nth-of-type(odd) > * { background-color: rgba(31,78,121,.04); }
     .app-version { position: fixed; left: 1rem; bottom: .75rem; font-size: .8rem; color: #6c757d; z-index: 1030; }
@@ -402,6 +403,28 @@
 })();
 </script>
 
+<!-- ── Rote Noten ────────────────────────────────────────────────────────── -->
+<script>
+// Notes below ROT_SCHWELLE are failing and shown in red on every page.
+// Note inputs (0–15) opt in via the class "note15-input".
+window.ROT_SCHWELLE = {{ rot_schwelle | tojson }};
+(function () {
+  'use strict';
+  function markRot(inp) {
+    const v = parseFloat(String(inp.value).replace(',', '.'));
+    inp.classList.toggle('text-danger', !isNaN(v) && v < window.ROT_SCHWELLE);
+  }
+  window.markRot = markRot;
+  // Capture phase: also catches non-bubbling input events
+  document.addEventListener('input', function (e) {
+    if (e.target.matches && e.target.matches('input.note15-input')) markRot(e.target);
+  }, true);
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('input.note15-input').forEach(markRot);
+  });
+})();
+</script>
+
 <!-- ── Shared Smart Paste Modal ──────────────────────────────────────────── -->
 <div class="modal fade" id="smartPastePrevModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -680,7 +703,8 @@
         const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
         const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
         inp.value = Math.max(min, Math.min(max, val));
-        inp.dispatchEvent(new Event(eventName));
+        // bubbles: row/table listeners (live calculation, unsaved-changes guard) must see it
+        inp.dispatchEvent(new Event(eventName, { bubbles: true }));
       };
 
       // Re-compute inputEls whenever colEnabled changes (lückenlos mapping)

@@ -54,37 +54,38 @@
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr>
+      <tr data-gln-mean="{{ row.gln_mean_raw if row.gln_mean_raw is not none else '' }}">
         <td>{{ row.name }}</td>
         {% for slot in hj_slots %}
         <td class="text-center" data-slot="{{ slot }}"
             data-gln-note="{{ row.gln_notes.get(slot) if row.gln_notes.get(slot) is not none else '' }}">
           {% set note = row.gln_notes.get(slot) %}
-          {% if note is not none %}{{ note }}{% else %}<span class="text-muted">–</span>{% endif %}
+          {% if note is not none %}<span class="{{ 'text-danger fw-bold' if note < rot_schwelle }}">{{ note }}</span>{% else %}<span class="text-muted">–</span>{% endif %}
         </td>
         {% endfor %}
         <td class="text-center fw-semibold">
           {% if row.gln_notes.values() | select('!=', none) | list %}
-            {{ (row.gln_notes.values() | select('!=', none) | list | sum / (row.gln_notes.values() | select('!=', none) | list | length)) | round(1) }}
+            {% set gln_avg = (row.gln_notes.values() | select('!=', none) | list | sum / (row.gln_notes.values() | select('!=', none) | list | length)) | round(1) %}
+            <span class="{{ 'text-danger' if (gln_avg | round) < rot_schwelle }}">{{ gln_avg }}</span>
           {% else %}
             <span class="text-muted">–</span>
           {% endif %}
         </td>
         <td class="text-center">
-          <input type="number" class="form-control form-control-sm text-center"
+          <input type="number" class="note15-input form-control form-control-sm text-center"
                  style="width:5rem; display:inline-block;"
                  min="0" max="15" step="1"
                  data-name="{{ row.name }}" data-key="{{ hj }}_mdl1"
                  value="{{ row.mdl1 if row.mdl1 is not none else '' }}">
         </td>
         <td class="text-center">
-          <input type="number" class="form-control form-control-sm text-center"
+          <input type="number" class="note15-input form-control form-control-sm text-center"
                  style="width:5rem; display:inline-block;"
                  min="0" max="15" step="1"
                  data-name="{{ row.name }}" data-key="{{ hj }}_mdl2"
                  value="{{ row.mdl2 if row.mdl2 is not none else '' }}">
         </td>
-        <td class="text-center fw-semibold text-primary">
+        <td class="text-center fw-semibold vorschlag-display {{ 'text-danger' if row.vorschlag is not none and row.vorschlag < rot_schwelle else 'text-primary' }}">
           {% if row.vorschlag_raw is not none and row.vorschlag is not none %}
             <span class="proposal-raw">{{ "%.1f"|format(row.vorschlag_raw)|replace('.', ',') }}</span>
             <span class="proposal-arrow">&rarr;</span>
@@ -94,7 +95,7 @@
           {% else %}<span class="text-muted">–</span>{% endif %}
         </td>
         <td class="text-center table-primary fw-bold">
-          <input type="number" class="form-control form-control-sm text-center fw-bold"
+          <input type="number" class="note15-input form-control form-control-sm text-center fw-bold"
                  style="width:5rem; display:inline-block;"
                  min="0" max="15" step="1"
                  data-name="{{ row.name }}" data-key="tatsaechlich"
@@ -132,6 +133,43 @@
 {% block extra_scripts %}
 <script>
 const HJ = {{ hj | tojson }};
+const KGW = {{ kurs_gewichtung | tojson }};
+
+// Live proposal – mirrors berechnung.compute_hj_vorschlag_kurs
+function updateVorschlag(tr) {
+  const num = inp => {
+    const v = inp ? parseFloat(String(inp.value).replace(',', '.')) : NaN;
+    return isNaN(v) ? null : v;
+  };
+  const glnMean = tr.dataset.glnMean !== '' ? parseFloat(tr.dataset.glnMean) : null;
+  const mdl = [num(tr.querySelector(`input[data-key="${HJ}_mdl1"]`)),
+               num(tr.querySelector(`input[data-key="${HJ}_mdl2"]`))].filter(v => v !== null);
+  const mdlMean = mdl.length ? mdl.reduce((a, b) => a + b, 0) / mdl.length : null;
+  let raw = null;
+  if (glnMean !== null && mdlMean !== null) {
+    raw = glnMean * (KGW.hj_gln_pct ?? 70) / 100 + mdlMean * (KGW.hj_mdl_pct ?? 30) / 100;
+  } else if (glnMean !== null) {
+    raw = glnMean;
+  }
+  const td = tr.querySelector('.vorschlag-display');
+  if (!td) return;
+  if (raw === null) {
+    td.innerHTML = '<span class="text-muted">–</span>';
+    td.classList.remove('text-danger');
+    td.classList.add('text-primary');
+    return;
+  }
+  const n15 = Math.max(0, Math.min(15, Math.round(raw + 1e-9)));
+  td.innerHTML = `<span class="proposal-raw">${(Math.round(raw * 10) / 10).toFixed(1).replace('.', ',')}</span>`
+    + `<span class="proposal-arrow">&rarr;</span><strong>${String(n15).padStart(2, '0')}</strong>`;
+  td.classList.toggle('text-danger', n15 < window.ROT_SCHWELLE);
+  td.classList.toggle('text-primary', n15 >= window.ROT_SCHWELLE);
+}
+document.querySelectorAll('#kuTable tbody tr').forEach(tr => {
+  tr.addEventListener('input', e => {
+    if (/_mdl[12]$/.test(e.target.dataset.key || '')) updateVorschlag(tr);
+  });
+});
 document.getElementById('btnSave')?.addEventListener('click', async () => {
   const rows = [];
   const table = document.getElementById('kuTable');

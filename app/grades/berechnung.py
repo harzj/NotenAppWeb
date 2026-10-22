@@ -1,6 +1,8 @@
 """Grade computation helpers for SL-, HJ- and Schuljahr-notes."""
 from __future__ import annotations
 
+import math
+
 LN_TYP_MDL = "MDL"   # mündliche Teilnote (direkt vergebene Note mit SL-Zuordnung)
 
 DEFAULT_GEWICHTUNG: dict = {
@@ -407,10 +409,15 @@ def hj_vorschlag_for(data: dict, name: str, hj: str) -> float | None:
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def round_note15(x: float | None) -> int | None:
-    """Clamp and round a float note to int 0-15."""
+    """Clamp and round a float note to int 0-15.
+
+    Rounds half up (4,5 → 5) like the live preview in the browser – Python's
+    round() would round half to even (4,5 → 4). The tiny epsilon absorbs float
+    noise from weighted means (4.4999999… → 5).
+    """
     if x is None:
         return None
-    return max(0, min(15, round(x)))
+    return max(0, min(15, math.floor(x + 0.5 + 1e-9)))
 
 
 # ── Kurs mode ─────────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ window.Noten = (function () {
 
   function roundNote15(x) {
     if (x === null || x === undefined || isNaN(x)) return null;
-    return Math.max(0, Math.min(15, Math.round(x)));
+    return Math.max(0, Math.min(15, Math.round(x + 1e-9)));  // half up, as berechnung.round_note15
   }
 
   // pairs: [[note, weight], ...]; null notes are skipped

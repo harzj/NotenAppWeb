@@ -307,6 +307,10 @@ def main():
     t = threading.Thread(target=_run_flask, daemon=True)
     t.start()
 
+    # PDF-Bibliothek sofort laden (siehe app.pdf.generator.preload)
+    from app.pdf.generator import preload as _preload_pdf
+    threading.Thread(target=_preload_pdf, daemon=True).start()
+
     if ngrok_allowed:
         threading.Thread(target=_run_ngrok, daemon=True).start()
 
@@ -364,5 +368,26 @@ def main():
     icon.run()
 
 
+def _selbsttest() -> int:
+    """NotenApp.exe --selbsttest: create a test PDF and write the result to
+    selbsttest.txt next to the exe (no server, no tray). Exit code 0 = ok."""
+    lines = [f"NotenApp {format_version(load_version_data())}"]
+    ok = True
+    try:
+        from app.pdf.generator import _pisa_render
+        pdf = _pisa_render("<html><body><h1>Selbsttest</h1><table><tr><td><b>Note</b></td>"
+                           "<td>08</td></tr></table></body></html>")
+        ok = pdf.startswith(b"%PDF")
+        lines.append(f"PDF: {'OK' if ok else 'FEHLER'} ({len(pdf)} Bytes)")
+    except Exception as exc:
+        ok = False
+        lines.append(f"PDF: FEHLER – {exc}")
+    out = Path(sys.executable if getattr(sys, "frozen", False) else __file__).parent / "selbsttest.txt"
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return 0 if ok else 1
+
+
 if __name__ == "__main__":
+    if "--selbsttest" in sys.argv:
+        sys.exit(_selbsttest())
     main()

@@ -23,6 +23,7 @@ from app.grades.forms import (
 from app.grades import moodle as moodle_parser
 from app.grades import berechnung
 from app.grades import gewichtung as gewichtung_ui
+from app.grades.ln_statistik import afb_statistik, aufgaben_statistik
 from app.auth import dateilogin
 from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
 from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_zettel_pdf
@@ -279,13 +280,18 @@ def _students_active_in_hj(students: list[dict], hj: str) -> list[dict]:
     return [s for s in students if berechnung.student_active_in_hj(s, hj)]
 
 
-def _rot_schwelle(klasse: str | None) -> int:
+def _rot_schwelle(data: dict | None) -> int:
     """Return the note_15 threshold below which a note is shown in red.
 
     Notes < threshold are considered failing:
-      - Klasse 11+: threshold = 5 (notes 00–04 are red)
+      - Klasse 11+ and every Kurs (Oberstufe): threshold = 5 (notes 00–04 are red)
       - Otherwise:  threshold = 4 (notes 00–03 are red)
     """
+    if not data:
+        return 4
+    if data.get("modus") == "kurs":
+        return 5
+    klasse = data.get("klasse")
     if klasse:
         digits = "".join(c for c in klasse if c.isdigit())
         if digits:
@@ -1674,7 +1680,7 @@ def ln_detail(ln_idx):
                            afb_values=S.AFB_VALUES,
                            grade_scale=S.GRADE_SCALE,
                            note15_to6=S.NOTE_15_TO_6,
-                           rot_schwelle=_rot_schwelle(data.get("klasse")),
+                           rot_schwelle=_rot_schwelle(data),
                            abt_hj_schnitt=abt_hj_schnitt)
 
 
@@ -1940,7 +1946,7 @@ def nachtermin_detail(ln_idx, nr):
         afb_values=S.AFB_VALUES,
         grade_scale=S.GRADE_SCALE,
         note15_to6=S.NOTE_15_TO_6,
-        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        rot_schwelle=_rot_schwelle(data),
     )
 
 
@@ -2256,7 +2262,7 @@ def sl_detail(sl_key):
         gewichtung=gw,
         gw_model=gewichtung_ui.build_model(data),
         note15_to6=S.NOTE_15_TO_6,
-        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        rot_schwelle=_rot_schwelle(data),
     )
 
 
@@ -2272,6 +2278,7 @@ def sl_muendlich(sl_key):
     mdl_noten = data.get("mdl_noten") or {}
     mdl_lns = berechnung.mdl_lns_for_sl(lns, sl_key)
     mdl_weights = berechnung.get_mdl_weights(data, sl_key)
+    kln_weights = berechnung.get_kln_weights(data, sl_key)
     students = _students_active_in_hj(data.get("stammdaten", []), _sl_key_to_hj(sl_key))
 
     rows = []
@@ -2283,11 +2290,16 @@ def sl_muendlich(sl_key):
             in_ln = any(x["name"] == name for x in ln.get("schueler", []))
             cols.append({"note_15": note_15, "ignoriert": ignoriert, "in_ln": in_ln})
         mean = berechnung.mdl_mean_for_sl(name, sl_key, lns, mdl_weights)
+        sl_raw = berechnung.sl_note_for(data, name, sl_key)
         rows.append({
             "name": name,
             "cols": cols,
             "mean": mean,
             "final": mdl_noten.get(name, {}).get(sl_key),
+            # For the live SL proposal on the page
+            "kln_mean_raw": berechnung.kln_mean_for_sl(name, sl_key, lns, kln_weights),
+            "sl_raw": sl_raw,
+            "sl_note_15": berechnung.round_note15(sl_raw),
         })
 
     gw_model = gewichtung_ui.build_model(data)
@@ -2300,7 +2312,8 @@ def sl_muendlich(sl_key):
         rows=rows,
         gw_model=gw_model,
         mdl_formel=mdl_formel,
-        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        gewichtung=berechnung.get_gewichtung(data),
+        rot_schwelle=_rot_schwelle(data),
     )
 
 
@@ -2681,7 +2694,7 @@ def uebersicht(hj):
         gewichtung=gw,
         gw_model=gewichtung_ui.build_model(data),
         note15_to6=S.NOTE_15_TO_6,
-        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        rot_schwelle=_rot_schwelle(data),
     )
 
 
@@ -2838,7 +2851,7 @@ def hj_druck(hj):
         show_kln2_mean=len(sl2_list) >= 2,
         rows=rows,
         klasse=data.get("klasse", ""),
-        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        rot_schwelle=_rot_schwelle(data),
         now=datetime.now().strftime("%d.%m.%Y"),
     )
 
@@ -2951,7 +2964,7 @@ def schuljahr_uebersicht():
         gln_hj1_list=gln_hj1_list,
         gln_hj2_list=gln_hj2_list,
         note15_to6=S.NOTE_15_TO_6,
-        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        rot_schwelle=_rot_schwelle(data),
     )
 
 
@@ -3059,7 +3072,7 @@ def schuljahr_druck():
         gln_hj1_list=gln_hj1_list,
         gln_hj2_list=gln_hj2_list,
         klasse=data.get("klasse", ""),
-        rot_schwelle=_rot_schwelle(data.get("klasse")),
+        rot_schwelle=_rot_schwelle(data),
         now=datetime.now().strftime("%d.%m.%Y"),
     )
 
@@ -3422,6 +3435,8 @@ def statistik_json(ln_idx):
         "note_distribution_6_ignored": dist6_ign,
         "afb_punkte": afb_punkte,
         "afb_max": afb_max,
+        "aufgaben_statistik": aufgaben_statistik(ln),
+        "afb_statistik": afb_statistik(ln),
     }
 
 
@@ -3472,6 +3487,7 @@ def kurs_uebersicht(hj):
         rows.append({
             "name": name,
             "gln_notes": gln_notes,
+            "gln_mean_raw": berechnung.gln_mean_for_hj_kurs(name, hj, lns),
             "mdl1": mdl1,
             "mdl2": mdl2,
             "fs_e": fs_e,
@@ -3487,6 +3503,8 @@ def kurs_uebersicht(hj):
     return render_template("grades/kurs_uebersicht.html",
                            hj=hj, rows=rows, hj_slots=hj_slots,
                            all_hj=berechnung.HJ_ORDER,
+                           kurs_gewichtung=kgw,
+                           rot_schwelle=_rot_schwelle(data),
                            data=data)
 
 

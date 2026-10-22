@@ -12,6 +12,7 @@
   .half-step-btn { padding: 0 5px; font-size: .85rem; line-height: 1.6; }
   .note-cell { font-weight: 700; }
   .note-6-badge { display: inline-block; min-width: 1.8rem; text-align: center; }
+  .stat-chart-box { position: relative; height: 260px; }
   .afb-select { width: 70px; padding: 2px 4px; font-size: .85rem; }
   .max-input { width: 60px; text-align: center; padding: 2px 4px; }
   .task-label-input { width: 90px; padding: 2px 4px; font-size: .85rem; }
@@ -273,20 +274,80 @@
 <!-- ── Statistik ──────────────────────────────────────────────────────── -->
 <div class="collapse mt-2" id="statistikPanel">
   <div class="card card-body">
-    <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
       <div class="form-check form-switch mb-0">
         <input class="form-check-input" type="checkbox" id="stat6p">
         <label class="form-check-label" for="stat6p">6P-Notenspiegel anzeigen</label>
       </div>
+      <span class="small text-muted" id="statSummary"></span>
     </div>
     <div class="row">
       <div class="col-md-6">
         <h6 id="chartNotenTitle">Notenverteilung (0–15)</h6>
-        <canvas id="chartNoten"></canvas>
+        <div class="stat-chart-box"><canvas id="chartNoten"></canvas></div>
       </div>
       <div class="col-md-6" id="afbSummary">
         <h6>Anforderungsbereiche (Ø Punkte)</h6>
-        <canvas id="chartAfb"></canvas>
+        <div class="stat-chart-box"><canvas id="chartAfb"></canvas></div>
+      </div>
+    </div>
+
+    <hr>
+    <h6 class="mb-2"><i class="bi bi-list-check me-1"></i>Aufgabenanalyse</h6>
+    <div id="statAnalyse" class="mb-2"></div>
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered align-middle mb-1" id="statAufgabenTable">
+        <thead>
+          <tr>
+            <th>Aufgabe</th>
+            <th class="text-center">AFB</th>
+            <th class="text-center">Max.</th>
+            <th class="text-center">Ø Punkte</th>
+            <th class="text-center">Median</th>
+            <th class="text-center">Min – Max</th>
+            <th style="min-width:11rem">Lösungsquote</th>
+            <th class="text-center" title="Anteil der Schüler mit voller Punktzahl">volle P.</th>
+            <th class="text-center" title="Anteil der Schüler mit 0 Punkten">0 P.</th>
+            <th class="text-center" title="Trennschärfe: Korrelation der Aufgabe mit dem Rest der Arbeit. Hoch (ab ca. 0,3) = stärkere Schüler lösen die Aufgabe deutlich besser als schwächere. Niedrig oder negativ = die Aufgabe unterscheidet kaum.">Trennschärfe <i class="bi bi-info-circle"></i></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="form-text">
+      Gezählt werden alle nicht ignorierten Schüler mit eingetragenen Punkten; ein leeres Aufgabenfeld zählt dabei als 0 Punkte.
+      Lösungsquote = Ø Punkte / Maximalpunkte.
+    </div>
+
+    <hr>
+    <h6 class="mb-2"><i class="bi bi-layers me-1"></i>Anforderungsbereiche</h6>
+    <div id="statAfbLeer" class="small text-muted d-none">
+      Keine Anforderungsbereiche eingetragen – unter „Aufgaben bearbeiten“ kannst du jeder Aufgabe AFB I, II oder III zuordnen.
+    </div>
+    <div id="statAfbInhalt" class="d-none">
+      <div class="row g-3">
+        <div class="col-lg-5">
+          <table class="table table-sm table-bordered align-middle mb-2" id="statAfbTable">
+            <thead>
+              <tr>
+                <th>AFB</th>
+                <th>Aufgaben</th>
+                <th class="text-center">Max.</th>
+                <th class="text-center">Ø Punkte</th>
+                <th style="min-width:9rem">Lösungsquote</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <ul class="list-unstyled small mb-2" id="statAfbChecks"></ul>
+          <div id="statAfbAuffaellig"></div>
+          <div class="small text-muted" id="statAfbOhne"></div>
+        </div>
+        <div class="col-lg-7" id="statAfb3Box">
+          <h6 class="small fw-semibold mb-1">Wer löst AFB III? – je Schüler AFB I+II gegen AFB III</h6>
+          <div class="stat-chart-box"><canvas id="chartAfb3"></canvas></div>
+          <div class="form-text" id="statAfb3Hint"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -503,6 +564,7 @@ function updateRowCalc(row) {
   if (allEmpty) {
     gestEl.textContent = '–';
     note15El.textContent = '–';
+    note15El.classList.remove('text-danger');
     if (IS_ABT) {
       const abwTd = row.querySelector('.abt-abw-vornote');
       if (abwTd) { abwTd.textContent = '–'; delete abwTd.dataset.abw; }
@@ -516,6 +578,7 @@ function updateRowCalc(row) {
 
   gestEl.textContent = fmtNum(total);
   note15El.textContent = note15;
+  note15El.classList.toggle('text-danger', note15 < window.ROT_SCHWELLE);
 
   // Note 1-6 badge (last td — or 5th from last if ABT, due to Vorhersage/Grenzfall/Nachprüfung/AbwVornote)
   const tds = row.querySelectorAll('td');
@@ -945,32 +1008,78 @@ let _statData = null;
 let _chartNoten = null;
 let _chartAfb = null;
 
-function buildNotenChart(data) {
+const BAR_NORMAL = 'rgba(31,78,121,0.7)';
+const BAR_ROT    = 'rgba(220,53,69,0.8)';
+
+// A 6P note counts as failing when every 15P note mapping to it is below ROT_SCHWELLE
+function isRot6(n6) {
+  const n15s = Object.keys(NOTE15_TO6).filter(k => NOTE15_TO6[k] === n6).map(Number);
+  return n15s.length > 0 && n15s.every(n => n < window.ROT_SCHWELLE);
+}
+
+// Both scales run from worst (left) to best (right)
+function notenChartData(data) {
   const use6p = document.getElementById('stat6p').checked;
   const labels = use6p
-    ? ['1','2','3','4','5','6']
+    ? ['6','5','4','3','2','1']
     : Array.from({length:16}, (_,i) => String(i));
+  const rot = labels.map(l => use6p ? isRot6(parseInt(l)) : parseInt(l) < window.ROT_SCHWELLE);
   const dist    = use6p ? data.note_distribution_6     : data.note_distribution;
   const distIgn = use6p ? data.note_distribution_6_ignored : data.note_distribution_ignored;
-  const normal  = labels.map(l => dist[l] ?? dist[parseInt(l)] ?? 0);
-  const ignored = labels.map(l => distIgn[l] ?? distIgn[parseInt(l)] ?? 0);
-  document.getElementById('chartNotenTitle').textContent =
-    use6p ? 'Notenverteilung (1–6)' : 'Notenverteilung (0–15)';
+  return {
+    title: use6p ? 'Notenverteilung (1–6)' : 'Notenverteilung (0–15)',
+    labels,
+    normal:  labels.map(l => dist[l] ?? dist[parseInt(l)] ?? 0),
+    ignored: labels.map(l => distIgn[l] ?? distIgn[parseInt(l)] ?? 0),
+    colors:  rot.map(r => r ? BAR_ROT : BAR_NORMAL),
+  };
+}
 
-  if (_chartNoten) _chartNoten.destroy();
+// Updates the chart in place: destroying it would collapse the canvas for a
+// moment and make the page jump.
+function buildNotenChart(data) {
+  const d = notenChartData(data);
+  document.getElementById('chartNotenTitle').textContent = d.title;
+  if (_chartNoten) {
+    _chartNoten.data.labels = d.labels;
+    _chartNoten.data.datasets[0].data = d.normal;
+    _chartNoten.data.datasets[0].backgroundColor = d.colors;
+    _chartNoten.data.datasets[1].data = d.ignored;
+    _chartNoten.update();
+    return;
+  }
   _chartNoten = new Chart(document.getElementById('chartNoten'), {
     type: 'bar',
     data: {
-      labels,
+      labels: d.labels,
       datasets: [
-        { label: 'Schüler', data: normal,
-          backgroundColor: 'rgba(31,78,121,0.7)', borderRadius: 4 },
-        { label: 'Ignoriert', data: ignored,
+        { label: 'Schüler', data: d.normal,
+          backgroundColor: d.colors, borderRadius: 4 },
+        { label: 'Ignoriert', data: d.ignored,
           backgroundColor: 'rgba(180,180,180,0.5)', borderRadius: 4 },
       ]
     },
     options: {
-      plugins: { legend: { display: true, position: 'bottom' } },
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true, position: 'bottom',
+          labels: {
+            // Bars are coloured per note – show fixed colours plus an entry for red notes
+            generateLabels(chart) {
+              const items = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+              items[0].fillStyle = items[0].strokeStyle = BAR_NORMAL;
+              items.push({ text: 'nicht ausreichend', fillStyle: BAR_ROT, strokeStyle: BAR_ROT,
+                           lineWidth: 0, hidden: false, datasetIndex: null });
+              return items;
+            },
+          },
+          onClick(e, item, legend) {
+            if (item.datasetIndex === null) return;
+            Chart.defaults.plugins.legend.onClick.call(this, e, item, legend);
+          },
+        },
+      },
       scales: {
         x: { stacked: true },
         y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }
@@ -979,52 +1088,230 @@ function buildNotenChart(data) {
   });
 }
 
-document.getElementById('statistikPanel').addEventListener('show.bs.collapse', async () => {
-  if (!_statData) {
-    const resp = await fetch(`/api/statistik/${LN_IDX}`);
-    _statData = await resp.json();
+function buildAfbChart(data) {
+  const afbLabels = ['I', 'II', 'III'];
+  const reached = afbLabels.map(k => data.afb_punkte[k] || 0);
+  const maxima  = afbLabels.map(k => data.afb_max[k] || 0);
+  if (_chartAfb) {
+    _chartAfb.data.datasets[0].data = reached;
+    _chartAfb.data.datasets[1].data = maxima;
+    _chartAfb.update();
+    return;
   }
-
-  buildNotenChart(_statData);
-
-  // AFB chart (only once)
-  if (!_chartAfb) {
-    const afbLabels = ['I', 'II', 'III'];
-    _chartAfb = new Chart(document.getElementById('chartAfb'), {
-      type: 'bar',
-      data: {
-        labels: afbLabels,
-        datasets: [
-          { label: 'Ø Erreicht', data: afbLabels.map(k => _statData.afb_punkte[k] || 0),
-            backgroundColor: 'rgba(40,167,69,0.7)' },
-          { label: 'Maximum', data: afbLabels.map(k => _statData.afb_max[k] || 0),
-            backgroundColor: 'rgba(200,200,200,0.5)' }
-        ]
-      },
-      options: {
-        plugins: {
-          legend: { position: 'bottom' },
-          tooltip: {
-            callbacks: {
-              label(ctx) {
-                const val = ctx.parsed.y;
-                const afb = afbLabels[ctx.dataIndex];
-                const max = _statData.afb_max[afb] || 0;
-                if (ctx.dataset.label === 'Maximum') return `Maximum: ${val}P`;
-                const pct = max > 0 ? Math.round(val / max * 100) : 0;
-                return [`Ø Erreicht: ${val}P`, `${pct}% von ${max}P`];
-              }
+  _chartAfb = new Chart(document.getElementById('chartAfb'), {
+    type: 'bar',
+    data: {
+      labels: afbLabels,
+      datasets: [
+        { label: 'Ø Erreicht', data: reached, backgroundColor: 'rgba(40,167,69,0.7)' },
+        { label: 'Maximum', data: maxima, backgroundColor: 'rgba(200,200,200,0.5)' }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const val = ctx.parsed.y;
+              const max = _statData.afb_max[afbLabels[ctx.dataIndex]] || 0;
+              if (ctx.dataset.label === 'Maximum') return `Maximum: ${val}P`;
+              const pct = max > 0 ? Math.round(val / max * 100) : 0;
+              return [`Ø Erreicht: ${val}P`, `${pct}% von ${max}P`];
             }
           }
-        },
-        scales: { y: { beginAtZero: true } }
-      }
-    });
+        }
+      },
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
+
+function _esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+function _fmt(x, nd = 1) {
+  if (x === null || x === undefined) return '–';
+  const r = Math.round(x * 10 ** nd) / 10 ** nd;
+  return String(r).replace('.', ',');
+}
+function _pct(x) { return x === null || x === undefined ? '–' : Math.round(x * 100) + ' %'; }
+
+function buildAufgabenStatistik(st) {
+  const tbody = document.querySelector('#statAufgabenTable tbody');
+  const box = document.getElementById('statAnalyse');
+  const g = st.gesamt;
+  document.getElementById('statSummary').textContent = st.n
+    ? `${st.n} Schüler · Ø ${_fmt(g.mittel)} von ${_fmt(g.max)} P. (${_pct(g.quote)}) · Median ${_fmt(g.median)} P.`
+    : '';
+  if (!st.n || !st.aufgaben.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">Noch keine Punkte eingetragen.</td></tr>';
+    box.innerHTML = '';
+    return;
   }
+  const a = st.analyse;
+  const byLabel = Object.fromEntries(st.aufgaben.map(t => [t.label, t]));
+  const parts = [];
+  if (a.beste && a.schlechteste) {
+    parts.push(`<div><i class="bi bi-hand-thumbs-up-fill text-success me-1"></i>Am besten gelöst: <strong>${_esc(a.beste)}</strong> (${_pct(byLabel[a.beste].quote)})`
+      + `<span class="mx-2 text-muted">·</span><i class="bi bi-hand-thumbs-down-fill text-danger me-1"></i>Am schlechtesten gelöst: <strong>${_esc(a.schlechteste)}</strong> (${_pct(byLabel[a.schlechteste].quote)})</div>`);
+  }
+  if (a.gut.length) {
+    parts.push(`<div class="small mt-1"><span class="badge bg-success me-1">gut gelöst</span>Quote ab ${_pct(a.quote_gut)}: ${a.gut.map(_esc).join(', ')}</div>`);
+  }
+  if (a.schwach.length) {
+    parts.push(`<div class="small mt-1"><span class="badge bg-danger me-1">schwach gelöst</span>Quote unter ${_pct(a.quote_schwach)}: ${a.schwach.map(_esc).join(', ')}</div>`);
+  }
+  box.innerHTML = parts.join('');
+
+  tbody.innerHTML = st.aufgaben.map(t => {
+    const q = t.quote;
+    const barCls = q === null ? 'bg-secondary' : (q >= a.quote_gut ? 'bg-success' : (q < a.quote_schwach ? 'bg-danger' : 'bg-warning'));
+    const w = q === null ? 0 : Math.max(0, Math.min(100, Math.round(q * 100)));
+    const mark = t.label === a.beste ? ' <i class="bi bi-hand-thumbs-up-fill text-success" title="am besten gelöst"></i>'
+               : (t.label === a.schlechteste ? ' <i class="bi bi-hand-thumbs-down-fill text-danger" title="am schlechtesten gelöst"></i>' : '');
+    const ts = t.trennschaerfe;
+    const tsCls = ts === null ? 'text-muted' : (ts < 0.2 ? 'text-danger' : (ts >= 0.3 ? 'text-success' : ''));
+    return `<tr>
+      <td class="fw-semibold text-nowrap">${_esc(t.label)}${mark}</td>
+      <td class="text-center">${_esc(t.afb) || '–'}</td>
+      <td class="text-center">${_fmt(t.max, 2)}</td>
+      <td class="text-center fw-semibold">${_fmt(t.mittel, 2)}</td>
+      <td class="text-center">${_fmt(t.median, 2)}</td>
+      <td class="text-center small text-nowrap">${_fmt(t.min, 2)} – ${_fmt(t.max_erreicht, 2)}</td>
+      <td>
+        <div class="d-flex align-items-center gap-2">
+          <div class="progress flex-grow-1" style="height:.8rem">
+            <div class="progress-bar ${barCls}" style="width:${w}%"></div>
+          </div>
+          <span class="small text-nowrap" style="min-width:2.8rem">${_pct(q)}</span>
+        </div>
+      </td>
+      <td class="text-center small">${_pct(t.anteil_voll)}</td>
+      <td class="text-center small">${_pct(t.anteil_null)}</td>
+      <td class="text-center small ${tsCls}">${_fmt(ts, 2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+let _chartAfb3 = null;
+
+function buildAfbStatistik(st) {
+  const leer = document.getElementById('statAfbLeer');
+  const inhalt = document.getElementById('statAfbInhalt');
+  leer.classList.toggle('d-none', !!st.vorhanden);
+  inhalt.classList.toggle('d-none', !st.vorhanden);
+  if (!st.vorhanden) return;
+
+  document.querySelector('#statAfbTable tbody').innerHTML = st.bereiche.map(b => {
+    const q = b.quote;
+    const cls = q === null ? 'bg-secondary' : (q >= 0.75 ? 'bg-success' : (q < 0.5 ? 'bg-danger' : 'bg-warning'));
+    const w = q === null ? 0 : Math.max(0, Math.min(100, Math.round(q * 100)));
+    return `<tr>
+      <td class="fw-semibold">${_esc(b.afb)}</td>
+      <td class="small">${b.aufgaben.map(_esc).join(', ')}</td>
+      <td class="text-center">${_fmt(b.max, 2)}</td>
+      <td class="text-center">${_fmt(b.mittel, 2)}</td>
+      <td><div class="d-flex align-items-center gap-2">
+        <div class="progress flex-grow-1" style="height:.8rem"><div class="progress-bar ${cls}" style="width:${w}%"></div></div>
+        <span class="small text-nowrap" style="min-width:2.8rem">${_pct(q)}</span>
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  const icon = ok => ok === true ? '<i class="bi bi-check-circle-fill text-success me-1"></i>'
+                   : (ok === false ? '<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>'
+                                   : '<i class="bi bi-info-circle-fill text-secondary me-1"></i>');
+  document.getElementById('statAfbChecks').innerHTML =
+    st.checks.map(c => `<li class="mb-1 d-flex"><span>${icon(c.ok)}</span><span>${_esc(c.text)}</span></li>`).join('');
+
+  const a3 = st.afb3;
+  const auff = a3 ? a3.auffaellig : [];
+  document.getElementById('statAfbAuffaellig').innerHTML = auff.length ? `
+    <div class="small fw-semibold mb-1">Auffällig: AFB III gelöst, aber nicht stark bei AFB I+II</div>
+    <table class="table table-sm table-bordered small mb-2">
+      <thead><tr><th>Schüler</th><th class="text-center">Note</th><th class="text-center">AFB I+II</th><th class="text-center">AFB III</th></tr></thead>
+      <tbody>${auff.map(s => `<tr>
+        <td>${_esc(s.name)}</td>
+        <td class="text-center${s.note_15 !== null && s.note_15 < window.ROT_SCHWELLE ? ' text-danger fw-bold' : ''}">${s.note_15 ?? '–'}</td>
+        <td class="text-center">${_pct(s.q12)}</td>
+        <td class="text-center">${_pct(s.q3)}</td></tr>`).join('')}</tbody>
+    </table>` : '';
+  document.getElementById('statAfbOhne').textContent = st.ohne_afb.length
+    ? `Ohne AFB (nicht berücksichtigt): ${st.ohne_afb.join(', ')}` : '';
+
+  const box = document.getElementById('statAfb3Box');
+  box.classList.toggle('d-none', !a3);
+  if (!a3) return;
+  document.getElementById('statAfb3Hint').textContent =
+    `Jeder Punkt ist ein Schüler. Rot = löst AFB III (ab ${_pct(a3.geloest_ab)}), ist bei AFB I+II aber nicht stark `
+    + `(oberes Drittel der Klasse bzw. ab ${_pct(a3.stark_ab)}). Erwartet: Punkte oben nur rechts.`
+    + (a3.korrelation !== null ? ` Korrelation AFB I+II ↔ AFB III: ${_fmt(a3.korrelation, 2)}.` : '');
+
+  const pts = a3.schueler.map(s => ({ x: Math.round(s.q12 * 100), y: Math.round(s.q3 * 100), name: s.name, note: s.note_15, auff: s.auffaellig }));
+  const datasets = [
+    { type: 'scatter', label: 'Schüler', data: pts, pointRadius: 5, pointHoverRadius: 7,
+      backgroundColor: pts.map(p => p.auff ? 'rgba(220,53,69,0.85)' : 'rgba(31,78,121,0.7)') },
+    { type: 'line', label: 'AFB III gelöst', data: [{ x: 0, y: a3.geloest_ab * 100 }, { x: 100, y: a3.geloest_ab * 100 }],
+      borderColor: 'rgba(108,117,125,0.6)', borderDash: [5, 4], borderWidth: 1, pointRadius: 0 },
+    { type: 'line', label: 'stark bei AFB I+II', data: [{ x: a3.stark_ab * 100, y: 0 }, { x: a3.stark_ab * 100, y: 100 }],
+      borderColor: 'rgba(25,135,84,0.6)', borderDash: [5, 4], borderWidth: 1, pointRadius: 0 },
+  ];
+  if (_chartAfb3) {
+    _chartAfb3.data.datasets = datasets;
+    _chartAfb3.update();
+    return;
+  }
+  _chartAfb3 = new Chart(document.getElementById('chartAfb3'), {
+    data: { datasets },
+    options: {
+      maintainAspectRatio: false,
+      scales: {
+        x: { type: 'linear', min: 0, max: 100, title: { display: true, text: 'AFB I+II gelöst (%)' } },
+        y: { min: 0, max: 100, title: { display: true, text: 'AFB III gelöst (%)' } },
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxHeight: 2 } },
+        tooltip: {
+          filter: item => item.datasetIndex === 0,
+          callbacks: {
+            label(ctx) {
+              const p = ctx.raw;
+              return [`${p.name}${p.note !== null && p.note !== undefined ? ' (Note ' + p.note + ')' : ''}`,
+                      `AFB I+II: ${p.x} %, AFB III: ${p.y} %`];
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// Always load fresh numbers; unsaved points are saved first.
+document.getElementById('statistikPanel').addEventListener('show.bs.collapse', async () => {
+  if (_dirty) await _doSave(true);
+  try {
+    const resp = await fetch(`/api/statistik/${LN_IDX}`);
+    _statData = await resp.json();
+  } catch (e) {
+    showToast('Statistik konnte nicht geladen werden.', 'danger');
+    return;
+  }
+  buildNotenChart(_statData);
+  buildAfbChart(_statData);
+  buildAufgabenStatistik(_statData.aufgaben_statistik);
+  buildAfbStatistik(_statData.afb_statistik);
 });
 
 document.getElementById('stat6p').addEventListener('change', () => {
-  if (_statData) buildNotenChart(_statData);
+  if (!_statData) return;
+  // Keep the reader's position while the chart redraws
+  const y = window.scrollY;
+  buildNotenChart(_statData);
+  requestAnimationFrame(() => window.scrollTo(0, y));
 });
 
 // ── Excel-Paste-Support ───────────────────────────────────────────────────────

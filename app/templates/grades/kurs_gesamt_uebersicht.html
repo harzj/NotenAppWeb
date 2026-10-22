@@ -34,7 +34,7 @@
 {% macro note_td(val, cls_extra='') %}
   {% if val is not none %}
     {% set bg = 'note-good' if val >= 10 else ('note-ok' if val >= 5 else 'note-fail') %}
-    <td class="note-cell {{ bg }} {{ cls_extra }}">{{ val }}</td>
+    <td class="note-cell {{ bg }} {{ cls_extra }}{{ ' text-danger' if val < rot_schwelle }}">{{ val }}</td>
   {% else %}
     <td class="text-center text-muted {{ cls_extra }}">–</td>
   {% endif %}
@@ -91,7 +91,7 @@
           <td class="text-center hj-group aufnahme-prev-cell">
             <div class="d-flex flex-column align-items-center gap-1">
               <span class="badge bg-info text-dark small">and. Schule</span>
-              <input type="number" class="form-control form-control-sm vorherige-note-input"
+              <input type="number" class="note15-input form-control form-control-sm vorherige-note-input"
                      min="0" max="15" step="1"
                      placeholder="Note"
                      title="Vorherige Note {{ hj }} (andere Schule)"
@@ -105,22 +105,22 @@
           {% endfor %}
           <!-- MDL 1 -->
           {% if hd.mdl1 is not none %}
-            <td class="text-center">{{ hd.mdl1 }}</td>
+            <td class="text-center{{ ' text-danger fw-bold' if hd.mdl1 < rot_schwelle }}">{{ hd.mdl1 }}</td>
           {% else %}
             <td class="text-center text-muted">–</td>
           {% endif %}
           <!-- MDL 2 -->
           {% if hd.mdl2 is not none %}
-            <td class="text-center">{{ hd.mdl2 }}</td>
+            <td class="text-center{{ ' text-danger fw-bold' if hd.mdl2 < rot_schwelle }}">{{ hd.mdl2 }}</td>
           {% else %}
             <td class="text-center text-muted">–</td>
           {% endif %}
           <!-- HJ Note (actual or proposed) -->
           {% if hd.tatsaechlich is not none %}
             {% set bg = 'note-good' if hd.tatsaechlich >= 10 else ('note-ok' if hd.tatsaechlich >= 5 else 'note-fail') %}
-            <td class="note-cell {{ bg }} hj-group" style="outline: 2px solid #1f4e79; outline-offset:-2px;">{{ hd.tatsaechlich }}</td>
+            <td class="note-cell {{ bg }} hj-group{{ ' text-danger' if hd.tatsaechlich < rot_schwelle }}" style="outline: 2px solid #1f4e79; outline-offset:-2px;">{{ hd.tatsaechlich }}</td>
           {% elif hd.vorschlag is not none %}
-            <td class="text-center note-proj hj-group" title="Vorschlag (noch nicht festgelegt)">
+            <td class="text-center note-proj hj-group{{ ' text-danger' if hd.vorschlag < rot_schwelle }}" title="Vorschlag (noch nicht festgelegt)">
               {% if hd.vorschlag_raw is not none %}
                 <span class="proposal-raw">{{ "%.1f"|format(hd.vorschlag_raw)|replace('.', ',') }}</span>
                 <span class="proposal-arrow">&rarr;</span>
@@ -140,7 +140,7 @@
         {% if row.gesamtschnitt is not none %}
           {% set gs = row.gesamtschnitt %}
           {% set bg = 'note-good' if gs >= 10 else ('note-ok' if gs >= 5 else 'note-fail') %}
-          <td class="note-cell {{ bg }}">{{ gs }}</td>
+          <td class="note-cell {{ bg }}{{ ' text-danger' if (gs | round) < rot_schwelle }}">{{ gs }}</td>
         {% else %}
           <td class="text-center text-muted">–</td>
         {% endif %}

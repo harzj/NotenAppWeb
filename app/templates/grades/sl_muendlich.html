@@ -8,6 +8,8 @@
   .note-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .mean-cell { white-space: nowrap; }
   .final-input.is-vorschlag { font-style: italic; }
+  .proposal-raw { font-size: .82em; color: #6c757d; font-weight: 400; }
+  .proposal-arrow { font-size: .9em; color: #6c757d; padding: 0 .15rem; }
 </style>
 {% endblock %}
 {% block tour %}{{ {
@@ -17,6 +19,7 @@
     {"el": "[data-tour=formel]", "title": "Gewichtung", "text": "Teilnoten können unterschiedlich zählen, z.B. ein Referat doppelt."},
     {"el": "[data-tour=mdl-vorschlag]", "title": "Vorschlag", "text": "Das gewichtete Mittel der Teilnoten – nur eine Hilfe."},
     {"el": "[data-tour=mdl-final]", "title": "Endgültige mündliche Note", "text": "Die legst du selbst fest. Solange das Feld leer ist, rechnet die SL-Seite vorläufig mit dem Vorschlag (kursiv). Mit „Vorschlag übernehmen“ füllst du alle leeren Felder auf einmal.", "side": "left"},
+    {"el": "[data-tour=mdl-sl-vorschlag]", "title": "Auswirkung auf die SL-Note", "text": "Hier siehst du sofort, welche SL-Note sich mit der mündlichen Note und den KLN ergibt.", "side": "left"},
     {"el": "[data-tour=mdl-neu]", "title": "Weitere Teilnote", "text": "Neue mündliche Teilnote für dieses SL anlegen.", "side": "left"}
   ]
 } | tojson }}{% endblock %}
@@ -81,6 +84,9 @@
       <th class="text-center bg-info text-white" data-tour="mdl-final">
         Mündl. Note {{ sl_key }}<br><small class="fw-normal">endgültig</small>
       </th>
+      <th class="text-center bg-warning text-dark" data-tour="mdl-sl-vorschlag">
+        {{ sl_key }}-Note<br><small class="fw-normal">Vorschlag</small>
+      </th>
     </tr>
     <tr class="table-light">
       <td class="small text-muted fst-italic">Für alle</td>
@@ -92,27 +98,34 @@
           <i class="bi bi-arrow-right-square me-1"></i>Vorschlag übernehmen
         </button>
       </td>
+      <td></td>
     </tr>
   </thead>
   <tbody>
     {% for row in rows %}
-    <tr data-name="{{ row.name }}">
+    <tr data-name="{{ row.name }}"
+        data-kln-mean="{{ row.kln_mean_raw if row.kln_mean_raw is not none else '' }}">
       <td>{{ row.name }}</td>
       {% for c in row.cols %}
       {% set ln = mdl_lns[loop.index0] %}
       <td class="text-center">
-        <input type="number" class="form-control form-control-sm note-input teil-input"
+        <input type="number" class="note15-input form-control form-control-sm note-input teil-input"
                min="0" max="15" step="1"
                data-sheet="{{ ln.sheet_name }}" data-w="{{ mdl_weights[ln.sheet_name] }}"
                {% if c.ignoriert %}data-ignoriert="1" title="ignoriert"{% endif %}
                value="{{ c.note_15 if c.note_15 is not none else '' }}">
       </td>
       {% endfor %}
-      <td class="text-center mean-cell text-muted">{{ "%.1f"|format(row.mean)|replace('.', ',') if row.mean is not none else '–' }}</td>
+      <td class="text-center mean-cell {{ 'text-danger' if row.mean is not none and (row.mean | round) < rot_schwelle else 'text-muted' }}">{{ "%.1f"|format(row.mean)|replace('.', ',') if row.mean is not none else '–' }}</td>
       <td class="text-center bg-info bg-opacity-10">
-        <input type="number" class="form-control form-control-sm note-input final-input"
+        <input type="number" class="note15-input form-control form-control-sm note-input final-input"
                min="0" max="15" step="1"
                value="{{ row.final if row.final is not none else '' }}">
+      </td>
+      <td class="text-center note-cell sl-note-display bg-warning bg-opacity-25{% if row.sl_note_15 is not none and row.sl_note_15 < rot_schwelle %} text-danger{% endif %}">
+        {% if row.sl_note_15 is not none %}
+          <span class="proposal-raw">{{ "%.1f"|format(row.sl_raw)|replace('.', ',') }}</span><span class="proposal-arrow">&rarr;</span><strong>{{ "%02d"|format(row.sl_note_15) }}</strong>
+        {% else %}–{% endif %}
       </td>
     </tr>
     {% endfor %}
@@ -129,6 +142,7 @@
 <script>
 (function () {
   const SL_KEY = {{ sl_key | tojson }};
+  const GW = {{ gewichtung | tojson }};
   const N = window.Noten;
   const table = document.getElementById('mdlTable');
   if (!table) return;
@@ -142,11 +156,30 @@
     return N.weightedMean(pairs);
   }
 
+  // Mirrors berechnung.effective_mdl + compute_sl_note: the final note wins,
+  // otherwise the weighted mean of the Teilnoten counts provisionally.
   function updateRow(row) {
     const mean = rowMean(row);
-    row.querySelector('.mean-cell').textContent = mean !== null ? N.fmt1(mean) : '–';
+    const meanCell = row.querySelector('.mean-cell');
+    meanCell.textContent = mean !== null ? N.fmt1(mean) : '–';
+    const meanRed = mean !== null && N.roundNote15(mean) < window.ROT_SCHWELLE;
+    meanCell.classList.toggle('text-danger', meanRed);
+    meanCell.classList.toggle('text-muted', !meanRed);
     const fin = row.querySelector('.final-input');
     fin.placeholder = mean !== null ? String(N.roundNote15(mean)) : '';
+
+    const finVal = N.parseNote(fin.value);
+    const mdl = finVal !== null ? finVal : mean;
+    const raw = N.slNote(mdl, N.parseNote(row.dataset.klnMean), GW);
+    const n15 = N.roundNote15(raw);
+    const disp = row.querySelector('.sl-note-display');
+    if (n15 !== null) {
+      disp.innerHTML = `<span class="proposal-raw">${N.fmt1(raw)}</span><span class="proposal-arrow">&rarr;</span><strong>${String(n15).padStart(2, '0')}</strong>`;
+      disp.classList.toggle('text-danger', n15 < window.ROT_SCHWELLE);
+    } else {
+      disp.textContent = '–';
+      disp.classList.remove('text-danger');
+    }
   }
 
   table.querySelectorAll('tbody tr[data-name]').forEach(row => {
@@ -197,7 +230,7 @@
     getColLabel: (focused, colOffset) => {
       const inputs = Array.from(focused.closest('tr').querySelectorAll('input[type=number]'));
       const i = inputs.indexOf(focused) + colOffset;
-      const th = cols[i < cols.length - 2 ? i : i + 1];  // skip the Vorschlag column
+      const th = cols[i < cols.length - 3 ? i : i + 1];  // skip the Vorschlag column
       return th ? th.textContent.trim().split('\n')[0] : `Spalte ${colOffset + 1}`;
     },
   });

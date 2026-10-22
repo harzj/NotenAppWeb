@@ -51,8 +51,8 @@
 <a href="{{ url_for('grades.sl_detail', sl_key=sl_key) }}"
    title="{{ 'Vorläufig: Mittel der mündlichen Teilnoten' if status == 'vorlaeufig' else 'Mündliche Note – eintragen auf der ' ~ sl_key ~ '-Seite' }}">
   {%- if val is none -%}<span class="text-muted">–</span>
-  {%- elif status == 'vorlaeufig' -%}<span class="mdl-vorl">{{ "%.1f"|format(val)|replace('.', ',') }}</span>
-  {%- else -%}{{ val | int }}{%- endif -%}
+  {%- elif status == 'vorlaeufig' -%}<span class="mdl-vorl{{ ' text-danger' if (val | round) < rot_schwelle }}">{{ "%.1f"|format(val)|replace('.', ',') }}</span>
+  {%- else -%}<span class="{{ 'text-danger' if val < rot_schwelle }}">{{ val | int }}</span>{%- endif -%}
 </a>
 {%- endmacro %}
 {% set hj_label = 'Halbjahr 1' if hj == 'hj1' else 'Halbjahr 2' %}
@@ -164,7 +164,7 @@
       </td>
       {% endfor %}
       {% if show_kln1_mean %}
-      <td class="text-center text-muted small kln1-mean-cell">
+      <td class="text-center small kln1-mean-cell {{ 'text-danger' if row.kln_mean_sl1 is not none and (row.kln_mean_sl1 | round) < rot_schwelle else 'text-muted' }}">
         {{ row.kln_mean_sl1 if row.kln_mean_sl1 is not none else '' }}
       </td>
       {% endif %}
@@ -183,7 +183,7 @@
       </td>
       {% endfor %}
       {% if show_kln2_mean %}
-      <td class="text-center text-muted small kln2-mean-cell">
+      <td class="text-center small kln2-mean-cell {{ 'text-danger' if row.kln_mean_sl2 is not none and (row.kln_mean_sl2 | round) < rot_schwelle else 'text-muted' }}">
         {{ row.kln_mean_sl2 if row.kln_mean_sl2 is not none else '' }}
       </td>
       {% endif %}
@@ -214,7 +214,7 @@
         {% endif %}
       </td>
       <td class="text-center">
-        <input type="number" class="form-control form-control-sm hj-input hj-actual-input"
+        <input type="number" class="note15-input form-control form-control-sm hj-input hj-actual-input"
                min="0" max="15" step="1" value="{{ row.hj_actual if row.hj_actual is not none else '' }}">
       </td>
       <td class="text-center">

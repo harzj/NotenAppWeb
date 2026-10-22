@@ -121,5 +121,20 @@ class GewichtungPayloadTest(unittest.TestCase):
         self.assertIn("Teilnote", m["sl"]["SL1"]["formel"])
 
 
+class RundenTest(unittest.TestCase):
+    def test_kaufmaennisch(self):
+        # x,5 wird aufgerundet – wie die Live-Vorschau im Browser
+        self.assertEqual(B.round_note15(4.5), 5)
+        self.assertEqual(B.round_note15(2.5), 3)
+        self.assertEqual(B.round_note15((4 + 5) / 2), 5)
+        self.assertEqual(B.round_note15(4.49), 4)
+        self.assertEqual(B.round_note15(-1), 0)
+        self.assertEqual(B.round_note15(15.6), 15)
+        self.assertIsNone(B.round_note15(None))
+
+    def test_gleitkomma_rauschen(self):
+        self.assertEqual(B.round_note15(4.499999999999999), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

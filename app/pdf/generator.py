@@ -4,10 +4,24 @@ Renders an HTML template to PDF in-memory and returns raw bytes.
 """
 from __future__ import annotations
 
+import sys
 from datetime import date
 
 from flask import render_template
 from app.excel import schema as S
+
+
+def preload() -> None:
+    """Import xhtml2pdf with all its compiled modules right away.
+
+    The onefile exe unpacks its libraries to a temp folder. On a server that runs
+    for days, Windows may clean up files there that were not loaded yet – the
+    first PDF then fails with an ImportError. Loaded modules stay locked.
+    """
+    try:
+        from xhtml2pdf import pisa  # noqa: F401
+    except Exception as exc:  # reported again on the first PDF request
+        print(f"[WARN] xhtml2pdf konnte nicht vorgeladen werden: {exc}")
 
 
 def _pisa_render(html: str) -> bytes:
@@ -20,8 +34,14 @@ def _pisa_render(html: str) -> bytes:
         if status.err:
             raise RuntimeError(f"xhtml2pdf Fehler (Code {status.err})")
         return buf.getvalue()
-    except ImportError:
-        raise RuntimeError("xhtml2pdf ist nicht installiert. Bitte 'pip install xhtml2pdf' ausführen.")
+    except ImportError as exc:
+        if getattr(sys, "frozen", False):
+            raise RuntimeError(
+                f"PDF-Modul konnte nicht geladen werden ({exc}). "
+                "Bitte die NotenApp beenden und neu starten.") from exc
+        raise RuntimeError(
+            f"xhtml2pdf konnte nicht geladen werden ({exc}). "
+            "Bitte 'pip install xhtml2pdf' ausführen.") from exc
     except RuntimeError:
         raise
     except Exception as exc:

@@ -6,6 +6,8 @@
 import os
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
 ROOT = Path(SPECPATH)
 
 block_cipher = None
@@ -21,7 +23,7 @@ a = Analysis(
         # Static-Dateien (z.B. logo.png) als Default; werden beim ersten Start
         # in einen externen static/-Ordner neben der .exe kopiert (siehe app/__init__.py).
         (str(ROOT / 'app' / 'static'), 'static'),
-    ],
+    ] + collect_data_files('reportlab') + collect_data_files('xhtml2pdf'),
     hiddenimports=[
         # Flask und Extensions
         'flask',
@@ -76,7 +78,11 @@ a = Analysis(
         'cachelib.file',
         'limits',
         'limits.storage',
-    ],
+    ]
+    # reportlab lädt Teile dynamisch (z.B. die Barcode-Module per rl_exec beim
+    # Import von xhtml2pdf) – die findet PyInstaller nicht von allein.
+    + collect_submodules('reportlab')
+    + collect_submodules('xhtml2pdf'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

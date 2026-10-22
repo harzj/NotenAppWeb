@@ -17,6 +17,7 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.excel import schema as S
+from app.grades.aufgaben import _num_label
 
 
 class ExcelReadError(Exception):
@@ -364,102 +365,56 @@ def _read_ln_sheet(ws: Worksheet, sheet_name: str, stammdaten_ws: Worksheet | No
 def _rebuild_tree_from_labels(task_cols: list[dict]) -> list[dict]:
     """
     Reconstruct a hierarchical aufgaben_tree from flat task_cols whose labels
-    follow the standard dot-notation (e.g. "1", "1.a", "1.b", "2", "2.1", "2.1.a").
+    follow the dot-notation written by the app (e.g. "1", "2.1", "2.2", "3.a", "4.1.b").
 
-    Falls back to a flat tree (each task as top-level leaf) if the labels do not
-    match the expected pattern.
+    Every task column becomes exactly one leaf, in the same order – the students'
+    points are stored by column position. Only neighbouring tasks are grouped under
+    a common parent. Labels that match the automatic numbering stay automatic, so
+    editing the tree later renumbers them; all others are kept as custom labels.
     """
-    import re as _re
+    roots: list[dict] = []
+    counter = [0]
 
-    def _make_leaf(task: dict, node_id: str) -> dict:
-        label = task.get("label", "")
-        # Detect numbering style of children from label suffix
-        style = "123"
+    def _node(label: str, task: dict | None) -> dict:
+        counter[0] += 1
         return {
-            "id": node_id,
+            "id": f"t{counter[0]}",
             "label": label,
-            "custom_label": bool(label),
-            "afb": task.get("afb", ""),
-            "max_punkte": task.get("max_punkte"),
-            "numbering_style": style,
+            "custom_label": True,
+            "afb": (task or {}).get("afb", ""),
+            "max_punkte": (task or {}).get("max_punkte"),
+            "numbering_style": "123",
             "children": [],
         }
 
-    # Check if any label contains a dot → hierarchical
-    labels = [t.get("label", "") for t in task_cols]
-    has_hierarchy = any("." in lbl for lbl in labels)
-
-    if not has_hierarchy:
-        # Plain flat tree
-        return [_make_leaf(t, f"t{i}") for i, t in enumerate(task_cols)]
-
-    # Build tree by grouping top-level parts
-    # A label like "1.a" → parent "1", child "a"
-    # A label like "1.1.a" → parent "1", child "1", grand-child "a"
-    root_nodes: dict[str, dict] = {}
-    root_order: list[str] = []
-    node_counter = [0]
-
-    def _nid():
-        node_counter[0] += 1
-        return f"t{node_counter[0]}"
-
     for task in task_cols:
-        label = task.get("label", "")
+        label = task.get("label", "") or ""
         parts = label.split(".")
-        top = parts[0]
-        if top not in root_nodes:
-            root_nodes[top] = {
-                "id": _nid(),
-                "label": top,
-                "custom_label": True,
-                "afb": "",
-                "max_punkte": None,
-                "numbering_style": "123",
-                "children": [],
-            }
-            root_order.append(top)
+        if len(parts) > 3:  # the editor allows three levels
+            parts = parts[:2] + [".".join(parts[2:])]
+        if any(p.strip() == "" for p in parts):
+            parts = [label]  # e.g. "1." – not a hierarchy, keep as one label
 
-        if len(parts) == 1:
-            # Top-level leaf – update with actual task data
-            root_nodes[top]["afb"] = task.get("afb", "")
-            root_nodes[top]["max_punkte"] = task.get("max_punkte")
-        elif len(parts) == 2:
-            child_label = parts[1]
-            # Detect style
-            if _re.match(r'^[a-z]$', child_label):
-                root_nodes[top]["numbering_style"] = "abc"
-            child = _make_leaf({"label": child_label, "afb": task.get("afb", ""),
-                                 "max_punkte": task.get("max_punkte")}, _nid())
-            root_nodes[top]["children"].append(child)
-        else:
-            # 3-level: parts[0].parts[1].parts[2]
-            mid_label = parts[1]
-            # Find or create mid node
-            mid = None
-            for c in root_nodes[top]["children"]:
-                if c["label"] == mid_label:
-                    mid = c
-                    break
-            if mid is None:
-                mid = {
-                    "id": _nid(),
-                    "label": mid_label,
-                    "custom_label": True,
-                    "afb": "",
-                    "max_punkte": None,
-                    "numbering_style": "123",
-                    "children": [],
-                }
-                root_nodes[top]["children"].append(mid)
-            child_label = parts[2]
-            if _re.match(r'^[a-z]$', child_label):
-                mid["numbering_style"] = "abc"
-            grandchild = _make_leaf({"label": child_label, "afb": task.get("afb", ""),
-                                      "max_punkte": task.get("max_punkte")}, _nid())
-            mid["children"].append(grandchild)
+        siblings, parent = roots, None
+        for depth, seg in enumerate(parts[:-1]):
+            full = ".".join(parts[:depth + 1])
+            last = siblings[-1] if siblings else None
+            if last is None or last["label"] != full or not last["children"]:
+                last = _node(full, None)
+                siblings.append(last)
+            parent, siblings = last, last["children"]
+        if parent is not None and re.fullmatch(r"[a-z]", parts[-1]):
+            parent["numbering_style"] = "abc"
+        siblings.append(_node(label, task))
 
-    return [root_nodes[k] for k in root_order]
+    def _mark_auto(nodes: list[dict], prefix: str, style: str) -> None:
+        for i, n in enumerate(nodes):
+            n["custom_label"] = n["label"] != prefix + _num_label(i, style)
+            if n["children"]:
+                _mark_auto(n["children"], n["label"] + ".", n["numbering_style"])
+
+    _mark_auto(roots, "", "123")
+    return roots
 
 
 def _read_noten_zusatz(wb: Workbook) -> dict:

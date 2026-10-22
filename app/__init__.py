@@ -161,7 +161,7 @@ def create_app(config_name: str | None = None) -> Flask:
     # Context processors
     @app.context_processor
     def inject_meta():
-        from app.grades.routes import _get_gradebooks, _get_active_index
+        from app.grades.routes import _get_gradebooks, _get_active_index, _rot_schwelle
 
         books = _get_gradebooks()
         idx = _get_active_index()
@@ -201,6 +201,8 @@ def create_app(config_name: str | None = None) -> Flask:
             ),
             "open_classes": open_classes,
             "active_class_idx": idx,
+            # Notes below this threshold are shown in red on every page
+            "rot_schwelle": _rot_schwelle(gb),
         }
 
     # Create DB tables
