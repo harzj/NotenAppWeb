@@ -25,14 +25,10 @@ def _current_version() -> tuple[int, ...]:
     return (v["major"], v["minor"], v["patch"], v["build"])
 
 
-def _fetch(url: str, emergency_mode: bool) -> dict | None:
+def _fetch(url: str) -> dict | None:
     req = urllib.request.Request(url, headers={"User-Agent": "NotenApp-UpdateCheck"})
     with urllib.request.urlopen(req, timeout=5) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-
-    # Notfall-Builds haben eine eigene Versionslinie (Abschnitt "notfall").
-    if emergency_mode:
-        data = data.get("notfall") or {}
 
     latest = str(data.get("version", "")).strip()
     if not latest or _parse_version(latest) <= _current_version():
@@ -45,9 +41,9 @@ def _fetch(url: str, emergency_mode: bool) -> dict | None:
     }
 
 
-def _run_check(url: str, emergency_mode: bool) -> None:
+def _run_check(url: str) -> None:
     try:
-        info = _fetch(url, emergency_mode)
+        info = _fetch(url)
     except Exception:  # noqa: BLE001 – offline, timeout, bad JSON: just no banner
         info = _state["info"]
     with _lock:
@@ -58,7 +54,10 @@ def _run_check(url: str, emergency_mode: bool) -> None:
 
 def get_update_info(app) -> dict | None:
     """Return info about a newer version, or None. Triggers a refresh when stale."""
-    if not app.config.get("UPDATE_CHECK") or not app.config.get("UPDATE_CHECK_URL"):
+    from app._build_profile import EMERGENCY_MODE
+
+    # Den Notfall-Build verwaltet der Admin selbst, dort ist kein Hinweis nötig.
+    if EMERGENCY_MODE or not app.config.get("UPDATE_CHECK") or not app.config.get("UPDATE_CHECK_URL"):
         return None
 
     interval = app.config.get("UPDATE_CHECK_INTERVAL_HOURS", 6) * 3600
@@ -66,11 +65,9 @@ def get_update_info(app) -> dict | None:
         stale = time.time() - _state["checked_at"] > interval
         if stale and not _state["running"]:
             _state["running"] = True
-            from app._build_profile import EMERGENCY_MODE
-
             threading.Thread(
                 target=_run_check,
-                args=(app.config["UPDATE_CHECK_URL"], EMERGENCY_MODE),
+                args=(app.config["UPDATE_CHECK_URL"],),
                 daemon=True,
             ).start()
         return _state["info"]

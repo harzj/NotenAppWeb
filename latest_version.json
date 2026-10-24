@@ -1,10 +1,5 @@
 {
   "version": "1.2.2",
   "download_url": "https://github.com/harzj/NotenAppWeb/raw/main/dist/NotenApp_Lokal_v1.2.2/NotenApp.exe",
-  "hinweis": "",
-  "notfall": {
-    "version": "1.2.3.4",
-    "download_url": "",
-    "hinweis": ""
-  }
+  "hinweis": ""
 }
