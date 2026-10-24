@@ -2,7 +2,7 @@
 
 ## Lokale Version zum Herunterladen (Windows)
 
-**[NotenApp.exe herunterladen (Version 1.2.2, lokal)](https://github.com/harzj/NotenAppWeb/raw/main/dist/NotenApp_Lokal_v1.2.2/NotenApp.exe)**
+**[NotenApp.exe herunterladen (Version 1.2.3.5, lokal)](https://github.com/harzj/NotenAppWeb/raw/main/dist/NotenApp_Lokal_v1.2.3.5/NotenApp.exe)**
 
 Diese Version läuft nur auf Ihrem eigenen PC. Sie braucht keinen Server und keine Installation.
 Ihre Daten bleiben auf Ihrem Rechner.
