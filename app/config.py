@@ -65,6 +65,15 @@ class Config:
     RATELIMIT_DEFAULT = "10000 per day;2000 per hour"
     RATELIMIT_STORAGE_URL = "memory://"
 
+    # Hinweis auf neue Version: standardmäßig nur in der .exe (lokal/Notfall) aktiv,
+    # weil Lehrkräfte am gehosteten Server selbst nichts aktualisieren können.
+    UPDATE_CHECK = _env_bool("UPDATE_CHECK", getattr(sys, "frozen", False))
+    UPDATE_CHECK_URL = os.environ.get(
+        "UPDATE_CHECK_URL",
+        "https://raw.githubusercontent.com/harzj/NotenAppWeb/main/latest_version.json",
+    )
+    UPDATE_CHECK_INTERVAL_HOURS = float(os.environ.get("UPDATE_CHECK_INTERVAL_HOURS", "6"))
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

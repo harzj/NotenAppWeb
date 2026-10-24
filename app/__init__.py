@@ -6,6 +6,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from app.config import config_by_name
 from app.extensions import db, login_manager, sess, csrf, limiter
 from app.versioning import format_version, load_version_data
+from app.update_check import get_update_info
 
 
 def _display_schuljahr(schuljahr: str | None, schuljahr_bis: str | None = None) -> str:
@@ -119,6 +120,7 @@ def create_app(config_name: str | None = None) -> Flask:
         ]
         return {
             "app_version": app.config["APP_VERSION"],
+            "update_info": get_update_info(app),
             "current_klasse": gb.get("klasse", "") if gb else "",
             "current_modus": current_modus,
             "current_kurs_info": current_kurs_info,

@@ -133,6 +133,32 @@
 <div class="sidebar-backdrop d-xl-none" id="sidebarBackdrop"></div>
 {% endif %}
 
+<!-- Hinweis auf neue Version (wegklickbar, pro Version gemerkt) -->
+{% if update_info %}
+<div id="updateBanner" class="alert alert-info alert-dismissible fade show rounded-0 border-0 border-bottom mb-0 py-2"
+     role="status" data-version="{{ update_info.version }}">
+  <strong>Neue Version {{ update_info.version }} verfügbar</strong>
+  (installiert: {{ app_version }}).
+  {% if update_info.hinweis %}{{ update_info.hinweis }}{% endif %}
+  {% if update_info.download_url %}
+    <a href="{{ update_info.download_url }}" class="alert-link" target="_blank" rel="noopener">Jetzt herunterladen</a>
+  {% endif %}
+  <button type="button" class="btn-close py-2" data-bs-dismiss="alert" aria-label="Hinweis schließen"></button>
+</div>
+<script>
+(function () {
+  var banner = document.getElementById('updateBanner');
+  var key = 'notenapp-update-dismissed';
+  try {
+    if (localStorage.getItem(key) === banner.dataset.version) { banner.remove(); return; }
+  } catch (e) {}
+  banner.addEventListener('closed.bs.alert', function () {
+    try { localStorage.setItem(key, banner.dataset.version); } catch (e) {}
+  });
+})();
+</script>
+{% endif %}
+
 <div class="container-fluid">
   <div class="row">
 
