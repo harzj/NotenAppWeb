@@ -45,16 +45,23 @@ function Install-Dienst([string]$Name, [string]$Skript, [string]$Log, [string]$B
         @("AppExit", "Default", "Restart"),
         @("AppRestartDelay", "10000"),
         @("AppStdout", $logPfad),
-        @("AppStderr", $logPfad),
+        @("AppStderr", $logPfad)
+    )
+    # Nicht jede NSSM-Version kennt diese Einstellungen; fehlen sie, gelten die NSSM-Standards
+    # (Prozessbaum wird beim Stoppen ohnehin beendet, Protokoll waechst dann ohne Rotation).
+    $optional = @(
         @("AppRotateFiles", "1"),
         @("AppRotateOnline", "1"),
         @("AppRotateBytes", "5242880"),
-        # Beim Stoppen den ganzen Prozessbaum beenden (powershell -> python bzw. ngrok)
         @("AppKillProcessTree", "1")
     )
     foreach ($e in $einstellungen) {
         & $Nssm set $Name @e | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "nssm set $Name $($e[0]) fehlgeschlagen" }
+    }
+    foreach ($e in $optional) {
+        & $Nssm set $Name @e 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Output "Hinweis: Diese NSSM-Version kennt '$($e[0])' nicht - uebersprungen." }
     }
     & $Nssm start $Name | Out-Null
     Start-Sleep -Seconds 3
