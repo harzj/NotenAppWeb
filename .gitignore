@@ -15,3 +15,7 @@ _test_legacy.py
 # Build-Ergebnisse (PyInstaller) gehoeren nicht ins Repository
 build/
 dist/
+
+# Notfallserver (deploy/): lokale Konfiguration und Protokolle
+deploy/server.env.ps1
+deploy/logs/

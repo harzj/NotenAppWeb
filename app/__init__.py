@@ -65,16 +65,17 @@ def _read_or_create_secret(path: str, nbytes: int = 48) -> str:
     return value
 
 
-def _prepare_frozen(app: Flask) -> None:
-    """exe only: fixed data folder, own secret key, no debug mode."""
+def _prepare_data_dir(app: Flask) -> None:
+    """exe and Notfallserver: fixed data folder, own secret key, no debug mode."""
     os.makedirs(paths.instance_dir(), exist_ok=True)
-    # One-time takeover of the user database from the old location next to the exe
-    old_db = os.path.join(paths.exe_dir(), "instance", "app.db")
-    new_db = os.path.join(paths.instance_dir(), "app.db")
-    if (not os.environ.get("DATABASE_URL") and os.path.exists(old_db)
-            and not os.path.exists(new_db)):
-        shutil.copy2(old_db, new_db)
-        print(f"[INFO] Benutzerdatenbank übernommen: {old_db} -> {new_db}")
+    if paths.is_frozen():
+        # One-time takeover of the user database from the old location next to the exe
+        old_db = os.path.join(paths.exe_dir(), "instance", "app.db")
+        new_db = os.path.join(paths.instance_dir(), "app.db")
+        if (not os.environ.get("DATABASE_URL") and os.path.exists(old_db)
+                and not os.path.exists(new_db)):
+            shutil.copy2(old_db, new_db)
+            print(f"[INFO] Benutzerdatenbank übernommen: {old_db} -> {new_db}")
     if not os.environ.get("SECRET_KEY"):
         app.config["SECRET_KEY"] = _read_or_create_secret(paths.data_file("secret_key"))
     app.config["DEBUG"] = False
@@ -104,8 +105,8 @@ def create_app(config_name: str | None = None) -> Flask:
         **({"static_folder": static_folder} if static_folder else {}),
     )
     app.config.from_object(config_by_name[config_name])
-    if paths.is_frozen():
-        _prepare_frozen(app)
+    if paths.uses_data_dir():
+        _prepare_data_dir(app)
 
     # Anmelden mit Notendatei: the key signs access tokens written into exported
     # files; accepting such a login is only enabled where configured (Notfall-exe).
@@ -226,8 +227,8 @@ def _ensure_admin_exists() -> None:
             is_approved=True,
             is_admin=True,
         )
-        if paths.is_frozen():
-            # The exe may be reachable via ngrok: never start with admin/admin
+        if paths.uses_data_dir():
+            # The exe / Notfallserver may be reachable via ngrok: never start with admin/admin
             password = secrets.token_urlsafe(9)
             pw_file = paths.data_file("admin_passwort.txt")
             with open(pw_file, "w", encoding="utf-8") as f:

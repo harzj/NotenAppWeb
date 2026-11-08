@@ -54,10 +54,10 @@ def _run_check(url: str) -> None:
 
 def get_update_info(app) -> dict | None:
     """Return info about a newer version, or None. Triggers a refresh when stale."""
-    from app._build_profile import EMERGENCY_MODE
+    from app import paths
 
-    # Den Notfall-Build verwaltet der Admin selbst, dort ist kein Hinweis nötig.
-    if EMERGENCY_MODE or not app.config.get("UPDATE_CHECK") or not app.config.get("UPDATE_CHECK_URL"):
+    # Den Notfallserver (exe oder Dienst) verwaltet der Admin selbst, dort ist kein Hinweis nötig.
+    if paths.is_notfall_server() or not app.config.get("UPDATE_CHECK") or not app.config.get("UPDATE_CHECK_URL"):
         return None
 
     interval = app.config.get("UPDATE_CHECK_INTERVAL_HOURS", 6) * 3600

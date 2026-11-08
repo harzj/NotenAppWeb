@@ -83,7 +83,7 @@ def ensure_key_file() -> str:
 def load_key() -> str | None:
     """FILE_LOGIN_KEY from the environment, else (exe) from dateilogin.key in the data folder."""
     key = (os.environ.get("FILE_LOGIN_KEY") or "").strip()
-    if not key and paths.is_frozen():
+    if not key and paths.uses_data_dir():
         path = ensure_key_file() if accept_enabled() else key_file_path()
         if path:
             try:
@@ -106,13 +106,7 @@ def accept_enabled() -> bool:
     val = (os.environ.get("FILE_LOGIN_ACCEPT") or "").strip().lower()
     if val:
         return val in {"1", "true", "yes", "on"}
-    if not paths.is_frozen():
-        return False
-    try:
-        from app._build_profile import EMERGENCY_MODE
-    except ImportError:
-        return False
-    return bool(EMERGENCY_MODE)
+    return paths.is_notfall_server()
 
 
 def _serializer(key: str) -> URLSafeTimedSerializer:

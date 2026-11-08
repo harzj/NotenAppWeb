@@ -87,7 +87,8 @@ class AppSzenarienTest(unittest.TestCase):
 
     def _run(self, name, work, **env):
         e = {k: v for k, v in os.environ.items()
-             if k not in ("FILE_LOGIN_KEY", "FILE_LOGIN_ACCEPT", "NOTENAPP_DATA_DIR", "DATABASE_URL")}
+             if k not in ("FILE_LOGIN_KEY", "FILE_LOGIN_ACCEPT", "NOTENAPP_DATA_DIR", "DATABASE_URL",
+                          "NOTENAPP_NOTFALL")}
         e.update(env, PYTHONIOENCODING="utf-8")
         r = subprocess.run([sys.executable, SZENARIO, name, work], env=e, capture_output=True,
                            text=True, encoding="utf-8")
@@ -170,6 +171,31 @@ class AppSzenarienTest(unittest.TestCase):
             self.assertTrue(res["admin_pw_datei"])
             self.assertFalse(res["admin_admin_geht"])
             self.assertTrue(res["admin_zufall_geht"])
+
+    def test_notfallserver_aus_quellcode(self):
+        with tempfile.TemporaryDirectory() as work:
+            dd = os.path.join(work, "daten")
+            res = self._run("quellcode_notfall", work, NOTENAPP_NOTFALL="1", NOTENAPP_DATA_DIR=dd)
+            self.assertEqual(os.path.normcase(res["data_dir"]), os.path.normcase(dd))
+            self.assertTrue(res["notfall"])
+            self.assertTrue(res["db_im_datenordner"])
+            self.assertTrue(res["secret_key_aus_datei"])
+            self.assertFalse(res["debug"])
+            self.assertTrue(res["key_angelegt"])
+            self.assertTrue(res["datei_login"])
+            self.assertTrue(res["kein_update_hinweis"])
+            self.assertTrue(res["karte"])
+            self.assertEqual(res["register"], 200)
+            self.assertEqual(res["zugang_ungueltig"], 200)
+            self.assertFalse(res["admin_admin_geht"])
+
+    def test_datenordner_ohne_notfall_unveraendert(self):
+        with tempfile.TemporaryDirectory() as work:
+            res = self._run("quellcode_ohne_notfall", work, NOTENAPP_DATA_DIR=os.path.join(work, "daten"),
+                            DATABASE_URL=self._db(work, "lk.db"))
+            self.assertEqual(os.path.normcase(res["data_dir"]), os.path.normcase(res["root"]))
+            self.assertFalse(res["notfall"])
+            self.assertFalse(res["datei_login"])
 
 
 if __name__ == "__main__":

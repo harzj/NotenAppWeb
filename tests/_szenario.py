@@ -130,6 +130,35 @@ elif name == "frozen_notfall":
     out["karte"] = "Mit Notendatei anmelden" in body
     out["hinweis"] = "noch nicht eingerichtet" in body
 
+elif name == "quellcode_notfall":
+    # Notfallserver aus dem Quellcode (Dienst, deploy/): NOTENAPP_NOTFALL=1 + Datenordner
+    app = _app()
+    from app import paths
+    from app.update_check import get_update_info
+    dd = paths.data_dir()
+    out["data_dir"] = dd
+    out["notfall"] = paths.is_notfall_server()
+    out["db_im_datenordner"] = os.path.exists(os.path.join(dd, "instance", "app.db"))
+    out["secret_key_aus_datei"] = app.config["SECRET_KEY"] == open(os.path.join(dd, "secret_key")).read().strip()
+    out["debug"] = app.config["DEBUG"]
+    out["key_angelegt"] = os.path.exists(os.path.join(dd, "dateilogin.key"))
+    out["datei_login"] = app.config["FILE_LOGIN_ACCEPT"]
+    out["kein_update_hinweis"] = get_update_info(app) is None
+    c = app.test_client()
+    out["karte"] = "Mit Notendatei anmelden" in c.get("/auth/login").get_data(as_text=True)
+    out["register"] = c.get("/auth/register").status_code
+    out["zugang_ungueltig"] = c.get("/auth/zugang/xyz").status_code
+    out["admin_admin_geht"] = _login(c, "admin", "admin").status_code == 302
+
+elif name == "quellcode_ohne_notfall":
+    # Landkreis/Entwicklung: NOTENAPP_DATA_DIR allein aendert nichts
+    app = _app()
+    from app import paths
+    out["data_dir"] = paths.data_dir()
+    out["root"] = ROOT
+    out["notfall"] = paths.is_notfall_server()
+    out["datei_login"] = app.config["FILE_LOGIN_ACCEPT"]
+
 elif name == "links_a":
     # Server A (z.B. Landkreis): Admin erzeugt Links, Kollegen benutzen sie
     import re

@@ -96,6 +96,60 @@ Ordnern finden die Benutzer dadurch wieder. Eine alte `instance/` neben der exe 
 uebernommen. Auf einem frischen Datenordner bekommt der Admin ein zufaelliges Passwort (Tray-Menue
 "Admin-Passwort anzeigen").
 
+## Notfallserver mit Auto-Update (Windows-Dienst statt exe)
+
+Der Notfallserver kann statt der Notfall-exe direkt aus dem Quellcode laufen (Branch `release-1.2`).
+Eine geplante Aufgabe prueft alle 5 Minuten, ob es auf GitHub neue Commits gibt, holt sie, sichert die
+Daten und startet die App neu. Die exe-Builds fuer Kolleginnen und Kollegen (`build.py`) bleiben davon
+unberuehrt.
+
+- `NOTENAPP_NOTFALL=1` schaltet im Quellcode-Betrieb dasselbe Verhalten ein wie die Notfall-exe:
+  Datenordner aus `NOTENAPP_DATA_DIR`, eigener `secret_key`, `dateilogin.key`, zufaelliges Admin-Passwort,
+  Anmelden mit Notendatei, kein Update-Hinweis, kein Debug-Modus.
+- Dienst `NotenAppServer`: `deploy\start_server.ps1` -> `run_prod.py` (waitress), Protokoll `deploy\logs\server.log`.
+  Zugangslinks zeigen auf `https://<NGROK_DOMAIN>` (oder `PUBLIC_BASE_URL`).
+- Dienst `NotenAppNgrok`: `deploy\start_ngrok.ps1`, eigener Dienst, damit der Tunnel bei Updates stehen bleibt.
+  Protokoll `deploy\logs\ngrok.log`.
+- Beide Dienste starten beim Hochfahren automatisch (verzoegert, ohne Anmeldung); NSSM startet sie nach einem
+  Absturz nach 10 s neu.
+- Aufgabe `NotenAppUpdate` (SYSTEM, alle 5 min und beim Systemstart): `deploy\update_and_restart.ps1`.
+  Protokoll `deploy\logs\update.log` (nur Laeufe mit Update oder Fehler).
+- Vor jedem Neustart sichert `deploy\sichern.py` `app.db`, `secret_key` und `dateilogin.key` nach
+  `<Datenordner>\backups\` (optional zusaetzlich nach `SICHERUNG_ZIEL`).
+
+Alles, was auf `release-1.2` gepusht wird, ist also nach spaetestens 5 Minuten auf dem Notfallserver live.
+
+### Einmalige Einrichtung auf dem Server (PowerShell als Administrator)
+
+1. Bisherige Notfall-exe ueber das Tray-Menue beenden und aus dem Autostart nehmen.
+2. Daten der exe uebernehmen (Benutzer und Schluessel bleiben gueltig). Als der Windows-Benutzer ausfuehren,
+   unter dem die exe lief:
+   ```powershell
+   robocopy "$env:LOCALAPPDATA\NotenApp" C:\NotenAppDaten /E /XD sessions
+   ```
+   Die ngrok-Konfiguration mit Authtoken ebenfalls dorthin kopieren (`ngrok config check` zeigt den Pfad),
+   z. B. nach `C:\NotenAppDaten\ngrok.yml` – der Dienst laeuft als SYSTEM und findet die Datei im
+   Benutzerprofil nicht.
+3. Repository und Python-Umgebung:
+   ```powershell
+   git clone -b release-1.2 https://github.com/harzj/NotenAppWeb C:\NotenAppWeb
+   cd C:\NotenAppWeb
+   py -3.10 -m venv .venv
+   .venv\Scripts\python -m pip install -r requirements.txt
+   copy deploy\server.env.ps1.example deploy\server.env.ps1   # Pfade/Domain pruefen
+   ```
+4. Dienste und Auto-Update einrichten (NSSM muss installiert sein, sonst `-Nssm <Pfad>`):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File deploy\install_services.ps1
+   powershell -ExecutionPolicy Bypass -File deploy\install_update_task.ps1
+   ```
+5. Pruefen: `Get-Service NotenApp*` zeigt beide als Running, `http://localhost:5000` und die ngrok-Adresse
+   antworten. Einmal neu starten, ohne sich anzumelden – danach muss beides wieder erreichbar sein.
+
+Fehlersuche: `Get-Content deploy\logs\server.log -Tail 50` (Tracebacks der App),
+`Get-Content deploy\logs\update.log -Tail 30`, Update sofort ausloesen mit
+`Start-ScheduledTask NotenAppUpdate`.
+
 ## Fragen an den Landkreis
 
 1. Welches Hosting-Modell wird genutzt: VM, Container, Kubernetes, IIS, Nginx, Apache?
