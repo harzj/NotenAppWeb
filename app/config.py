@@ -70,6 +70,9 @@ class Config:
         "UPDATE_CHECK_URL",
         "https://raw.githubusercontent.com/harzj/NotenAppWeb/main/latest_version.json",
     )
+    # Server-Ablage (Sammlung verschlüsselt auf dem Server speichern): nur auf dem selbst
+    # betriebenen Notfallserver aus dem Quellcode, nie beim Landkreis oder in der exe.
+    SERVER_ABLAGE = _env_bool("NOTENAPP_SERVER_ABLAGE", False)
     UPDATE_CHECK_INTERVAL_HOURS = float(os.environ.get("UPDATE_CHECK_INTERVAL_HOURS", "6"))
 
 

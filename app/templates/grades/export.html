@@ -52,6 +52,14 @@
         </form>
       </div>
     </div>
+    {% if ablage_status %}
+    <div class="alert alert-success mt-3 small">
+      <i class="bi bi-hdd-network me-1"></i>
+      Statt herunterzuladen kannst du die Sammlung auch verschlüsselt in der
+      <a href="{{ url_for('grades.ablage_seite') }}">Server-Ablage</a> speichern
+      {%- if ablage_status.autospeichern %} – das automatische Speichern ist bereits aktiv{% endif %}.
+    </div>
+    {% endif %}
     <div class="alert alert-info mt-3 small">
       <i class="bi bi-info-circle me-1"></i>
       Die exportierte Datei enthält Excel-Formeln (SUMME, Notenberechnung), 

@@ -69,7 +69,7 @@ def build_gradebook(data: dict, password: str | None = None) -> bytes:
 
 
 def _with_valid_sheet_names(data: dict) -> dict:
-    """Excel rejects sheet names > 31 characters or with []:*?/\ (openpyxl even
+    r"""Excel rejects sheet names > 31 characters or with []:*?/\ (openpyxl even
     raises on the latter). Return *data* unchanged if all LN sheet names are
     valid, else a copy with renamed sheets and all references updated."""
     lns = data.get("leistungsnachweise", [])

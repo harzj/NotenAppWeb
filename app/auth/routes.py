@@ -45,6 +45,10 @@ def login():
         # Prevent open redirect
         if next_page and not next_page.startswith("/"):
             next_page = None
+        # Server-Ablage (nur Notfallserver, Admins): gespeicherte Sammlung gleich anbieten
+        from app.grades import ablage
+        if not next_page and ablage.verfuegbar() and ablage.versionen(user.id):
+            return redirect(url_for("grades.ablage_seite"))
         return redirect(next_page or url_for("grades.index"))
 
     return render_template("auth/login.html", form=form, datei_form=datei_form)
@@ -131,6 +135,9 @@ def login_datei():
 @auth_bp.route("/logout")
 @login_required
 def logout():
+    # Server-Ablage (nur Notfallserver): offenen Stand vorher sichern
+    from app.grades import ablage
+    ablage.beim_abmelden()
     # Wipe session data (removes uploaded grade data)
     session.clear()
     logout_user()

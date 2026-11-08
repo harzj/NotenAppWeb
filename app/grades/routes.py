@@ -25,6 +25,7 @@ from app.grades import berechnung
 from app.grades import gewichtung as gewichtung_ui
 from app.grades.ln_statistik import afb_statistik, aufgaben_statistik
 from app.auth import dateilogin
+from app.grades import ablage
 from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
 from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_zettel_pdf
 
@@ -3160,6 +3161,85 @@ def export_excel():
         )
     return render_template("grades/export.html", form=form, n_classes=len(books),
                            zugang_aktiv=zugang_aktiv)
+
+
+# ── Server-Ablage (nur Notfallserver, Admins) ─────────────────────────────────
+
+def _ablage_required() -> int:
+    if not ablage.verfuegbar():
+        abort(404)
+    return int(current_user.id)
+
+
+@grades_bp.route("/ablage")
+@login_required
+def ablage_seite():
+    uid = _ablage_required()
+    books = _get_gradebooks()
+    return render_template(
+        "grades/ablage.html",
+        versionen=ablage.versionen(uid),
+        n_offen=len(books),
+        autospeichern=bool(session.get(ablage.PW_KEY)),
+        ungespeichert=ablage.ungespeichert(uid, books),
+        pw_vorschlag=session.get(ablage.PW_KEY) or session.get(_SOURCE_PW_KEY) or "",
+        verzoegerung=int(ablage.VERZOEGERUNG),
+    )
+
+
+@grades_bp.route("/ablage/oeffnen", methods=["POST"])
+@login_required
+def ablage_oeffnen():
+    uid = _ablage_required()
+    password = request.form.get("password") or ""
+    datei = request.form.get("datei") or None
+    if not password:
+        flash("Bitte das Passwort der gespeicherten Sammlung eingeben.", "warning")
+        return redirect(url_for("grades.ablage_seite"))
+    # Noch nicht geschriebene Änderungen der bisher offenen Sammlung zuerst sichern
+    ablage.sofort(uid)
+    try:
+        books = _load_zip_gradebooks(ablage.lesen(uid, datei), password)
+    except FileNotFoundError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("grades.ablage_seite"))
+    except ExcelReadError as e:
+        flash(f"Öffnen fehlgeschlagen – Passwort falsch? ({e})", "danger")
+        return redirect(url_for("grades.ablage_seite"))
+    _replace_all_gradebooks(books)
+    _set_source_password(password)
+    session[ablage.PW_KEY] = password
+    ablage.als_gespeichert_merken(uid, ablage.pruefsumme(_get_gradebooks()))
+    flash(f"Sammlung geöffnet ({len(books)} Klasse(n)). Änderungen werden automatisch auf dem Server gespeichert.",
+          "success")
+    return redirect(url_for("grades.index"))
+
+
+@grades_bp.route("/ablage/speichern", methods=["POST"])
+@login_required
+def ablage_speichern():
+    uid = _ablage_required()
+    books = _get_gradebooks()
+    password = request.form.get("password") or ""
+    if not books:
+        flash("Es ist keine Klasse geöffnet.", "warning")
+        return redirect(url_for("grades.ablage_seite"))
+    if len(password) < 4:
+        flash("Bitte ein Passwort mit mindestens 4 Zeichen angeben – unverschlüsselt wird nicht gespeichert.",
+              "warning")
+        return redirect(url_for("grades.ablage_seite"))
+    try:
+        name = ablage.speichern(uid, books, password)
+    except Exception as e:  # noqa: BLE001
+        flash(f"Speichern fehlgeschlagen: {e}", "danger")
+        return redirect(url_for("grades.ablage_seite"))
+    session[ablage.PW_KEY] = password
+    _set_source_password(password)
+    flash(f"Auf dem Server gespeichert ({name}). Weitere Änderungen werden automatisch gespeichert.", "success")
+    weiter = request.form.get("weiter") or ""
+    if not weiter.startswith("/") or weiter.startswith("//"):
+        weiter = url_for("grades.ablage_seite")
+    return redirect(weiter)
 
 
 # ── Klasseneinstellungen ──────────────────────────────────────────────────────

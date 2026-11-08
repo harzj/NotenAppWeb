@@ -323,6 +323,17 @@
             <i class="bi bi-file-earmark-excel"></i> Exportieren
           </a>
         </li>
+        {% if ablage_status %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.ablage_seite' %}active{% endif %}"
+             href="{{ url_for('grades.ablage_seite') }}">
+            <i class="bi bi-hdd-network"></i> Server-Ablage
+          </a>
+          <div class="small px-3 {{ 'text-success' if ablage_status.autospeichern else 'text-muted' }}" style="font-size:.75rem;">
+            {% if ablage_status.autospeichern %}<i class="bi bi-arrow-repeat"></i> automatisch{% else %}aus{% endif %}{% if ablage_status.zuletzt %} · {{ ablage_status.zuletzt.strftime('%d.%m. %H:%M') }}{% endif %}
+          </div>
+        </li>
+        {% endif %}
         <hr class="my-2">
         <li class="nav-item text-muted small px-2 mb-1">EINSTELLUNGEN</li>
         <li class="nav-item">

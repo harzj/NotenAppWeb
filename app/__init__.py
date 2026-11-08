@@ -144,6 +144,8 @@ def create_app(config_name: str | None = None) -> Flask:
     sess.init_app(app)
     from app import session_guard
     session_guard.install(app)
+    from app.grades import ablage
+    app.after_request(ablage.nach_request)
     csrf.init_app(app)
     limiter.init_app(app)
 
@@ -193,6 +195,7 @@ def create_app(config_name: str | None = None) -> Flask:
         ]
         return {
             "app_version": app.config["APP_VERSION"],
+            "ablage_status": ablage.status(),
             "update_info": get_update_info(app),
             "current_klasse": gb.get("klasse", "") if gb else "",
             "current_modus": current_modus,

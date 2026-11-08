@@ -62,6 +62,7 @@
     {% call step('klasse', has_data, 'Klasse anlegen oder Datei hochladen') %}
       Neu: <a href="{{ url_for('grades.new_wizard', modus='klasse') }}">Neue Klasse</a>.
       Schon eine Datei vom letzten Mal? <a href="{{ url_for('grades.upload') }}">Daten laden</a> (Excel- oder ZIP-Datei).
+      {% if ablage_status %}Oder die <a href="{{ url_for('grades.ablage_seite') }}">Sammlung aus der Server-Ablage öffnen</a>.{% endif %}
     {% endcall %}
     {% call step('mehrere', n_open > 1, 'Weitere Klassen hinzufügen', optional=True) %}
       Einfach nochmal „Neue Klasse“ wählen – jede Klasse erscheint oben als Reiter. <strong>Alle Klassen kommen in dieselbe Datei:</strong>

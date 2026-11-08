@@ -119,6 +119,13 @@ unberuehrt.
 
 Alles, was auf `release-1.2` gepusht wird, ist also nach spaetestens 5 Minuten auf dem Notfallserver live.
 
+**Server-Ablage** (nur hier, `NOTENAPP_SERVER_ABLAGE=1` in `server.env.ps1`): Admins koennen ihre Sammlung statt
+herunterzuladen verschluesselt auf dem Server speichern (Seitenleiste „Server-Ablage“). Gespeichert wird dieselbe
+Datei wie beim Export (je Klasse eine mit dem Datei-Passwort verschluesselte Excel-Datei) unter
+`<Datenordner>\ablage\user_<id>\`, jede Speicherung als eigene Version. Nach dem ersten Speichern oder Oeffnen
+speichert die App Aenderungen automatisch (nach ca. 30 s und beim Abmelden). Nach dem Login wird die gespeicherte
+Sammlung direkt zum Oeffnen angeboten. Beim Landkreis und in den exe-Builds ist die Ablage immer aus.
+
 ### Einmalige Einrichtung auf dem Server (PowerShell als Administrator)
 
 1. Bisherige Notfall-exe ueber das Tray-Menue beenden und aus dem Autostart nehmen.

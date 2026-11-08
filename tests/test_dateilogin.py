@@ -88,7 +88,7 @@ class AppSzenarienTest(unittest.TestCase):
     def _run(self, name, work, **env):
         e = {k: v for k, v in os.environ.items()
              if k not in ("FILE_LOGIN_KEY", "FILE_LOGIN_ACCEPT", "NOTENAPP_DATA_DIR", "DATABASE_URL",
-                          "NOTENAPP_NOTFALL")}
+                          "NOTENAPP_NOTFALL", "NOTENAPP_SERVER_ABLAGE")}
         e.update(env, PYTHONIOENCODING="utf-8")
         r = subprocess.run([sys.executable, SZENARIO, name, work], env=e, capture_output=True,
                            text=True, encoding="utf-8")
@@ -196,6 +196,36 @@ class AppSzenarienTest(unittest.TestCase):
             self.assertEqual(os.path.normcase(res["data_dir"]), os.path.normcase(res["root"]))
             self.assertFalse(res["notfall"])
             self.assertFalse(res["datei_login"])
+
+    def test_server_ablage(self):
+        with tempfile.TemporaryDirectory() as work:
+            res = self._run("ablage", work, NOTENAPP_NOTFALL="1", NOTENAPP_SERVER_ABLAGE="1",
+                            NOTENAPP_DATA_DIR=os.path.join(work, "daten"))
+            self.assertEqual(res["seite_ohne_daten"], 200)
+            self.assertTrue(res["zu_kurz"])
+            self.assertTrue(res["gespeichert"])
+            self.assertEqual(res["versionen_1"], 1)
+            self.assertTrue(res["verschluesselt"])
+            self.assertEqual(res["versionen_2"], 2)
+            self.assertTrue(res["login_ziel"].endswith("/ablage"))
+            self.assertTrue(res["falsches_pw"])
+            self.assertTrue(res["geoeffnet"])
+            self.assertEqual(res["klasse_nach_oeffnen"], "Ablagetest")
+            self.assertTrue(res["kein_neuschreiben_nach_oeffnen"])
+            self.assertTrue(res["fremde_datei"])
+            self.assertTrue(res["sidebar"])
+
+    def test_server_ablage_nur_am_notfallserver(self):
+        with tempfile.TemporaryDirectory() as work:
+            # Landkreis: Schalter gesetzt, aber kein Notfallserver
+            res = self._run("ablage_aus", work, NOTENAPP_SERVER_ABLAGE="1",
+                            DATABASE_URL=self._db(work, "lk.db"))
+            self.assertFalse(res["aktiviert"])
+            self.assertEqual(res["seite"], 404)
+            # exe (Notfall-Build) mit Schalter: ebenfalls aus
+            res = self._run("ablage_aus", work, NOTENAPP_SERVER_ABLAGE="1", ALS_EXE="1",
+                            NOTENAPP_DATA_DIR=os.path.join(work, "exe_daten"), FILE_LOGIN_ACCEPT="true")
+            self.assertFalse(res["aktiviert"])
 
 
 if __name__ == "__main__":

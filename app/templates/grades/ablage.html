@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Server-Ablage{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-3">
+  <div class="col-lg-7">
+    <h4 class="mb-3"><i class="bi bi-hdd-network me-2"></i>Server-Ablage</h4>
+    <p class="text-muted small">
+      Deine Sammlung liegt verschlüsselt auf diesem Server – dieselbe Datei wie beim Export
+      (eine Excel-Datei je Klasse, mit deinem Datei-Passwort geschützt). Ohne das Passwort kann
+      niemand die Noten lesen, auch nicht der Server. Jede Speicherung bleibt als eigene Version erhalten.
+    </p>
+
+    {% if versionen %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-folder2-open me-1"></i>Gespeicherte Sammlung öffnen</h5>
+        {% if n_offen %}
+        <div class="alert alert-warning small py-2">
+          Das Öffnen ersetzt die {{ n_offen }} gerade geöffnete(n) Klasse(n).
+          {% if autospeichern and ungespeichert %}Offene Änderungen werden vorher noch auf dem Server gespeichert.{% endif %}
+        </div>
+        {% endif %}
+        <form method="post" action="{{ url_for('grades.ablage_oeffnen') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label" for="ablageOeffnenPw">Passwort der Sammlung</label>
+            <input type="password" class="form-control" id="ablageOeffnenPw" name="password"
+                   autocomplete="current-password" autofocus required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="ablageVersion">Version</label>
+            <select class="form-select" id="ablageVersion" name="datei">
+              {% for v in versionen %}
+              <option value="{{ v.datei }}">
+                {{ v.zeit.strftime('%d.%m.%Y %H:%M:%S') }}{% if loop.first %} (neueste){% endif %}
+                – {{ v.klassen | length }} Klasse(n)
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              Neueste: {{ versionen[0].klassen | join(', ') }}
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-unlock me-1"></i>Öffnen</button>
+          <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Später</a>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info small">Auf dem Server ist noch keine Sammlung gespeichert.</div>
+    {% endif %}
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="card-title"><i class="bi bi-cloud-arrow-up me-1"></i>Aktuelle Sammlung speichern</h5>
+        {% if not n_offen %}
+        <p class="text-muted small mb-0">Es ist keine Klasse geöffnet.</p>
+        {% else %}
+        <p class="small mb-2">
+          {{ n_offen }} Klasse(n) geöffnet.
+          {% if autospeichern %}
+            <span class="text-success"><i class="bi bi-check-circle me-1"></i>Automatisches Speichern ist aktiv</span>
+            – Änderungen landen nach etwa {{ verzoegerung }} Sekunden auf dem Server und beim Abmelden.
+            {% if ungespeichert %}<span class="text-warning">(Änderungen werden gerade vorgemerkt.)</span>{% endif %}
+          {% else %}
+            Einmal speichern schaltet das automatische Speichern für diese Sitzung ein.
+          {% endif %}
+        </p>
+        <form method="post" action="{{ url_for('grades.ablage_speichern') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label" for="ablageSpeichernPw">Datei-Passwort</label>
+            <input type="password" class="form-control" id="ablageSpeichernPw" name="password"
+                   value="{{ pw_vorschlag }}" autocomplete="new-password" minlength="4" required>
+            <div class="form-text">
+              Mindestens 4 Zeichen. Am besten dasselbe Passwort wie für deine Notendateien – vorausgefüllt,
+              wenn es bekannt ist. Ohne dieses Passwort lässt sich die Sammlung nicht mehr öffnen.
+            </div>
+          </div>
+          <button type="submit" class="btn btn-success"><i class="bi bi-save me-1"></i>Jetzt auf dem Server speichern</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="alert alert-secondary small">
+      <i class="bi bi-info-circle me-1"></i>
+      Die Ablage gibt es nur auf diesem Notfallserver und nur für Admins. Der Export als Datei
+      bleibt trotzdem möglich – zum Beispiel für eine zusätzliche Sicherung in deiner Cloud.
+    </div>
+  </div>
+</div>
+{% endblock %}

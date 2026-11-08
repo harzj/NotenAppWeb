@@ -159,6 +159,79 @@ elif name == "quellcode_ohne_notfall":
     out["notfall"] = paths.is_notfall_server()
     out["datei_login"] = app.config["FILE_LOGIN_ACCEPT"]
 
+elif name == "ablage":
+    # Server-Ablage am Notfallserver aus dem Quellcode (NOTENAPP_SERVER_ABLAGE=1)
+    import time
+    import zipfile as _zip
+    from app.grades import ablage
+    ablage.VERZOEGERUNG = 0.3
+    app = _app()
+    from app import paths
+    from app.excel.reader import load_gradebook
+    from app.grades.routes import GRADEBOOKS_KEY
+    dd = paths.data_dir()
+    pw = [line.split()[-1] for line in open(os.path.join(dd, "admin_passwort.txt"), encoding="utf-8")
+          if line.startswith("Passwort:")][0]
+    c = app.test_client()
+    _login(c, "admin", pw)
+    out["seite_ohne_daten"] = c.get("/ablage").status_code
+    c.get("/demo-beispielklasse")
+    out["zu_kurz"] = "mindestens 4" in c.post("/ablage/speichern", data={"password": "ab"},
+                                              follow_redirects=True).get_data(as_text=True)
+    r = c.post("/ablage/speichern", data={"password": "geheim1"})
+    out["gespeichert"] = r.status_code == 302
+    v = ablage.versionen(1)
+    out["versionen_1"] = len(v)
+    roh = open(os.path.join(ablage.ordner(1), v[0]["datei"]), "rb").read()
+    with _zip.ZipFile(io.BytesIO(roh)) as zf:
+        eintrag = zf.read(sorted(zf.namelist())[0])
+    try:
+        load_gradebook(eintrag, None)
+        out["verschluesselt"] = False
+    except Exception:
+        out["verschluesselt"] = True
+    # Änderung -> automatisch gespeichert, auch ohne weitere Anfrage
+    with c.session_transaction() as sess:
+        books = sess[GRADEBOOKS_KEY]
+        books[0]["klasse"] = "Ablagetest"
+        sess[GRADEBOOKS_KEY] = books
+    c.get("/")
+    time.sleep(1.5)
+    out["versionen_2"] = len(ablage.versionen(1))
+    # Abmelden, neu anmelden -> Weiterleitung zur Ablage
+    c.get("/auth/logout")
+    r = _login(c, "admin", pw)
+    out["login_ziel"] = r.headers.get("Location", "")
+    out["falsches_pw"] = "fehlgeschlagen" in c.post("/ablage/oeffnen", data={"password": "falsch"},
+                                                    follow_redirects=True).get_data(as_text=True)
+    r = c.post("/ablage/oeffnen", data={"password": "geheim1"})
+    out["geoeffnet"] = r.status_code == 302 and r.headers.get("Location", "").endswith("/")
+    with c.session_transaction() as sess:
+        out["klasse_nach_oeffnen"] = sess[GRADEBOOKS_KEY][0].get("klasse")
+    c.get("/")
+    time.sleep(1.0)
+    out["kein_neuschreiben_nach_oeffnen"] = len(ablage.versionen(1)) == out["versionen_2"]
+    out["fremde_datei"] = "gibt es nicht" in c.post("/ablage/oeffnen", data={"password": "geheim1", "datei": "../../app.db"},
+                                                    follow_redirects=True).get_data(as_text=True)
+    out["sidebar"] = "Server-Ablage" in c.get("/").get_data(as_text=True)
+
+elif name == "ablage_aus":
+    # Gleiches Flag, aber kein Notfallserver (Landkreis) bzw. exe: Ablage bleibt aus
+    if os.environ.get("ALS_EXE"):
+        exe_dir = os.path.join(work, "dist_notfall")
+        os.makedirs(exe_dir)
+        sys.frozen = True
+        sys.executable = os.path.join(exe_dir, "NotenApp.exe")
+        sys._MEIPASS = os.path.join(ROOT, "app")
+    app = _app()
+    from app.grades import ablage
+    with app.app_context():
+        out["aktiviert"] = ablage.aktiviert(app)
+    c = app.test_client()
+    if not os.environ.get("ALS_EXE"):
+        _login(c)
+        out["seite"] = c.get("/ablage").status_code
+
 elif name == "links_a":
     # Server A (z.B. Landkreis): Admin erzeugt Links, Kollegen benutzen sie
     import re

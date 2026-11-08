@@ -1,7 +1,8 @@
 """Sicherung des Notfallserver-Datenordners (vom Update-Skript vor jedem Neustart gerufen).
 
 Gesichert werden die Benutzerdatenbank (SQLite-Backup, konsistent auch bei laufendem
-Dienst) sowie secret_key und dateilogin.key. Ablage: <NOTENAPP_DATA_DIR>/backups/ und,
+Dienst), secret_key und dateilogin.key sowie aus der Server-Ablage die jeweils neueste
+(verschluesselte) Sammlung je Benutzer. Ablage: <NOTENAPP_DATA_DIR>/backups/ und,
 falls SICHERUNG_ZIEL gesetzt ist, zusaetzlich dort.
 Aufbewahrung: die neuesten 10 plus die jeweils neueste je Tag der letzten 30 Tage.
 
@@ -40,6 +41,17 @@ def sichere_schluessel(daten, ziel_zip):
             if os.path.isfile(pfad):
                 zf.write(pfad, name)
                 n += 1
+        # Server-Ablage: neueste Sammlung je Benutzer (bleibt mit dem Datei-Passwort verschluesselt)
+        ablage = os.path.join(daten, "ablage")
+        if os.path.isdir(ablage):
+            for benutzer in sorted(os.listdir(ablage)):
+                ordner = os.path.join(ablage, benutzer)
+                if not os.path.isdir(ordner):
+                    continue
+                staende = sorted(f for f in os.listdir(ordner) if f.startswith("sammlung_") and f.endswith(".zip"))
+                if staende:
+                    zf.write(os.path.join(ordner, staende[-1]), f"ablage/{benutzer}/{staende[-1]}")
+                    n += 1
     if n == 0:
         os.remove(ziel_zip)
     return n > 0
