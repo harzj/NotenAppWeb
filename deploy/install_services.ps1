@@ -59,10 +59,15 @@ function Install-Dienst([string]$Name, [string]$Skript, [string]$Log, [string]$B
         & $Nssm set $Name @e | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "nssm set $Name $($e[0]) fehlgeschlagen" }
     }
+    # PowerShell 5.1 macht aus stderr-Ausgaben externer Programme bei "Stop" einen Abbruch,
+    # auch wenn sie umgeleitet werden - hier deshalb nur den Exitcode auswerten.
+    $vorher = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     foreach ($e in $optional) {
-        & $Nssm set $Name @e 2>$null | Out-Null
+        & $Nssm set $Name @e 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { Write-Output "Hinweis: Diese NSSM-Version kennt '$($e[0])' nicht - uebersprungen." }
     }
+    $ErrorActionPreference = $vorher
     & $Nssm start $Name | Out-Null
     Start-Sleep -Seconds 3
     Write-Output "Dienst '$Name': $((Get-Service -Name $Name).Status)  (Protokoll: $logPfad)"
