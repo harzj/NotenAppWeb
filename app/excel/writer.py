@@ -58,6 +58,7 @@ def build_gradebook(data: dict, password: str | None = None) -> bytes:
     _write_notentabelle(wb)
     _write_noten_zusatz(wb, data, stammdaten)
     _write_einstellungen(wb, data)
+    _write_buch_import(wb, data)
 
     raw = io.BytesIO()
     wb.save(raw)
@@ -535,6 +536,27 @@ def _write_einstellungen(wb: Workbook, data: dict) -> None:
         ws.cell(row, S.ES_COL_KEY,   S.ES_ZUGANG_KEY)
         ws.cell(row, S.ES_COL_VALUE, data["_zugang"])
         ws.cell(row, S.ES_COL_INFO,  "Zugriffsschlüssel für die Anmeldung mit dieser Datei – nicht verändern")
+        row += 1
+
+
+def _write_buch_import(wb: Workbook, data: dict) -> None:
+    """informatik.book-Import: geprüfte Schülerzuordnung und bereits importierte Tests (verstecktes Blatt)."""
+    zuordnung = data.get("buch_zuordnung") or {}
+    importiert = data.get("buch_importiert") or {}
+    if not zuordnung and not importiert:
+        return
+    ws = wb.create_sheet(S.SHEET_BUCH_IMPORT)
+    ws.sheet_state = "hidden"
+    _write_header_row(ws, 1, ["Art", "Schlüssel", "Wert", "OSS-Name"])
+    row = 2
+    namen = data.get("buch_oss_namen") or {}
+    for sid, name in zuordnung.items():
+        for col, val in enumerate(("schueler", sid, name, namen.get(sid, "")), start=1):
+            ws.cell(row, col, val)
+        row += 1
+    for key, sheet in importiert.items():
+        for col, val in enumerate(("test", key, sheet), start=1):
+            ws.cell(row, col, val)
         row += 1
 
 

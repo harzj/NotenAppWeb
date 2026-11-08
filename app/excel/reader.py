@@ -69,6 +69,7 @@ def load_gradebook(file_bytes: bytes, password: str | None = None) -> dict:
     }
     noten_zusatz = _read_noten_zusatz(wb)
     result.update(noten_zusatz)
+    result.update(_read_buch_import(wb))
     settings = _read_einstellungen(wb)
     if settings:
         # Separate sl_gewichtung from kurs settings
@@ -525,6 +526,24 @@ def _read_einstellungen(wb: Workbook) -> dict | None:
         elif key == S.ES_ZUGANG_KEY and val_raw:
             result["_zugang"] = str(val_raw).strip()
     return result if result else None
+
+
+def _read_buch_import(wb: Workbook) -> dict:
+    """informatik.book-Import: Schülerzuordnung und importierte Tests aus dem versteckten Blatt."""
+    if S.SHEET_BUCH_IMPORT not in wb.sheetnames:
+        return {}
+    zuordnung, namen, importiert = {}, {}, {}
+    for row in wb[S.SHEET_BUCH_IMPORT].iter_rows(min_row=2, values_only=True):
+        art, key = _str(row, 0), _str(row, 1)
+        if not key:
+            continue
+        if art == "schueler":
+            zuordnung[key] = _str(row, 2)
+            if _str(row, 3):
+                namen[key] = _str(row, 3)
+        elif art == "test":
+            importiert[key] = _str(row, 2)
+    return {"buch_zuordnung": zuordnung, "buch_oss_namen": namen, "buch_importiert": importiert}
 
 
 # ── Übersichten ───────────────────────────────────────────────────────────────

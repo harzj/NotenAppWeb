@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}informatik.book-Import – Zuordnung{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-journal-code me-2"></i>informatik.book-Import{% if klasse %} <small class="text-muted">({{ klasse }})</small>{% endif %}</h4>
+  <a href="{{ url_for('grades.buch_import_ln') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Andere Datei
+  </a>
+</div>
+
+<form method="post">
+  {{ csrf_field() }}
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">1. Schüler zuordnen</div>
+    <div class="card-body">
+      {% if offen_noetig %}
+      <div class="alert alert-warning small mb-3">
+        Gelb markierte Zeilen sind nur Vorschläge, rote ohne Zuordnung. Bitte einmal prüfen – gespeicherte
+        Zuordnungen (grün) werden bei späteren Importen automatisch übernommen.
+      </div>
+      {% else %}
+      <div class="alert alert-success small mb-3">Alle Buch-Schüler sind zugeordnet. Bitte nur noch kurz kontrollieren.</div>
+      {% endif %}
+      <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>OSS-Name im Buch</th><th>Schüler in der Notendatei</th><th>Status</th><th class="small text-muted">geschrieben</th></tr></thead>
+        <tbody>
+        {% for z in zeilen %}
+          {% set farbe = {'gespeichert': 'table-success', 'sicher': '', 'formular': '', 'vorschlag': 'table-warning', 'keine': 'table-danger'}[z.art] %}
+          <tr class="{{ farbe }}">
+            <td><code>{{ z.oss }}</code></td>
+            <td>
+              <select name="z_{{ z.i }}" class="form-select form-select-sm buch-zuordnung">
+                <option value="">— nicht zuordnen —</option>
+                {% for n in namen %}<option value="{{ n }}" {% if n == z.name %}selected{% endif %}>{{ n }}</option>{% endfor %}
+              </select>
+            </td>
+            <td class="small">
+              {% if z.art == 'gespeichert' %}<span class="badge bg-success">gespeichert</span>
+              {% elif z.art == 'sicher' %}<span class="badge bg-primary">erkannt</span>
+              {% elif z.art == 'vorschlag' %}<span class="badge bg-warning text-dark">Vorschlag ({{ (z.score * 100)|round|int }} %)</span>
+              {% elif z.art == 'keine' %}<span class="badge bg-danger">kein Treffer</span>{% endif %}
+            </td>
+            <td class="small text-muted">{{ z.geschrieben|length }} von {{ tests|length }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <div id="doppelt-hinweis" class="text-danger small mt-2 d-none">Ein Schüler ist mehrfach zugeordnet.</div>
+      {% if ohne_buch %}
+      <p class="small text-muted mt-3 mb-0">Ohne Eintrag im Buch: {{ ohne_buch|join('; ') }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">2. Leistungsnachweise</div>
+    <div class="card-body">
+      <p class="small text-muted">Typ und Zuordnung sind aus dem Datum vorgeschlagen – bitte prüfen.</p>
+      {% for t in tests %}
+      {% set pre = 't_' ~ t.i ~ '_' %}
+      <div class="border rounded p-3 mb-3">
+        <div class="d-flex justify-content-between flex-wrap gap-2">
+          <div>
+            <b>{{ t.titel }}</b>
+            <span class="badge bg-secondary">{{ t.anwendung }}</span>
+            <span class="small text-muted ms-1">{{ t.datum }} · {{ t.aufgaben|length }} Aufgaben · {{ '%g'|format(t.max_total) }} P · {{ t.n_geschrieben }} geschrieben</span>
+          </div>
+          {% if t.n_offen %}<span class="badge bg-warning text-dark">{{ t.n_offen }} noch nicht fertig korrigiert</span>{% endif %}
+        </div>
+        {% if t.ln_idx is not none %}
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" name="{{ pre }}update" id="{{ pre }}update">
+          <label class="form-check-label" for="{{ pre }}update">
+            Bereits importiert als <a href="{{ url_for('grades.ln_detail', ln_idx=t.ln_idx) }}">{{ t.ln_name }}</a> –
+            Punkte aus dem Buch erneut übernehmen
+          </label>
+        </div>
+        {% else %}
+        <div class="row g-2 mt-1 align-items-end buch-test">
+          <div class="col-md-1">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="{{ pre }}import" id="{{ pre }}import" {% if not t.n_offen %}checked{% endif %}>
+              <label class="form-check-label small" for="{{ pre }}import">Import</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small mb-0">Bezeichnung</label>
+            <input type="text" name="{{ pre }}name" value="{{ t.titel }}" maxlength="80" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-0">Typ</label>
+            <select name="{{ pre }}typ" class="form-select form-select-sm buch-typ">
+              {% for v, l in typ_choices %}<option value="{{ v }}" {% if v == t.vorgabe.ln_typ %}selected{% endif %}>{{ l }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4 buch-gln">
+            {% if modus == 'kurs' %}
+            <label class="form-label small mb-0">GLN-Slot</label>
+            <select name="{{ pre }}slot" class="form-select form-select-sm">
+              {% for v, l in gln_slot_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}
+            </select>
+            {% else %}
+            <label class="form-label small mb-0">Halbjahr</label>
+            <select name="{{ pre }}hj" class="form-select form-select-sm">
+              {% for v, l in hj_choices %}<option value="{{ v }}" {% if v == t.vorgabe.hj %}selected{% endif %}>{{ l }}</option>{% endfor %}
+            </select>
+            {% endif %}
+          </div>
+          <div class="col-md-4 buch-kln">
+            <label class="form-label small mb-0">SL-Zuordnung</label>
+            <select name="{{ pre }}sl" class="form-select form-select-sm">
+              {% for v, l in sl_choices %}<option value="{{ v }}" {% if v == t.vorgabe.sl_zuordnung %}selected{% endif %}>{{ l }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mb-5">
+    <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>Zuordnung speichern und importieren</button>
+    <button type="submit" name="aktion" value="verwerfen" class="btn btn-outline-secondary" formnovalidate>Verwerfen</button>
+  </div>
+</form>
+
+<script>
+(function () {
+  // Typ: GLN zeigt Halbjahr/Slot, KLN die SL-Zuordnung, ABT nichts
+  document.querySelectorAll('.buch-test').forEach(function (zeile) {
+    const typ = zeile.querySelector('.buch-typ');
+    function umschalten() {
+      zeile.querySelector('.buch-gln').classList.toggle('d-none', typ.value !== 'GLN');
+      zeile.querySelector('.buch-kln').classList.toggle('d-none', typ.value !== 'KLN');
+    }
+    typ.addEventListener('change', umschalten);
+    umschalten();
+  });
+  // Doppelte Zuordnung sofort markieren (der Server prüft das ebenfalls)
+  const auswahl = Array.from(document.querySelectorAll('.buch-zuordnung'));
+  function pruefen() {
+    const zaehler = {};
+    auswahl.forEach(s => { if (s.value) zaehler[s.value] = (zaehler[s.value] || 0) + 1; });
+    let doppelt = false;
+    auswahl.forEach(s => {
+      const d = s.value && zaehler[s.value] > 1;
+      s.classList.toggle('is-invalid', d);
+      doppelt = doppelt || d;
+    });
+    document.getElementById('doppelt-hinweis').classList.toggle('d-none', !doppelt);
+  }
+  auswahl.forEach(s => s.addEventListener('change', pruefen));
+  pruefen();
+})();
+</script>
+{% endblock %}

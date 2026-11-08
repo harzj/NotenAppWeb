@@ -19,8 +19,10 @@ from app.excel.notendatei_reader import read_notendatei, is_notendatei
 from app.grades.forms import (
     UploadForm, StammdatenForm, AustrittForm, AufnahmeForm, NewLNForm, MoodleImportForm,
     NotendateiImportForm, ExportForm, KlassenEinstellungenForm, GLN_SLOT_CHOICES,
+    HJ_CHOICES, SL_CHOICES, LN_TYP_CHOICES,
 )
 from app.grades import moodle as moodle_parser
+from app.grades import buch as buch_import
 from app.grades import berechnung
 from app.grades import gewichtung as gewichtung_ui
 from app.grades.ln_statistik import afb_statistik, aufgaben_statistik
@@ -2158,6 +2160,243 @@ def moodle_import_ln():
         return redirect(url_for("grades.ln_detail", ln_idx=len(data["leistungsnachweise"]) - 1))
 
     return render_template("grades/moodle_import.html", form=form)
+
+
+# ── informatik.book-Import (nur Admins) ───────────────────────────────────────
+
+_BUCH_IMPORT_KEY = "_buch_import"   # geparster Export bis zur Bestätigung der Zuordnung
+
+
+def _require_admin() -> None:
+    if not current_user.is_authenticated or not current_user.is_admin:
+        abort(403)
+
+
+def _buch_pending(data: dict) -> dict | None:
+    """Der hochgeladene, noch nicht bestätigte Export – nur für die Klasse, für die er hochgeladen wurde."""
+    pending = session.get(_BUCH_IMPORT_KEY)
+    if not pending or pending.get("klasse_idx") != _get_active_index():
+        return None
+    return pending
+
+
+def _buch_ln_punkte(test: dict, sid: str | None) -> tuple[list, list]:
+    """Punkte je Aufgabe (Reihenfolge wie test['aufgaben']) und offene Aufgaben eines Buch-Schülers."""
+    erg = test["ergebnisse"].get(sid) if sid else None
+    if not erg:
+        return [None] * len(test["aufgaben"]), []
+    # JSON in der Session macht aus int-Schlüsseln Strings
+    punkte = {str(k): v for k, v in erg["punkte"].items()}
+    return [punkte.get(str(a["nr"])) for a in test["aufgaben"]], erg.get("offen", [])
+
+
+def _buch_noten(punkte: list, max_total: float, runden: bool) -> tuple:
+    if not any(p is not None for p in punkte):
+        return None, None
+    total = sum(p for p in punkte if p is not None)
+    note_15 = S.percent_to_note15(total, max_total, runden=runden)
+    return note_15, S.note15_to_note6(note_15)
+
+
+def _buch_tests_ansicht(data: dict, pending: dict) -> list[dict]:
+    existing = {ln["sheet_name"]: i for i, ln in enumerate(data["leistungsnachweise"])}
+    importiert = data.get("buch_importiert") or {}
+    modus = data.get("modus", "klasse")
+    tests = []
+    for i, t in enumerate(pending["tests"]):
+        sheet = importiert.get(t["key"])
+        ln_idx = existing.get(sheet) if sheet else None
+        vorgabe = buch_import.vorschlag_einordnung(t["datum"])
+        if modus == "kurs":
+            vorgabe["ln_typ"] = "GLN"
+        tests.append({
+            "i": i, **t,
+            "max_total": sum(a["max"] for a in t["aufgaben"]),
+            "n_geschrieben": len(t["ergebnisse"]),
+            "n_offen": sum(1 for e in t["ergebnisse"].values() if e.get("offen")),
+            "ln_idx": ln_idx,
+            "ln_name": data["leistungsnachweise"][ln_idx]["name"] if ln_idx is not None else None,
+            "vorgabe": vorgabe,
+        })
+    return tests
+
+
+@grades_bp.route("/ln/buch-import", methods=["GET", "POST"])
+@login_required
+def buch_import_ln():
+    _require_admin()
+    data = _require_gradebook()
+    if request.method == "POST":
+        f = request.files.get("file")
+        if not f or not f.filename:
+            flash("Bitte die Exportdatei aus dem informatik.book hochladen.", "warning")
+            return redirect(url_for("grades.buch_import_ln"))
+        try:
+            parsed = buch_import.parse_buch_csv(f.read())
+        except buch_import.BuchParseError as exc:
+            flash(str(exc), "danger")
+            return redirect(url_for("grades.buch_import_ln"))
+        parsed["klasse_idx"] = _get_active_index()
+        parsed["schueler"] = [[sid, oss] for sid, oss in parsed["schueler"].items()]
+        session[_BUCH_IMPORT_KEY] = parsed
+        session.modified = True
+        return redirect(url_for("grades.buch_import_zuordnung"))
+    return render_template("grades/buch_import.html", pending=_buch_pending(data), data=data)
+
+
+@grades_bp.route("/ln/buch-import/zuordnung", methods=["GET", "POST"])
+@login_required
+def buch_import_zuordnung():
+    _require_admin()
+    data = _require_gradebook()
+    pending = _buch_pending(data)
+    if pending is None:
+        flash("Bitte zuerst die Exportdatei hochladen.", "warning")
+        return redirect(url_for("grades.buch_import_ln"))
+
+    schueler = {sid: oss for sid, oss in pending["schueler"]}
+    namen = [f"{s['nachname']}, {s['vorname']}" for s in data["stammdaten"]]
+    gespeichert = data.get("buch_zuordnung") or {}
+    tests = _buch_tests_ansicht(data, pending)
+
+    if request.method == "POST":
+        if request.form.get("aktion") == "verwerfen":
+            session.pop(_BUCH_IMPORT_KEY, None)
+            flash("Import verworfen.", "info")
+            return redirect(url_for("grades.ln_list"))
+
+        # 1) Zuordnung übernehmen und prüfen
+        neu: dict = {}
+        for i, (sid, _) in enumerate(pending["schueler"]):
+            wert = request.form.get(f"z_{i}", "")
+            neu[sid] = wert if wert in namen else ""
+        doppelt = sorted({n for n in neu.values() if n and list(neu.values()).count(n) > 1})
+        if doppelt:
+            flash("Mehrfach zugeordnet: " + "; ".join(doppelt) + ". Bitte korrigieren.", "danger")
+            return _buch_zuordnung_seite(data, pending, tests, schueler, namen,
+                                         {sid: {"name": n, "art": "formular", "score": 0} for sid, n in neu.items()})
+        zuordnung = dict(gespeichert)
+        zuordnung.update(neu)
+        data["buch_zuordnung"] = zuordnung
+        oss_namen = dict(data.get("buch_oss_namen") or {})
+        oss_namen.update(schueler)
+        data["buch_oss_namen"] = oss_namen
+        sid_von_name = {n: sid for sid, n in neu.items() if n}
+
+        # 2) Leistungsnachweise anlegen bzw. aktualisieren
+        importiert = dict(data.get("buch_importiert") or {})
+        modus = data.get("modus", "klasse")
+        sheet_names = {ln["sheet_name"] for ln in data["leistungsnachweise"]}
+        angelegt, aktualisiert, offen_hinweise = [], [], []
+        for t in tests:
+            pre = f"t_{t['i']}_"
+            if t["ln_idx"] is not None:
+                if not request.form.get(pre + "update"):
+                    continue
+                ln = data["leistungsnachweise"][t["ln_idx"]]
+                maxe = [a.get("max_punkte") for a in ln.get("aufgaben", [])]
+                if maxe != [a["max"] for a in t["aufgaben"]]:
+                    flash(f'„{ln["name"]}“ nicht aktualisiert: Die Aufgaben passen nicht mehr zum Test im Buch.',
+                          "warning")
+                    continue
+                max_total = sum(maxe)
+                for row in ln["schueler"]:
+                    sid = sid_von_name.get(row["name"])
+                    if not sid or sid not in t["ergebnisse"]:
+                        continue
+                    punkte, offen = _buch_ln_punkte(t, sid)
+                    row["punkte"] = punkte
+                    row["note_15"], row["note_6"] = _buch_noten(punkte, max_total, ln.get("noten_runden", True))
+                    if offen:
+                        offen_hinweise.append(f'{ln["name"]}: {row["name"]}')
+                aktualisiert.append(ln["name"])
+                continue
+
+            if not request.form.get(pre + "import"):
+                continue
+            name = (request.form.get(pre + "name") or t["titel"]).strip()[:80]
+            ln_typ = request.form.get(pre + "typ", "KLN")
+            if ln_typ not in ("GLN", "KLN", "ABT"):
+                ln_typ = "KLN"
+            gln_slot = hj = sl_zuordnung = None
+            if ln_typ == "GLN" and modus == "kurs":
+                gln_slot = request.form.get(pre + "slot", "GLN1")
+                hj = berechnung.gln_slot_to_hj(gln_slot)
+            elif ln_typ == "GLN":
+                hj = request.form.get(pre + "hj", "HJ1")
+                hj = hj if hj in ("HJ1", "HJ2") else "HJ1"
+            elif ln_typ == "KLN":
+                sl_zuordnung = request.form.get(pre + "sl", "SL1")
+                sl_zuordnung = sl_zuordnung if sl_zuordnung in ("SL1", "SL2", "SL3", "SL4") else "SL1"
+            sheet_name = S.LN_SHEET_PREFIX + name
+            if not name or sheet_name in sheet_names:
+                flash(f'„{name}“ nicht angelegt: Ein Leistungsnachweis mit diesem Namen existiert bereits.',
+                      "warning")
+                continue
+            sheet_names.add(sheet_name)
+
+            aufgaben_tree = [sanitize_node({"label": "", "title": a["titel"], "max_punkte": a["max"],
+                                            "afb": "", "children": []}) for a in t["aufgaben"]]
+            generate_labels(aufgaben_tree)
+            aufgaben = tree_to_flat(aufgaben_tree)
+            max_total = sum(a["max"] for a in t["aufgaben"])
+            runden = ln_typ != "ABT"
+
+            target_hj = _ln_target_hj({"ln_typ": ln_typ, "hj": hj, "sl_zuordnung": sl_zuordnung})
+            aktiv = (_students_active_in_hj(data["stammdaten"], target_hj) if target_hj
+                     else [s for s in data["stammdaten"] if _student_is_currently_active(s)])
+            ln_schueler = []
+            for s in aktiv:
+                voll = f"{s['nachname']}, {s['vorname']}"
+                punkte, offen = _buch_ln_punkte(t, sid_von_name.get(voll))
+                note_15, note_6 = _buch_noten(punkte, max_total, runden)
+                if offen:
+                    offen_hinweise.append(f"{name}: {voll}")
+                ln_schueler.append({"name": voll, "punkte": punkte, "note_15": note_15, "note_6": note_6})
+
+            data["leistungsnachweise"].append({
+                "sheet_name": sheet_name, "name": name, "ln_typ": ln_typ, "hj": hj, "gln_slot": gln_slot,
+                "sl_zuordnung": sl_zuordnung, "nachtermin_von": None, "noten_runden": runden,
+                "thema": t["titel"], "datum": t["datum"],
+                "aufgaben": aufgaben, "aufgaben_tree": aufgaben_tree, "schueler": ln_schueler,
+            })
+            importiert[t["key"]] = sheet_name
+            angelegt.append(name)
+
+        data["buch_importiert"] = importiert
+        _save_gradebook(data)
+        session.pop(_BUCH_IMPORT_KEY, None)
+
+        n_zu = sum(1 for n in neu.values() if n)
+        teile = [f"Zuordnung gespeichert ({n_zu} von {len(neu)} Buch-Schülern zugeordnet)"]
+        if angelegt:
+            teile.append("angelegt: " + ", ".join(angelegt))
+        if aktualisiert:
+            teile.append("aktualisiert: " + ", ".join(aktualisiert))
+        flash("informatik.book-Import: " + "; ".join(teile)
+              + ". Die Zuordnung wird mit der Notendatei gespeichert – Datei danach exportieren.", "success")
+        if offen_hinweise:
+            flash("Noch nicht fertig korrigiert im Buch (Punkte vorläufig): " + "; ".join(offen_hinweise),
+                  "warning")
+        return redirect(url_for("grades.ln_list"))
+
+    vorschlag = buch_import.zuordnen(schueler, namen, gespeichert)
+    return _buch_zuordnung_seite(data, pending, tests, schueler, namen, vorschlag)
+
+
+def _buch_zuordnung_seite(data, pending, tests, schueler, namen, vorschlag):
+    zeilen = []
+    for i, (sid, oss) in enumerate(pending["schueler"]):
+        geschrieben = [t["titel"] for t in pending["tests"] if sid in t["ergebnisse"]]
+        zeilen.append({"i": i, "sid": sid, "oss": oss, "geschrieben": geschrieben, **vorschlag[sid]})
+    zugeordnet = {z["name"] for z in zeilen if z["name"]}
+    ohne_buch = [n for n in namen if n not in zugeordnet]
+    return render_template(
+        "grades/buch_zuordnung.html", zeilen=zeilen, namen=namen, tests=tests, klasse=pending.get("klasse", ""),
+        ohne_buch=ohne_buch, modus=data.get("modus", "klasse"), hj_choices=HJ_CHOICES, sl_choices=SL_CHOICES,
+        gln_slot_choices=GLN_SLOT_CHOICES, typ_choices=LN_TYP_CHOICES,
+        offen_noetig=any(z["art"] in ("vorschlag", "keine") for z in zeilen),
+    )
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────

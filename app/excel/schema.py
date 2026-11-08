@@ -13,6 +13,7 @@ SHEET_UEBERSICHT_HJ4 = "Noten_HJ4"
 SHEET_UEBERSICHT_JAHR = "Noten_Jahr"
 SHEET_NOTEN_ZUSATZ = "Noten_Zusatz"    # hidden: mdl/sl/hj/sj actual notes
 SHEET_EINSTELLUNGEN = "Einstellungen"  # hidden: sl_gewichtung
+SHEET_BUCH_IMPORT = "Buch_Import"      # hidden: informatik.book – Schülerzuordnung und importierte Tests
 
 LN_SHEET_PREFIX = "LN_"
 SHEET_NAME_MAX = 31                     # Excel limit for sheet names
