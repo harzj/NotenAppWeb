@@ -17,10 +17,11 @@ $action = New-ScheduledTaskAction -Execute "powershell.exe" `
     -WorkingDirectory $RepoRoot
 
 # Takt plus Ausloeser beim Hochfahren. RepetitionDuration ausdruecklich setzen: Bleibt sie leer,
-# begrenzen manche Windows-Versionen die Wiederholung auf einen Tag.
+# begrenzen manche Windows-Versionen die Wiederholung auf einen Tag. [TimeSpan]::MaxValue lehnen
+# neuere Windows-Versionen ab ("ausserhalb des Bereichs") - 10 Jahre gehen ueberall.
 $takt = New-ScheduledTaskTrigger -Once -At (Get-Date).Date `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionDuration (New-TimeSpan -Days 3650)
 $beimStart = New-ScheduledTaskTrigger -AtStartup
 $beimStart.Delay = "PT1M"
 
