@@ -103,6 +103,8 @@ class AppSzenarienTest(unittest.TestCase):
         self.assertEqual(out["status"], 200)
         self.assertTrue(out["kandidat_sichtbar"])
         self.assertTrue(out["neu_drin"])
+        self.assertTrue(out["sortiert"])
+        self.assertTrue(out["nicht_am_ende"])
         self.assertEqual(out["anzahl_diff"], 1)
         self.assertTrue(out["punkte_laenge_ok"])
         self.assertTrue(out["alte_noten_erhalten"])

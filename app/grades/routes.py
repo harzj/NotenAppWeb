@@ -1407,7 +1407,25 @@ def _sync_active_students_into_lns(data: dict) -> int:
             existing.add(full_name)
             added_rows += 1
 
+        _sort_ln_roster(ln)
+
     return added_rows
+
+
+def _roster_sort_key(row: dict) -> tuple[str, str]:
+    """Sort key matching _sort_stammdaten for a roster name "Nachname, Vorname"."""
+    nachname, _, vorname = (row.get("name") or "").partition(",")
+    return (nachname.strip().lower(), vorname.strip().lower())
+
+
+def _sort_ln_roster(ln: dict) -> bool:
+    """Sort the roster of *ln* alphabetically (like the Stammdaten). Returns True if the order changed."""
+    roster = ln.get("schueler") or []
+    sortiert = sorted(roster, key=_roster_sort_key)
+    if [id(r) for r in sortiert] == [id(r) for r in roster]:
+        return False
+    roster[:] = sortiert
+    return True
 
 
 def _ln_student_row(ln: dict, full_name: str) -> dict:
@@ -1827,6 +1845,9 @@ def ln_detail(ln_idx):
         nr = next(i for i, (_, nt) in enumerate(_nachtermine(data, parent), start=1) if nt is ln)
         return redirect(url_for("grades.nachtermin_detail", ln_idx=parent_idx, nr=nr))
     changed = _bereinige_nachtermine(data, ln)
+    # Students added later were appended at the end – keep the list alphabetical
+    if _sort_ln_roster(ln):
+        changed = True
     # Ensure aufgaben_tree exists (migrate legacy data on-the-fly)
     if "aufgaben_tree" not in ln:
         ln["aufgaben_tree"] = flat_to_tree(ln.get("aufgaben", []))
@@ -1884,10 +1905,7 @@ def ln_schueler_nachruecken(ln_idx):
     roster = ln.setdefault("schueler", [])
     for name in gewaehlt:
         roster.append(_ln_student_row(ln, name))
-    # Keep the roster in Stammdaten order (students not in the Stammdaten stay at the end)
-    order = {f"{s.get('nachname', '')}, {s.get('vorname', '')}".strip(", "): i
-             for i, s in enumerate(data.get("stammdaten", []))}
-    roster.sort(key=lambda r: order.get(r.get("name", "").strip(), len(order)))
+    _sort_ln_roster(ln)
 
     _save_gradebook(data)
     flash(f"{len(gewaehlt)} Schüler zum Leistungsnachweis hinzugefügt.", "success")

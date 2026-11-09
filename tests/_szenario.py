@@ -397,6 +397,8 @@ elif name == "nachruecken":
     ln = book()["leistungsnachweise"][idx]
     namen = [s["name"] for s in ln["schueler"]]
     out["neu_drin"] = "Neu, Nina" in namen
+    out["sortiert"] = namen == sorted(namen, key=lambda n: tuple(t.strip().lower() for t in n.partition(",")[::2]))
+    out["nicht_am_ende"] = namen[-1] != "Neu, Nina"
     out["anzahl_diff"] = len(namen) - len(vorher)
     row = next(s for s in ln["schueler"] if s["name"] == "Neu, Nina")
     out["punkte_laenge_ok"] = len(row["punkte"]) == len(ln["aufgaben"])
