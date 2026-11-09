@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field %}
+{% block title %}Datei abgleichen{% endblock %}
+{% block content %}
+<style>
+  .abgl-gruppe { border: 1px solid var(--bs-border-color); border-radius: .5rem; margin-bottom: .6rem; }
+  .abgl-kopf { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .45rem .75rem; }
+  summary.abgl-kopf { cursor: pointer; list-style: none; }
+  summary.abgl-kopf::-webkit-details-marker { display: none; }
+  .abgl-titel { font-weight: 600; flex: 1 1 auto; }
+  .abgl-titel::before { content: "▸"; display: inline-block; width: 1em; transition: transform .15s; }
+  details[open] > summary .abgl-titel::before { transform: rotate(90deg); }
+  .abgl-stand { font-size: .8rem; }
+  .abgl-tabelle { margin: 0; font-size: .875rem; }
+  .abgl-tabelle td { vertical-align: middle; padding: .2rem .75rem; }
+  .abgl-wahl .btn { font-size: .8rem; padding: .1rem .55rem; min-width: 5.5rem; text-align: left; }
+  .abgl-wahl .btn-check:checked + .btn-outline-secondary { background: #6c757d; color: #fff; }
+  .abgl-wahl .btn-check:checked + .btn-outline-primary { background: var(--bs-primary); color: #fff; }
+  .abgl-wahl .btn-check:not(:checked) + .btn { opacity: .55; text-decoration: line-through; }
+  tr.abgl-neu td:first-child { border-left: 3px solid var(--bs-primary); }
+  tr.abgl-alt td:first-child { border-left: 3px solid #adb5bd; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="mb-0"><i class="bi bi-intersect me-2"></i>Datei abgleichen</h4>
+  <span class="text-muted small">Importiert: <b>{{ datei }}</b></span>
+</div>
+
+{# Zuordnung der importierten Klassen zu den offenen Klassen #}
+<form method="post" class="card shadow-sm mb-3">
+  {{ csrf_field() }}
+  <input type="hidden" name="aktion" value="ziel">
+  <div class="card-body py-2">
+    {% for k in klassen %}
+    <div class="row g-2 align-items-center py-1">
+      <div class="col-md-4 small">Importierte Klasse <b>{{ k.import.klasse or '(ohne Namen)' }}</b>
+        <span class="text-muted">{{ k.import.schuljahr }}</span></div>
+      <div class="col-md-5">
+        <select name="ziel_{{ k.c }}" class="form-select form-select-sm" onchange="this.form.submit()">
+          {% for b in books %}
+          <option value="{{ loop.index0 }}" {% if k.ziel == loop.index0 %}selected{% endif %}>abgleichen mit offener Klasse {{ b.klasse }} {{ b.schuljahr }}</option>
+          {% endfor %}
+          <option value="neu" {% if k.ziel == 'neu' %}selected{% endif %}>als neue Klasse hinzufügen</option>
+          <option value="ignorieren" {% if k.ziel == 'ignorieren' %}selected{% endif %}>nicht übernehmen</option>
+        </select>
+      </div>
+      <div class="col-md-3 small">
+        {% if k.ziel is number %}
+          {% if k.n_konflikte %}<span class="badge bg-warning text-dark">{{ k.n_konflikte }} Abweichung{{ 'en' if k.n_konflikte != 1 }}</span>{% endif %}
+          {% if k.n_auto %}<span class="badge bg-success">{{ k.n_auto }} ergänzt</span>{% endif %}
+          {% if not k.n_konflikte and not k.n_auto %}<span class="badge bg-secondary">identisch</span>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    <noscript><button class="btn btn-sm btn-outline-secondary mt-1">Zuordnung ändern</button></noscript>
+  </div>
+</form>
+
+<form method="post" id="abgleichForm">
+  {{ csrf_field() }}
+  {% for k in klassen %}
+  {% if k.ziel is number %}
+  <div class="card shadow-sm mb-4" data-klasse="{{ k.c }}">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span class="fw-semibold">Klasse {{ books[k.ziel].klasse }}</span>
+      {% if k.n_konflikte %}
+      <span class="small d-flex align-items-center gap-1 flex-wrap">
+        Alle {{ k.n_konflikte }} Abweichungen:
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-alle="alt" data-scope="klasse">aktueller Stand</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-alle="neu" data-scope="klasse">importierte Datei</button>
+      </span>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      {% if k.n_konflikte %}
+      <p class="small text-muted mb-2">
+        <span class="badge bg-secondary">grau</span> = aktueller Stand bleibt,
+        <span class="badge bg-primary">blau</span> = Wert aus der importierten Datei. Auf einen Wert klicken, um ihn zu wählen.
+      </p>
+      {% for g in k.konflikte %}
+      {% set n = g.eintraege|length %}
+      <details class="abgl-gruppe" data-gruppe {% if n <= 4 %}open{% endif %}>
+        <summary class="abgl-kopf">
+          <span class="abgl-titel">{{ g.label }} <span class="badge bg-warning text-dark ms-1">{{ n }}</span></span>
+          <span class="abgl-stand text-muted" data-stand></span>
+          {% if n > 1 %}
+          <span class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-secondary" data-alle="alt" data-scope="gruppe">alle aktuell</button>
+            <button type="button" class="btn btn-outline-primary" data-alle="neu" data-scope="gruppe">alle importiert</button>
+          </span>
+          {% endif %}
+        </summary>
+        <table class="table table-sm abgl-tabelle">
+          <tbody>
+          {% for e in g.eintraege %}
+          {% set f = k.c ~ '_' ~ e.n %}
+          <tr class="abgl-alt" data-zeile>
+            <td class="text-nowrap">{{ e.schueler }}</td>
+            <td class="abgl-wahl">
+              <input type="hidden" name="id_{{ f }}" value="{{ e.id }}">
+              <input type="radio" class="btn-check" name="w_{{ f }}" id="a_{{ f }}" value="alt" checked autocomplete="off">
+              <label class="btn btn-outline-secondary" for="a_{{ f }}" title="aktueller Stand">{{ e.alt }}</label>
+              <input type="radio" class="btn-check" name="w_{{ f }}" id="n_{{ f }}" value="neu" autocomplete="off">
+              <label class="btn btn-outline-primary" for="n_{{ f }}" title="importierte Datei">{{ e.neu }}</label>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </details>
+      {% endfor %}
+      {% else %}
+      <p class="text-success small mb-2"><i class="bi bi-check-circle me-1"></i>Keine widersprüchlichen Werte.</p>
+      {% endif %}
+
+      {% if k.auto %}
+      <details class="mt-3">
+        <summary class="small text-success fw-semibold" style="cursor:pointer">
+          <i class="bi bi-plus-circle me-1"></i>{{ k.n_auto }} Einträge fehlen im aktuellen Stand und werden übernommen
+        </summary>
+        <ul class="small mt-2 mb-0">
+          {% for g in k.auto %}
+          <li><b>{{ g.label }}</b>:
+            {% for e in g.eintraege %}{{ e.schueler or e.neu }}{% if e.schueler and e.neu not in ('–',) %} ({{ e.neu }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}
+          </li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
+    </div>
+  </div>
+  {% elif k.ziel == 'neu' %}
+  <div class="alert alert-info">Klasse <b>{{ k.import.klasse }}</b> wird als neue Klasse hinzugefügt.</div>
+  {% endif %}
+  {% endfor %}
+
+  <div class="d-flex gap-2 mb-5">
+    <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>Abgleich übernehmen</button>
+    <button type="submit" name="aktion" value="verwerfen" class="btn btn-outline-secondary">Verwerfen</button>
+  </div>
+</form>
+
+<script>
+(function () {
+  function aktualisieren(gruppe) {
+    const zeilen = gruppe.querySelectorAll('[data-zeile]');
+    let neu = 0;
+    zeilen.forEach(z => {
+      const istNeu = z.querySelector('input[value=neu]').checked;
+      z.classList.toggle('abgl-neu', istNeu);
+      z.classList.toggle('abgl-alt', !istNeu);
+      if (istNeu) neu++;
+    });
+    const stand = gruppe.querySelector('[data-stand]');
+    if (stand) stand.textContent = neu === 0 ? 'alle aktuell' : neu === zeilen.length ? 'alle importiert'
+      : neu + ' von ' + zeilen.length + ' importiert';
+  }
+  const gruppen = document.querySelectorAll('[data-gruppe]');
+  gruppen.forEach(g => {
+    g.addEventListener('change', () => aktualisieren(g));
+    aktualisieren(g);
+  });
+  document.querySelectorAll('[data-alle]').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();   // Knopf in der Kopfzeile: Gruppe nicht auf-/zuklappen
+      const bereich = btn.dataset.scope === 'gruppe' ? btn.closest('[data-gruppe]') : btn.closest('[data-klasse]');
+      bereich.querySelectorAll('input[type=radio][value=' + btn.dataset.alle + ']').forEach(r => { r.checked = true; });
+      bereich.querySelectorAll('[data-gruppe]').forEach(aktualisieren);
+      if (bereich.matches('[data-gruppe]')) aktualisieren(bereich);
+    });
+  });
+})();
+</script>
+{% endblock %}

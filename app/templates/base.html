@@ -207,6 +207,17 @@
             <i class="bi bi-upload"></i> Daten laden
           </a>
         </li>
+        {% if ablage_status %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'grades.ablage_seite' %}active{% endif %}"
+             href="{{ url_for('grades.ablage_seite') }}">
+            <i class="bi bi-hdd-network"></i> Server-Ablage
+          </a>
+          <div class="small px-3 {{ 'text-success' if ablage_status.autospeichern else 'text-muted' }}" style="font-size:.75rem;">
+            {% if ablage_status.autospeichern %}<i class="bi bi-arrow-repeat"></i> automatisch{% else %}aus{% endif %}{% if ablage_status.zuletzt %} · {{ ablage_status.zuletzt.strftime('%d.%m. %H:%M') }}{% endif %}
+          </div>
+        </li>
+        {% endif %}
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'grades.new_wizard' and request.args.get('modus', 'klasse') == 'klasse' %}active{% endif %}" href="{{ url_for('grades.new_wizard', modus='klasse') }}" data-tour="side-new">
             <i class="bi bi-people"></i> Neue Klasse
@@ -218,6 +229,12 @@
           </a>
         </li>
         {% if open_classes %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint in ('grades.abgleich_upload', 'grades.abgleich_pruefen') %}active{% endif %}"
+             href="{{ url_for('grades.abgleich_upload') }}">
+            <i class="bi bi-intersect"></i> Datei abgleichen
+          </a>
+        </li>
         <li class="nav-item">
           <a class="nav-link" href="{{ url_for('grades.close_file') }}"
              onclick="return confirm('Alle offenen Klassen schließen? Alle nicht exportierten Daten gehen verloren.')">
@@ -323,17 +340,6 @@
             <i class="bi bi-file-earmark-excel"></i> Exportieren
           </a>
         </li>
-        {% if ablage_status %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'grades.ablage_seite' %}active{% endif %}"
-             href="{{ url_for('grades.ablage_seite') }}">
-            <i class="bi bi-hdd-network"></i> Server-Ablage
-          </a>
-          <div class="small px-3 {{ 'text-success' if ablage_status.autospeichern else 'text-muted' }}" style="font-size:.75rem;">
-            {% if ablage_status.autospeichern %}<i class="bi bi-arrow-repeat"></i> automatisch{% else %}aus{% endif %}{% if ablage_status.zuletzt %} · {{ ablage_status.zuletzt.strftime('%d.%m. %H:%M') }}{% endif %}
-          </div>
-        </li>
-        {% endif %}
         <hr class="my-2">
         <li class="nav-item text-muted small px-2 mb-1">EINSTELLUNGEN</li>
         <li class="nav-item">

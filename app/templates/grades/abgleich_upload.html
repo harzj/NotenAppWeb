@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Datei abgleichen{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-3">
+  <div class="col-md-7">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h4 class="card-title mb-3"><i class="bi bi-intersect me-2"></i>Datei abgleichen</h4>
+        <p class="text-muted small">
+          Für den Fall, dass du versehentlich mit zwei Kopien gearbeitet hast: Lade die andere Datei (.xlsx oder
+          .zip) hoch. Sie wird mit dem gerade offenen Stand verglichen.
+        </p>
+        <ul class="text-muted small">
+          <li>Was nur in der hochgeladenen Datei steht (Leistungsnachweise, SL-Noten, mündliche Noten, Schüler …),
+            wird <b>automatisch übernommen</b>.</li>
+          <li>Wo beide Dateien <b>unterschiedliche Werte</b> haben, entscheidest du – einzeln oder für eine ganze
+            Gruppe auf einmal.</li>
+          <li>Es wird nichts gelöscht. Bis du bestätigst, ändert sich nichts.</li>
+        </ul>
+        <form method="post" enctype="multipart/form-data" novalidate>
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            <label class="form-label">Andere Datei (.xlsx oder .zip)</label>
+            {{ form.file(class="form-control" + (" is-invalid" if form.file.errors else ""), accept=".xlsx,.zip") }}
+            {% for e in form.file.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mb-4">
+            <label class="form-label">Dateipasswort</label>
+            {{ form.password(class="form-control", autocomplete="off",
+                             placeholder="Leer lassen = Passwort der offenen Datei") }}
+          </div>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-search me-1"></i>Vergleichen</button>
+          <a href="{{ url_for('grades.index') }}" class="btn btn-outline-secondary ms-2">Abbrechen</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

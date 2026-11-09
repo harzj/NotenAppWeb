@@ -28,6 +28,7 @@ from app.grades import gewichtung as gewichtung_ui
 from app.grades.ln_statistik import afb_statistik, aufgaben_statistik
 from app.auth import dateilogin
 from app.grades import ablage
+from app.grades import abgleich
 from app.grades.aufgaben import sanitize_node, generate_labels, get_leaves, tree_to_flat, flat_to_tree, calc_max
 from app.pdf.generator import generate_pdf, generate_sl_zettel_pdf, generate_ln_zettel_pdf
 
@@ -387,6 +388,144 @@ def upload():
         except ExcelReadError as e:
             flash(str(e), "danger")
     return render_template("grades/upload.html", form=form)
+
+
+# ── Datei abgleichen (zwei Stände derselben Klasse zusammenführen) ────────────
+
+_ABGLEICH_KEY = "_abgleich"   # importierte Klassen und ihr Ziel bis zur Bestätigung
+
+
+def _abgleich_ziel_vorschlag(imp: dict, books: list[dict], vergeben: set) -> int | str:
+    """Offene Klasse mit gleichem Namen (bevorzugt gleiches Schuljahr), sonst 'neu'."""
+    key = abgleich.klassen_schluessel(imp)
+    treffer = [i for i, b in enumerate(books) if abgleich.klassen_schluessel(b) == key and i not in vergeben]
+    gleiches_sj = [i for i in treffer if books[i].get("schuljahr") == imp.get("schuljahr")]
+    if gleiches_sj or treffer:
+        return (gleiches_sj or treffer)[0]
+    return "neu"
+
+
+@grades_bp.route("/abgleich", methods=["GET", "POST"])
+@login_required
+def abgleich_upload():
+    books = _get_gradebooks()
+    if not books:
+        flash("Zum Abgleichen zuerst den aktuellen Stand laden.", "warning")
+        return redirect(url_for("grades.upload"))
+    form = UploadForm()
+    if form.validate_on_submit():
+        filename = (form.file.data.filename or "").lower()
+        file_bytes = form.file.data.read()
+        password = form.password.data or session.get(_SOURCE_PW_KEY) or None
+        try:
+            if filename.endswith(".zip"):
+                importiert = _load_zip_gradebooks(file_bytes, password)
+            else:
+                importiert = [load_gradebook(file_bytes, password)]
+        except ExcelReadError as e:
+            flash(str(e), "danger")
+            return render_template("grades/abgleich_upload.html", form=form)
+        vergeben: set = set()
+        klassen = []
+        for imp in importiert:
+            imp.pop("_zugang", None)
+            ziel = _abgleich_ziel_vorschlag(imp, books, vergeben)
+            if isinstance(ziel, int):
+                vergeben.add(ziel)
+            klassen.append({"import": imp, "ziel": ziel})
+        session[_ABGLEICH_KEY] = {"klassen": klassen, "datei": form.file.data.filename,
+                                  "n_offen": len(books)}
+        session.modified = True
+        return redirect(url_for("grades.abgleich_pruefen"))
+    return render_template("grades/abgleich_upload.html", form=form)
+
+
+def _abgleich_stand() -> dict | None:
+    stand = session.get(_ABGLEICH_KEY)
+    # Wurden inzwischen Klassen geöffnet/geschlossen, passen die Ziel-Indizes nicht mehr
+    if not stand or stand.get("n_offen") != len(_get_gradebooks()):
+        session.pop(_ABGLEICH_KEY, None)
+        return None
+    return stand
+
+
+@grades_bp.route("/abgleich/pruefen", methods=["GET", "POST"])
+@login_required
+def abgleich_pruefen():
+    stand = _abgleich_stand()
+    if stand is None:
+        flash("Bitte die Datei zum Abgleichen (erneut) hochladen.", "warning")
+        return redirect(url_for("grades.abgleich_upload"))
+    books = _get_gradebooks()
+
+    if request.method == "POST":
+        aktion = request.form.get("aktion")
+        if aktion == "verwerfen":
+            session.pop(_ABGLEICH_KEY, None)
+            flash("Abgleich verworfen – nichts geändert.", "info")
+            return redirect(url_for("grades.index"))
+        if aktion == "ziel":
+            # Zuordnung der importierten Klassen ändern und neu vergleichen
+            for c, k in enumerate(stand["klassen"]):
+                wert = request.form.get(f"ziel_{c}", "")
+                k["ziel"] = int(wert) if wert.isdigit() and int(wert) < len(books) else (
+                    wert if wert in ("neu", "ignorieren") else k["ziel"])
+            ziele = [k["ziel"] for k in stand["klassen"] if isinstance(k["ziel"], int)]
+            if len(ziele) != len(set(ziele)):
+                flash("Eine offene Klasse kann nur mit einer importierten Klasse abgeglichen werden.", "warning")
+            session[_ABGLEICH_KEY] = stand
+            session.modified = True
+            return redirect(url_for("grades.abgleich_pruefen"))
+
+        # Übernehmen
+        ziele = [k["ziel"] for k in stand["klassen"] if isinstance(k["ziel"], int)]
+        if len(ziele) != len(set(ziele)):
+            flash("Eine offene Klasse kann nur mit einer importierten Klasse abgeglichen werden.", "danger")
+            return redirect(url_for("grades.abgleich_pruefen"))
+        meldungen = []
+        for c, k in enumerate(stand["klassen"]):
+            imp, ziel = k["import"], k["ziel"]
+            if ziel == "ignorieren":
+                continue
+            if ziel == "neu":
+                _sort_stammdaten(imp)
+                books.append(imp)
+                meldungen.append(f"{imp.get('klasse') or 'Klasse'}: als neue Klasse hinzugefügt")
+                continue
+            wahl = {}
+            for key, wert in request.form.items():
+                if key.startswith(f"w_{c}_") and wert in ("alt", "neu"):
+                    eid = request.form.get("id_" + key[2:])
+                    if eid:
+                        wahl[eid] = wert
+            neu_daten, zaehler = abgleich.anwenden(books[ziel], imp, wahl)
+            _sort_stammdaten(neu_daten)
+            books[ziel] = neu_daten
+            meldungen.append(
+                f"{neu_daten.get('klasse') or 'Klasse'}: {zaehler['auto']} ergänzt, "
+                f"{zaehler['neu']} aus der importierten Datei, {zaehler['alt']} aus dem aktuellen Stand"
+            )
+        session[GRADEBOOKS_KEY] = books
+        session.pop(_ABGLEICH_KEY, None)
+        session.modified = True
+        flash("Abgleich übernommen – " + "; ".join(meldungen) + ". Bitte danach exportieren.", "success")
+        return redirect(url_for("grades.index"))
+
+    klassen = []
+    for c, k in enumerate(stand["klassen"]):
+        imp, ziel = k["import"], k["ziel"]
+        eintrag = {"c": c, "import": imp, "ziel": ziel, "auto": [], "konflikte": [], "n_konflikte": 0}
+        if isinstance(ziel, int) and ziel < len(books):
+            ergebnis = abgleich.vergleiche(books[ziel], imp)
+            eintrag["auto"] = abgleich.gruppiert(ergebnis["auto"])
+            eintrag["n_auto"] = len(ergebnis["auto"])
+            # laufende Nummer je Konflikt für die Formularfelder
+            for n, e in enumerate(ergebnis["konflikte"]):
+                e["n"] = n
+            eintrag["konflikte"] = abgleich.gruppiert(ergebnis["konflikte"])
+            eintrag["n_konflikte"] = len(ergebnis["konflikte"])
+        klassen.append(eintrag)
+    return render_template("grades/abgleich.html", klassen=klassen, books=books, datei=stand.get("datei", ""))
 
 
 # ── Legacy-Import (Admin only) ────────────────────────────────────────────────
