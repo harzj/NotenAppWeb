@@ -369,6 +369,42 @@ elif name == "nachtermin":
     out["verwaist"] = sum(1 for ln in d["leistungsnachweise"]
                           if ln.get("nachtermin_von") == parent["sheet_name"])
 
+elif name == "nachruecken":
+    # Schüler, die in den Stammdaten stehen, aber im LN fehlen, nachträglich aufnehmen
+    app = _app()
+    c = app.test_client()
+    _login(c)
+    c.get("/demo-beispielklasse")
+
+    def book():
+        with c.session_transaction() as s:
+            return s["gradebooks"][s.get("active_gradebook_idx", 0)]
+
+    d = book()
+    idx = next(i for i, ln in enumerate(d["leistungsnachweise"])
+               if ln["ln_typ"] == "GLN" and not ln.get("nachtermin_von"))
+    # Neuer Schüler, der (wie bei Aufnahme ab später) nicht automatisch im LN landet
+    with c.session_transaction() as s:
+        b = s["gradebooks"][s.get("active_gradebook_idx", 0)]
+        b["stammdaten"].append({"nachname": "Neu", "vorname": "Nina", "status": "aktiv", "austritt": ""})
+    vorher = [s["name"] for s in book()["leistungsnachweise"][idx]["schueler"]]
+    r = c.get(f"/ln/{idx}")
+    seite = r.get_data(as_text=True)
+    out["status"] = r.status_code
+    out["kandidat_sichtbar"] = "Neu, Nina" in seite and 'id="nachrueckenModal"' in seite
+    # Bereits enthaltene Namen werden ignoriert
+    c.post(f"/ln/{idx}/schueler-nachruecken", data={"student": ["Neu, Nina", vorher[0]]})
+    ln = book()["leistungsnachweise"][idx]
+    namen = [s["name"] for s in ln["schueler"]]
+    out["neu_drin"] = "Neu, Nina" in namen
+    out["anzahl_diff"] = len(namen) - len(vorher)
+    row = next(s for s in ln["schueler"] if s["name"] == "Neu, Nina")
+    out["punkte_laenge_ok"] = len(row["punkte"]) == len(ln["aufgaben"])
+    out["alte_noten_erhalten"] = all(
+        any(s2["name"] == s1["name"] and s2.get("note_15") == s1.get("note_15") for s2 in ln["schueler"])
+        for s1 in d["leistungsnachweise"][idx]["schueler"])
+    out["danach_kein_kandidat"] = 'id="nachrueckenModal"' not in c.get(f"/ln/{idx}").get_data(as_text=True)
+
 elif name == "session":
     # Unveränderte Session wird nicht zurückgeschrieben (sonst überschreibt ein
     # paralleler Seitenaufruf gerade gespeicherte Noten)

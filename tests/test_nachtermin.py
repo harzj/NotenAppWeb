@@ -98,6 +98,16 @@ class AppSzenarienTest(unittest.TestCase):
         self.assertEqual(out["nach_nt_loeschen"], 1)
         self.assertEqual(out["verwaist"], 0)
 
+    def test_schueler_nachruecken(self):
+        out = self._run("nachruecken")
+        self.assertEqual(out["status"], 200)
+        self.assertTrue(out["kandidat_sichtbar"])
+        self.assertTrue(out["neu_drin"])
+        self.assertEqual(out["anzahl_diff"], 1)
+        self.assertTrue(out["punkte_laenge_ok"])
+        self.assertTrue(out["alte_noten_erhalten"])
+        self.assertTrue(out["danach_kein_kandidat"])
+
     def test_session_nur_bei_aenderung_schreiben(self):
         out = self._run("session")
         self.assertEqual(out["writes_lesend"], 0)

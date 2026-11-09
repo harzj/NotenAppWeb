@@ -76,6 +76,11 @@
       <i class="bi bi-calendar2-plus me-1"></i>{{ 'Weiteren Nachtermin' if nachtermine else 'Nachtermin' }} anlegen
     </button>
     {% endif %}
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+            data-bs-target="#nachrueckenModal"
+            {% if not nachrueck_kandidaten %}disabled title="Alle Schüler aus den Stammdaten sind bereits in der Liste"{% endif %}>
+      <i class="bi bi-person-plus me-1"></i>Schüler nachrücken
+    </button>
   </div>
 </div>
 
@@ -440,6 +445,49 @@
   </div>
 </div>
 
+{% if nachrueck_kandidaten %}
+<!-- ── Schüler nachrücken ─────────────────────────────────────────────── -->
+<div class="modal fade" id="nachrueckenModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('grades.ln_schueler_nachruecken', ln_idx=ln_idx) }}" id="nachrueckenForm">
+        {{ csrf_field() }}
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Schüler nachrücken</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2">
+            Diese Schüler stehen in den Stammdaten, aber nicht in der Liste dieses Leistungsnachweises.
+            Ausgewählte Schüler werden mit leeren Punkten ergänzt; bereits eingetragene Punkte bleiben erhalten.
+          </p>
+          <div class="mb-2 d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.nr-kandidat').forEach(c => c.checked = true)">Alle</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.nr-kandidat').forEach(c => c.checked = false)">Keine</button>
+          </div>
+          <div class="border rounded p-2">
+            {% for k in nachrueck_kandidaten %}
+            <div class="form-check">
+              <input class="form-check-input nr-kandidat" type="checkbox" name="student"
+                     value="{{ k.name }}" id="nrk_{{ loop.index }}" {% if not k.hinweis %}checked{% endif %}>
+              <label class="form-check-label" for="nrk_{{ loop.index }}">
+                {{ k.name }}
+                {% if k.hinweis %}<span class="badge bg-secondary ms-1" style="font-size:.7rem">{{ k.hinweis }}</span>{% endif %}
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Hinzufügen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if ln.ln_typ != 'ABT' and nt_kandidaten %}
 <!-- ── Nachtermin anlegen ─────────────────────────────────────────────── -->
 <div class="modal fade" id="ntAnlegenModal" tabindex="-1">
@@ -727,11 +775,13 @@ document.querySelectorAll('a[href*="/export/"], a[href*="/pdf/"]').forEach(link 
 });
 
 // ── Save pending points before creating a Nachtermin (avoids concurrent requests) ──
-document.getElementById('ntAnlegenForm')?.addEventListener('submit', async e => {
-  if (!_dirty) return;
-  e.preventDefault();
-  await _doSave(true);
-  e.target.submit();
+['ntAnlegenForm', 'nachrueckenForm'].forEach(id => {
+  document.getElementById(id)?.addEventListener('submit', async e => {
+    if (!_dirty) return;
+    e.preventDefault();
+    await _doSave(true);
+    e.target.submit();
+  });
 });
 
 // ── Autosave every 15 seconds ─────────────────────────────────────────────────

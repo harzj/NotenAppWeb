@@ -1410,6 +1410,43 @@ def _sync_active_students_into_lns(data: dict) -> int:
     return added_rows
 
 
+def _ln_student_row(ln: dict, full_name: str) -> dict:
+    """Return an empty roster row for *full_name* in *ln*."""
+    entry = {
+        "name": full_name,
+        "punkte": [None] * len(ln.get("aufgaben", [])),
+        "note_15": None,
+        "note_6": None,
+        "ignoriert": False,
+    }
+    if ln.get("ln_typ") == S.LN_TYP_ABT:
+        entry["kuerzel"] = ""
+        entry["abt_grenzfall_bestaetigt"] = False
+    return entry
+
+
+def _ln_nachrueck_kandidaten(data: dict, ln: dict) -> list[dict]:
+    """Students from the Stammdaten who are missing in the roster of *ln*.
+
+    Each entry: {name, hinweis} – hinweis explains why the student was not added
+    automatically (e.g. ausgeschieden, erst später aufgenommen), else "".
+    """
+    existing = {s.get("name", "").strip() for s in ln.get("schueler", [])}
+    target_hj = _ln_target_hj(ln)
+    result = []
+    for s in data.get("stammdaten", []):
+        full_name = f"{s.get('nachname', '')}, {s.get('vorname', '')}".strip(", ")
+        if not full_name or full_name in existing:
+            continue
+        hinweis = ""
+        if _student_is_ausgeschieden(s):
+            hinweis = "ausgeschieden"
+        elif target_hj and not berechnung.student_active_in_hj(s, target_hj):
+            hinweis = f"erst ab {s.get('aufnahme_ab_hj')}"
+        result.append({"name": full_name, "hinweis": hinweis})
+    return result
+
+
 @grades_bp.route("/stammdaten/import-excel", methods=["POST"])
 @login_required
 def stammdaten_import_excel():
@@ -1819,11 +1856,42 @@ def ln_detail(ln_idx):
     return render_template("grades/ln_detail.html", ln=ln, ln_idx=ln_idx,
                            nachtermine=nachtermine, nt_info=nt_info,
                            nt_kandidaten=_nt_kandidaten(data, ln),
+                           nachrueck_kandidaten=_ln_nachrueck_kandidaten(data, ln),
                            afb_values=S.AFB_VALUES,
                            grade_scale=S.GRADE_SCALE,
                            note15_to6=S.NOTE_15_TO_6,
                            rot_schwelle=_rot_schwelle(data),
                            abt_hj_schnitt=abt_hj_schnitt)
+
+
+@grades_bp.route("/ln/<int:ln_idx>/schueler-nachruecken", methods=["POST"])
+@login_required
+def ln_schueler_nachruecken(ln_idx):
+    """Add selected Stammdaten students who are missing in the LN roster."""
+    data = _require_gradebook()
+    if ln_idx >= len(data["leistungsnachweise"]):
+        abort(404)
+    ln = data["leistungsnachweise"][ln_idx]
+    if ln.get("nachtermin_von"):
+        abort(400)
+
+    erlaubt = {k["name"] for k in _ln_nachrueck_kandidaten(data, ln)}
+    gewaehlt = [n for n in request.form.getlist("student") if n in erlaubt]
+    if not gewaehlt:
+        flash("Bitte mindestens eine Schülerin / einen Schüler auswählen.", "warning")
+        return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
+
+    roster = ln.setdefault("schueler", [])
+    for name in gewaehlt:
+        roster.append(_ln_student_row(ln, name))
+    # Keep the roster in Stammdaten order (students not in the Stammdaten stay at the end)
+    order = {f"{s.get('nachname', '')}, {s.get('vorname', '')}".strip(", "): i
+             for i, s in enumerate(data.get("stammdaten", []))}
+    roster.sort(key=lambda r: order.get(r.get("name", "").strip(), len(order)))
+
+    _save_gradebook(data)
+    flash(f"{len(gewaehlt)} Schüler zum Leistungsnachweis hinzugefügt.", "success")
+    return redirect(url_for("grades.ln_detail", ln_idx=ln_idx))
 
 
 @grades_bp.route("/ln/<int:ln_idx>/aufgaben", methods=["POST"])
